@@ -1,0 +1,19 @@
+# Phase 1 — Python 알고리즘 실험 의존성
+# 표준 라이브러리(heapq, dataclasses)는 별도 표기하지 않음.
+
+# 핵심 수치 / 자료구조
+numpy>=1.26
+
+# 시각화 — 즉석 3D 렌더
+pyvista>=0.43
+plotly>=5.18
+matplotlib>=3.8
+
+# 핫스팟 가속 (선택)
+numba>=0.59
+
+# 테스트 / 회귀
+pytest>=8.0
+
+# 개발 편의
+ipykernel>=6.29
