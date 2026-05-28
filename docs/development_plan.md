@@ -42,7 +42,8 @@
 | Phase 1 세부 개발계획서 | [phase1_plan.md](phase1_plan.md) |
 | Python 알고리즘 실험 (Phase 1) | **완료 (2026-05-28, DoD 5/5, pytest 203)** |
 | Phase 2 인터페이스 동결 | **명세 작성 완료** ([phase2_plan.md](phase2_plan.md), spec 4종 + sign-off 대기) |
-| C++ 엔진 (Phase 3) | 미착수 — 다음 단계 |
+| Phase 3 세부 개발계획서 | **작성 완료** ([phase3_plan.md](phase3_plan.md)) |
+| C++ 엔진 (Phase 3) | 미착수 — 빌드 환경 확정 후 Step 3.1 착수 |
 
 좌표·치수는 **밀리미터(mm)** 단위, 기본 셀 크기는 50mm 로 통일한다 (Phase 1 세부 계획 참조).
 
