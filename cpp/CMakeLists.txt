@@ -27,6 +27,8 @@ add_library(routing3d_core STATIC
     src/occupancy.cpp
     src/cost.cpp
     src/astar.cpp
+    src/multi_route.cpp
+    src/scene_io.cpp
 )
 target_include_directories(routing3d_core PUBLIC include)
 
@@ -38,3 +40,10 @@ enable_testing()
 add_executable(test_golden tests/test_golden.cpp)
 target_link_libraries(test_golden PRIVATE routing3d_core)
 add_test(NAME golden COMMAND test_golden)
+
+# scene.txt I/O 교차검증(Python 픽스처를 읽어 바이트 동일 재출력). 픽스처 경로를 매크로로 전달.
+add_executable(test_scene_io tests/test_scene_io.cpp)
+target_link_libraries(test_scene_io PRIVATE routing3d_core)
+target_compile_definitions(test_scene_io PRIVATE
+    SCENE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+add_test(NAME scene_io COMMAND test_scene_io)

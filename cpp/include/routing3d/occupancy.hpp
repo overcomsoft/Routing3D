@@ -31,6 +31,10 @@ public:
     void block_cell(const Cell& c);          // in_bounds 일 때만 점유
     int add_box(const AABB& box);            // 복셀화, 신규 점유 셀 수 반환
 
+    // 깊은 사본(장애물 + 점유 그대로 복사). 다중 배관 라우팅의 '작업용 사본'에 사용.
+    // (명세 §5: work = occ.copy() — 원본 보존). 기본 복사 생성자와 동일하나 의도를 드러낸다.
+    DenseOccupancy copy() const { return *this; }
+
     // ---- 메타/통계 ----
     long long count_blocked() const;
     Cell shape() const { return shape_; }

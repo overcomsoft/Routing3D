@@ -1,0 +1,2 @@
+# scene.txt 교차검증 픽스처는 LF 고정·줄끝 변환 금지(바이트 단위 왕복 검증을 위해).
+cpp/tests/fixtures/*.scene.txt -text

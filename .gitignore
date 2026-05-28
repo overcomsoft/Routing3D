@@ -50,3 +50,6 @@ output/
 scene_*.txt
 benchmark_results/
 *.log
+
+# 단, scene.txt I/O 교차검증 골든 픽스처는 추적한다(생성물 무시 규칙의 예외).
+!cpp/tests/fixtures/*.scene.txt

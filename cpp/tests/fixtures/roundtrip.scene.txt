@@ -1,0 +1,53 @@
+# Routing3D scene file — units: mm
+@format routing3d-scene
+@version 1
+
+[grid]
+cell_mm	50.0
+origin	0.0	0.0	0.0
+shape	120	120	60
+
+[params]
+cell_mm	50.0
+w_turn	500.0
+w_clear	10.0
+clearance_radius	2
+clearance_connectivity	6
+w_tier	1:200.0	3:50.5
+
+[obstacles]	count=4
+# minx	miny	minz	maxx	maxy	maxz	ost_type	name	object_id	ddworks_type
+0.0	0.0	0.0	6000.0	6000.0	250.0	OST_Floors	Floor // slab 1	G1	\N
+1900.0	0.0	0.0	2150.5	2250.0	4000.0	OST_Columns		\N	FLOOR_ARCHITECTURE
+0.1	0.0001	1e-05	1e+16	1000000000000000.0	3.141592653589793	\N	한글 이름 / unicode		\N
+-0.0	-2150.5	2.5e-10	100000.0	1234.5	9999999999999998.0	OST_Walls	neg coords	neg	\N
+
+[tasks]	count=2
+# sx	sy	sz	gx	gy	gz	utility	utility_group	start_name	end_name	end_instance_guid
+275.0	3025.0	1525.0	5725.0	3025.0	1525.0	PA	Gas	POC 1	\N	IG1
+25.5	275.25	75.125	475.0	275.0	75.0	\N			end // x	\N
+
+[results]	count=2
+[result]	task=0
+success	1
+length_mm	450.0
+cost_mm	470.5
+turns	2
+expanded_nodes	1234
+elapsed_ms	0.123
+[path]	task=0	count=3
+0	5	1
+1	5	1
+2	5	1
+[visited]	task=0	count=3
+0	5	1
+0	6	1
+1	5	1
+[result]	task=1
+success	0
+length_mm	0.0
+cost_mm	0.0
+turns	0
+expanded_nodes	42
+elapsed_ms	0.05
+

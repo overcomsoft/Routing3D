@@ -196,5 +196,7 @@ cpp/
 - ✅ **Step 3.2 코어**: `geometry.hpp`(Cell/Vec3/AABB/NEIGHBORS_6), `DenseOccupancy`(좌표변환/add_box/lin·unlin).
 - ✅ **Step 3.3 A*(균일)** + ✅ **Step 3.4 비용함수 A*(weighted, 상태=(셀,방향))**: `astar.cpp`, `cost.cpp`(clearance BFS/CostModel). std::priority_queue 로 (f,counter) tie-break.
 - ✅ **골든 01/02 재현 (의존성 없이)**: `tests/test_golden.exe` ALL PASS. **expanded_nodes 까지 Python 과 정확히 일치**(01: 22,856 / 02: 9,036) → 결정성 모드 교차검증 성립.
+- ✅ **Step 3.5 다중 배관 순차** (`multi_route.hpp/.cpp`): `route_sequential`/`order_tasks`(안정 정렬=Python sorted)/`mark_pipe`/`snap_to_free_cell`. `DenseOccupancy::copy()` 추가(계약 M2 원본 불변). 골든03 재현 — **5/5 성공, 충돌 0(M1), total_length 28,050 mm** Python 과 정확히 일치(`scenario_runner.py` 교차검증). `test_golden.exe` ALL PASS(3종).
+- ✅ **Step 3.9 scene.txt I/O** (`scene_io.hpp/.cpp`, `route_task.hpp`): v1 규격 파서/라이터(`dumps_scene`/`loads_scene`/`read_scene`/`write_scene`/`occupancy_from_doc`). RouteTask 를 `route_task.hpp` 로 분리·**optional 필드**로 None/"" 구분(F3). **`format_repr_double`** = Python `repr(float)` 와 동일 최단 왕복 표기(`std::to_chars` scientific → Python 고정/지수 임계값 재포맷, F4). Python 생성 픽스처(`cpp/tests/fixtures/roundtrip.scene.txt`, 까다로운 실수·유니코드·\N/"" 망라)를 **읽고 바이트 동일 재출력**(F2) + self round-trip 검증 — `test_scene_io.exe` ALL PASS. `.gitattributes`(픽스처 LF 고정) + `.gitignore` 예외(`*.scene.txt` 무시에서 픽스처 제외).
 
-> **다음 즉시 실행 항목** = Step 3.5 다중 배관 순차(multi_route, 골든03) → Step 3.9 scene.txt I/O → Step 3.10 pybind11. 무거운 의존성(OpenVDB/FCL, Step 3.6~3.7)은 vcpkg 빌드 PoC 후 도입.
+> **다음 즉시 실행 항목** = Step 3.10 pybind11(엔진을 Python 모듈로 노출). 무거운 의존성(OpenVDB/FCL, Step 3.6~3.7)은 vcpkg 빌드 PoC 후 도입.
