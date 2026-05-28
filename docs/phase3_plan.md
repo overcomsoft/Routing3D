@@ -189,4 +189,12 @@ cpp/
 | C9 | 3.7 FCL / 3.8 rip-up·CBS | C5,C7 | 품질 향상 |
 | C10 | 3.12 회귀 리포트 | 전체 | DoD 확정 |
 
-> **다음 즉시 실행 항목** = Step 3.1 (빌드 환경 확정 + 스캐폴드 + OpenVDB/FCL vcpkg 빌드 PoC). 환경 확정(컴파일러·CMake·vcpkg) 입력 대기.
+## 10. 진행 현황 (2026-05-28)
+
+- **빌드 환경 확정**: MSVC(VS2022 Pro 17.14, C++20) + CMake 4.1 + VS 생성기. (vcpkg/Ninja 는 무거운 의존성 도입 시점에 추가)
+- ✅ **Step 3.1 스캐폴드**: `cpp/` (CMakeLists, include/src/tests). `/utf-8` 강제(한글 주석 CP949 오인 방지).
+- ✅ **Step 3.2 코어**: `geometry.hpp`(Cell/Vec3/AABB/NEIGHBORS_6), `DenseOccupancy`(좌표변환/add_box/lin·unlin).
+- ✅ **Step 3.3 A*(균일)** + ✅ **Step 3.4 비용함수 A*(weighted, 상태=(셀,방향))**: `astar.cpp`, `cost.cpp`(clearance BFS/CostModel). std::priority_queue 로 (f,counter) tie-break.
+- ✅ **골든 01/02 재현 (의존성 없이)**: `tests/test_golden.exe` ALL PASS. **expanded_nodes 까지 Python 과 정확히 일치**(01: 22,856 / 02: 9,036) → 결정성 모드 교차검증 성립.
+
+> **다음 즉시 실행 항목** = Step 3.5 다중 배관 순차(multi_route, 골든03) → Step 3.9 scene.txt I/O → Step 3.10 pybind11. 무거운 의존성(OpenVDB/FCL, Step 3.6~3.7)은 vcpkg 빌드 PoC 후 도입.
