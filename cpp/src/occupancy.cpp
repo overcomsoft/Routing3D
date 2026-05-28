@@ -16,7 +16,7 @@ DenseOccupancy::DenseOccupancy(Cell shape, Vec3 origin, double cell_mm)
 }
 
 bool DenseOccupancy::in_bounds(const Cell& c) const {
-    return c.i >= 0 && c.i < shape_.i && c.j >= 0 && c.j < shape_.j && c.k >= 0 && c.k < shape_.k;
+    return grid_in_bounds(c, shape_);
 }
 
 bool DenseOccupancy::is_blocked(const Cell& c) const {
@@ -29,32 +29,20 @@ void DenseOccupancy::block_cell(const Cell& c) {
 }
 
 Vec3 DenseOccupancy::to_world(const Cell& c) const {
-    return Vec3{origin_.x + (c.i + 0.5) * cell_,
-               origin_.y + (c.j + 0.5) * cell_,
-               origin_.z + (c.k + 0.5) * cell_};
+    return grid_cell_to_world(c, origin_, cell_);
 }
 
 Cell DenseOccupancy::to_cell(const Vec3& w) const {
-    return Cell{static_cast<int>(std::floor((w.x - origin_.x) / cell_)),
-                static_cast<int>(std::floor((w.y - origin_.y) / cell_)),
-                static_cast<int>(std::floor((w.z - origin_.z) / cell_))};
+    return grid_world_to_cell(w, origin_, cell_);
 }
 
 int DenseOccupancy::add_box(const AABB& box) {
-    // 월드 → 셀 범위 (시작=floor, 끝=ceil 제외경계), 격자로 클리핑.
-    auto fl = [&](double w, double o) { return static_cast<int>(std::floor((w - o) / cell_)); };
-    auto cl = [&](double w, double o) { return static_cast<int>(std::ceil((w - o) / cell_)); };
-    int lo_i = std::max(fl(box.lo.x, origin_.x), 0);
-    int lo_j = std::max(fl(box.lo.y, origin_.y), 0);
-    int lo_k = std::max(fl(box.lo.z, origin_.z), 0);
-    int hi_i = std::min(cl(box.hi.x, origin_.x), shape_.i);
-    int hi_j = std::min(cl(box.hi.y, origin_.y), shape_.j);
-    int hi_k = std::min(cl(box.hi.z, origin_.z), shape_.k);
-    if (lo_i >= hi_i || lo_j >= hi_j || lo_k >= hi_k) return 0;
+    const CellRange r = grid_box_range(box, origin_, cell_, shape_);
+    if (r.empty()) return 0;
     int newly = 0;
-    for (int k = lo_k; k < hi_k; ++k)
-        for (int j = lo_j; j < hi_j; ++j)
-            for (int i = lo_i; i < hi_i; ++i) {
+    for (int k = r.lo.k; k < r.hi.k; ++k)
+        for (int j = r.lo.j; j < r.hi.j; ++j)
+            for (int i = r.lo.i; i < r.hi.i; ++i) {
                 size_t idx = static_cast<size_t>(lin(Cell{i, j, k}));
                 if (grid_[idx] == 0) { grid_[idx] = 1; ++newly; }
             }

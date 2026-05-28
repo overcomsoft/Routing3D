@@ -25,6 +25,7 @@ endif()
 
 add_library(routing3d_core STATIC
     src/occupancy.cpp
+    src/sparse_occupancy.cpp
     src/cost.cpp
     src/astar.cpp
     src/multi_route.cpp
@@ -47,6 +48,11 @@ target_link_libraries(test_scene_io PRIVATE routing3d_core)
 target_compile_definitions(test_scene_io PRIVATE
     SCENE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 add_test(NAME scene_io COMMAND test_scene_io)
+
+# 점유맵 백엔드(Dense vs Sparse) O1 동등성 + 8,000m 메모리 검증.
+add_executable(test_occupancy tests/test_occupancy.cpp)
+target_link_libraries(test_occupancy PRIVATE routing3d_core)
+add_test(NAME occupancy COMMAND test_occupancy)
 
 # pybind11 모듈(routing3d_cpp) — 기본 OFF. 활성화 시 .venv 의 pybind11/Python 필요.
 #   cmake ... -DBUILD_PYTHON_BINDINGS=ON -Dpybind11_DIR=<pybind11.get_cmake_dir()> \
