@@ -1,0 +1,20 @@
+{
+  "name": "03_multi_tier",
+  "description": "다중 배관(5개) / 단 분리 — 같은 통로(y=60, z=30)를 지나려는 5개 배관을 순차 라우팅. 충돌 없이(깔린 경로를 점유로 추가) 모두 성공해야 하며 성공 경로끼리 셀 공유가 0이어야 한다. 바닥 슬래브(z 0~4셀) 장애물 포함.",
+  "cell_mm": 50.0,
+  "origin": [0.0, 0.0, 0.0],
+  "shape": [120, 120, 60],
+  "obstacles": [
+    {"min": [0.0, 0.0, 0.0], "max": [6000.0, 6000.0, 250.0], "ost_type": "OST_Floors"}
+  ],
+  "params": {"cell_mm": 50.0, "w_turn": 500.0, "w_clear": 10.0, "clearance_radius": 2, "clearance_connectivity": 6},
+  "mode": "multi",
+  "priority": "longest",
+  "tasks": [
+    {"start": [275.0, 3025.0, 1525.0], "end": [5725.0, 3025.0, 1525.0], "utility": "UPW_S", "group": "UPW"},
+    {"start": [275.0, 3025.0, 1525.0], "end": [5725.0, 3025.0, 1525.0], "utility": "NFW", "group": "Waste Liquid"},
+    {"start": [275.0, 3025.0, 1525.0], "end": [5725.0, 3025.0, 1525.0], "utility": "PA", "group": "Gas"},
+    {"start": [275.0, 3025.0, 1525.0], "end": [5725.0, 3025.0, 1525.0], "utility": "NW", "group": "Water"},
+    {"start": [275.0, 3025.0, 1525.0], "end": [5725.0, 3025.0, 1525.0], "utility": "ACID", "group": "Exhaust"}
+  ]
+}

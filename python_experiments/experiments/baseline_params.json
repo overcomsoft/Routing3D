@@ -1,0 +1,20 @@
+{
+  "name": "phase1-baseline-v1",
+  "description": "Phase 1 베이스라인 RouteParams 1셋. 대표 시나리오 3종(01_single_empty / 02_single_obstacle / 03_multi_tier)을 모두 통과하는 값으로 확정. 단위 mm, 셀 50mm.",
+  "confirmed_on": "2026-05-28",
+  "validated_scenarios": ["01_single_empty", "02_single_obstacle", "03_multi_tier"],
+  "params": {
+    "cell_mm": 50.0,
+    "w_turn": 500.0,
+    "w_clear": 10.0,
+    "clearance_radius": 2,
+    "clearance_connectivity": 6,
+    "w_tier": {}
+  },
+  "rationale": {
+    "w_turn": "회전 1회 = 셀 10칸(500mm) 상당. 빈 공간에서 직선 우선(회전 최소), 우회는 필요한 만큼만.",
+    "w_clear": "장애물 1셀 근접당 +10mm 가산(보너스 아님 → 휴리스틱 admissibility 보존).",
+    "clearance_radius": "2셀(100mm)까지 근접 페널티 적용.",
+    "w_tier": "기본 단 분리 없음. 특정 단 강제 시 {z셀: mm} 로 지정."
+  }
+}

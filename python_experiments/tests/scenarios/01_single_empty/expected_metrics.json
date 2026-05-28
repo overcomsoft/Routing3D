@@ -1,0 +1,10 @@
+{
+  "description": "빈 공간: 길이=맨해튼(2850mm), 회전 2회, 경로가 장애물 통과 0. expanded 는 회귀 상한.",
+  "checks": {
+    "success": true,
+    "length_mm": 2850.0,
+    "turns": 2,
+    "path_hits_obstacle": 0,
+    "expanded_nodes_max": 30000
+  }
+}

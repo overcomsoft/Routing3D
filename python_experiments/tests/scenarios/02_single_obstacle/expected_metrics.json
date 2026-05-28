@@ -1,0 +1,11 @@
+{
+  "description": "장애물 우회: 길이 3950mm(맨해튼 3450mm 대비 1.145배, ±20% 이내), 경로가 장애물 통과 0.",
+  "checks": {
+    "success": true,
+    "length_mm": 3950.0,
+    "turns": 2,
+    "path_hits_obstacle": 0,
+    "detour_ratio_max": 1.2,
+    "expanded_nodes_max": 12000
+  }
+}

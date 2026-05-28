@@ -15,9 +15,9 @@ python_experiments/
 │   ├── occupancy.py       # Step 1.1 — 점유맵 (구현 완료)
 │   ├── obstacle_db.py     # 장애물 DB 로더 (PostgreSQL TB_BIM_OBSTACLES, 구현 완료)
 │   ├── astar.py           # Step 1.2 — 직교 A* (구현 완료)
-│   ├── cost.py            # Step 1.3 — 비용함수 (예정)
-│   ├── multi_route.py     # Step 1.4 — 다중 배관 (예정)
-│   ├── scene_io.py        # Step 1.5 — scene.txt I/O (예정)
+│   ├── cost.py            # Step 1.3 — 비용함수 (구현 완료)
+│   ├── multi_route.py     # Step 1.4 — 다중 배관 순차 라우팅 (구현 완료)
+│   ├── scene_io.py        # Step 1.5 — scene.txt I/O 규약 (구현 완료)
 │   └── viz.py             # 3D 점유맵 시각화 (PyVista, 구현 완료)
 └── tests/                 # 회귀 테스트 (pytest)
 ```
@@ -172,6 +172,50 @@ print(mr.summary())                          # 성공/실패/총길이/성공률
 for util, pipes in mr.by_utility().items():  # 유틸리티별 결과
     ...
 ```
+
+## 씬 입출력 — scene.txt 규약 (Step 1.5)
+
+라우팅 씬(입력: 장애물·작업)과 탐색 결과(출력: 경로·방문·지표)를 텍스트 파일 하나로
+직렬화한다. **Phase 2 명세화·Phase 3 C++ 엔진이 공유할 입출력 계약(포맷 v1)**이다.
+섹션 헤더 + TAB 구분 행, 단위 mm, 실수는 `repr` 로 정확 보존, None 은 `\N`(빈 문자열과 구분)
+→ **write→read→write 바이트 무손실**. 점유(`[obstacles]`)·경로(`[path]`)·방문(`[visited]`) 3개 레이어.
+
+```powershell
+# DB 프로젝트 씬을 scene.txt 로 내보내기(다중 배관 결과 포함)
+..\.venv\Scripts\python.exe -m routing3d_py.scene_io `
+    --project 6 --cell-mm 100 --multi --out out/project6.scene.txt
+
+# scene.txt 읽어 요약 + write→read→write 무손실 자기검증
+..\.venv\Scripts\python.exe -m routing3d_py.scene_io --in out/project6.scene.txt --roundtrip
+```
+
+```python
+from routing3d_py import read_scene, write_scene, occupancy_from_doc, SceneDoc
+doc = read_scene("out/project6.scene.txt")    # SceneDoc(grid/params/obstacles/tasks/results)
+occ = occupancy_from_doc(doc)                  # 점유 레이어(장애물) 재구성 → A* 입력
+print(doc.summary())
+write_scene("out/copy.scene.txt", doc)         # 무손실 재저장
+```
+
+## 회귀 시나리오 + 베이스라인 (Step 1.7)
+
+대표 시나리오 3종을 `input.json` + `expected_metrics.json`(허용 범위) 으로 고정한다. A* 가
+결정적(같은 입력 → 같은 경로)이므로 길이·회전·확장노드·총길이를 기준값으로 회귀 검출한다.
+
+```powershell
+# 회귀 시나리오 테스트
+..\.venv\Scripts\python.exe -m pytest tests/test_scenarios.py -v
+```
+
+- `01_single_empty` — 빈 공간 직선 = 맨해튼 거리(2850mm).
+- `02_single_obstacle` — 장애물 우회 길이가 직선의 ±20% 이내(1.145배), 장애물 비통과.
+- `03_multi_tier` — 다중 배관 5개 모두 성공 + 충돌(셀 공유) 0.
+
+베이스라인 파라미터: `experiments/baseline_params.json` (cell 50 / w_turn 500 / w_clear 10 /
+clearance 2). 3종 시나리오를 모두 통과하는 1셋으로 확정.
+
+> **Step 1.6(Numba)**: 프로파일 결과 시간의 ~100%가 A* 루프(순수 파이썬 오버헤드)지만,
+> Numba 적용은 단순 레퍼런스를 평면배열 A* 로 포크해야 해 **미채택** — 실가속은 Phase 3 C++.
 
 ## 산출물 목표
 

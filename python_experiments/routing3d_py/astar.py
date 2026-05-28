@@ -402,6 +402,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--screenshot", default=None, help="경로+점유맵 PNG 경로")
     parser.add_argument("--html", default=None, help="경로+점유맵 인터랙티브 HTML 경로")
     parser.add_argument("--show", action="store_true", help="인터랙티브 창 표시")
+    parser.add_argument("--visited", action="store_true",
+                        help="A* 가 확장한 방문 셀을 반투명 레이어로 함께 렌더")
     parser.add_argument("--dbname", default=None, help="DB 이름 덮어쓰기")
     args = parser.parse_args(argv)
 
@@ -430,9 +432,10 @@ def _main(argv: list[str] | None = None) -> int:
             w_clear=args.w_clear, clearance_radius=args.clearance,
         )
         print(f"비용함수: w_turn={args.w_turn} w_clear={args.w_clear} clearance={args.clearance}")
-        result = astar_weighted(occ, start_cell, goal_cell, params)
+        result = astar_weighted(occ, start_cell, goal_cell, params,
+                                collect_visited=args.visited)
     else:
-        result = astar(occ, start_cell, goal_cell)
+        result = astar(occ, start_cell, goal_cell, collect_visited=args.visited)
     print(result.summary())
 
     if (args.screenshot or args.html or args.show) and result.success:
@@ -441,6 +444,7 @@ def _main(argv: list[str] | None = None) -> int:
             {"obstacles": occ},
             opacity=0.25,
             path=result.path,
+            visited=result.visited if args.visited else None,
             show=args.show,
             screenshot=args.screenshot,
             html=args.html,

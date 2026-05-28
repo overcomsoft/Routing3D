@@ -1,0 +1,15 @@
+{
+  "name": "02_single_obstacle",
+  "description": "단일 배관 / 장애물 우회 — x=38~42 셀에 전(全)높이 벽(y 0~44 셀)이 직선 통로를 막아 y 45셀 이상으로 우회. 우회 후 길이가 직선(맨해튼)의 ±20% 이내여야 한다. 경로는 장애물 셀을 통과하지 않는다.",
+  "cell_mm": 50.0,
+  "origin": [0.0, 0.0, 0.0],
+  "shape": [80, 80, 80],
+  "obstacles": [
+    {"min": [1900.0, 0.0, 0.0], "max": [2150.0, 2250.0, 4000.0], "ost_type": "OST_Walls"}
+  ],
+  "params": {"cell_mm": 50.0, "w_turn": 500.0, "w_clear": 10.0, "clearance_radius": 2, "clearance_connectivity": 6},
+  "mode": "single",
+  "tasks": [
+    {"start": [275.0, 2025.0, 2025.0], "end": [3725.0, 2025.0, 2025.0], "utility": "NW", "group": "Water"}
+  ]
+}

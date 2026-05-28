@@ -19,9 +19,8 @@
   cost        : Step 1.3 비용함수 — RouteParams / clearance_map / CostModel (구현 완료)
   scene       : SpaceAI 프로젝트 라우팅 씬 로더 (project→장애물/메인장비/종단/PoC페어/유틸)
   multi_route : Step 1.4 다중 배관 순차 라우팅 (충돌 없이, 우선순위 + 깔린 경로 점유)
-  multi_route : Step 1.4 다중 배관 전략 (예정)
-  scene_io    : Step 1.5 scene.txt 입출력 (예정)
-  viz         : Step 1.5 PyVista/Plotly 시각화 (예정)
+  scene_io    : Step 1.5 scene.txt 입출력 규약 (write/read 무손실 + 점유 재구성, 구현 완료)
+  viz         : 3D 점유맵/경로 시각화 (PyVista, 구현 완료)
 ================================================================================
 """
 
@@ -54,6 +53,15 @@ from .scene import (
     route_tasks,
     scene_polylines,
     utility_colors,
+)
+from .scene_io import (
+    SceneDoc,
+    doc_from_scene,
+    dumps_scene,
+    loads_scene,
+    occupancy_from_doc,
+    read_scene,
+    write_scene,
 )
 from .occupancy import (
     AABB,
@@ -120,4 +128,12 @@ __all__ = [
     "order_tasks",
     "MultiRouteResult",
     "PipeResult",
+    # Step 1.5 scene.txt 입출력
+    "SceneDoc",
+    "write_scene",
+    "read_scene",
+    "dumps_scene",
+    "loads_scene",
+    "occupancy_from_doc",
+    "doc_from_scene",
 ]

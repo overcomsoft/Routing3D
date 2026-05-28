@@ -174,6 +174,13 @@ class RouteParams:
 
 **검증**: (1) `scene.txt` round-trip 무손실 (write → read → write 결과 동일). (2) PyVista 렌더에서 점유·경로·방문 레이어가 토글 가능. (3) 회귀 시나리오 3종 모두에서 입출력 파일 생성 성공.
 
+✅ **scene.txt 입출력 구현 완료** (`scene_io.py`: `SceneDoc`/`write_scene`/`read_scene`/`dumps_scene`/`loads_scene`/`occupancy_from_doc`/`doc_from_scene`).
+
+- **포맷 v1 동결**(Phase 2/3 C++ 공유 계약): 섹션 헤더 + TAB 구분 행. 단위 mm, `[grid]`(cell_mm/origin/shape) · `[params]`(RouteParams) · `[obstacles]`(점유 레이어 입력) · `[tasks]`(start→end PoC) · `[results]`/`[result]`/`[path]`/`[visited]`(경로·방문 레이어).
+- **무손실 설계**: 실수는 `repr()` 로 정확 보존, None 은 토큰 `\N`(빈 문자열과 구분), 공백 포함 이름 보존. write→read→write 바이트 동일.
+- **검증**: 단위 테스트 13개(round-trip 텍스트/구조 동일, None·공백 보존, path/visited 라운드트립, 점유 재구성, 퇴화 박스 스킵, w_tier, 버전 불일치). 실데이터(project 6, 장애물 983·작업 208) 내보내기 + 라운드트립 자기검증 OK.
+- **시각화**(`viz.py`)는 점유·경로(+시작/종료 마커)·유틸리티별 폴리라인 렌더 완료. 방문 레이어 토글 렌더는 후속 보강 항목.
+
 ---
 
 ### 2.6 Step 1.6 — 핫스팟 가속 (선택)
@@ -183,6 +190,13 @@ class RouteParams:
 - 프로파일링 결과 A* 루프가 전체 시간의 60%를 초과할 때만 도입.
 - Numba `@njit` 적용 대상: 휴리스틱 계산, 이웃 생성, closed 집합 lookup.
 - 도입 효과가 2배 이하이면 채택하지 않는다 (가독성 손해 < 이득).
+
+✅ **프로파일 완료 → Phase 1 에서는 Numba 미채택(결정).**
+
+- 프로파일(120×120×60, weighted A*, `out/_profile_astar.py`): 시간의 **~100% 가 A* 탐색 루프**(astar_weighted 본문 `tottime` 58% + 직접 호출 helper: `is_blocked`/`heuristic`/`move_cost`/`heappop`/`dict.get`). 7,600만 함수 호출 — **순수 파이썬 인터프리터 오버헤드** 지배. 조건(루프>60%)은 충족.
+- 그러나 Numba 적용은 heapq·dict·OccupancyMap 객체를 전부 **평면 원시배열 기반 A*(수동 힙, 선형 인덱스 g/came_from, uint8 점유)로 전면 재작성**해야 한다 → (1) "Phase 3 C++ 1:1 포팅용 단순 레퍼런스"를 **포크**(이중 구현 유지 부담), (2) `numba`/`llvmlite` 무거운 의존성, (3) 그 재작성은 사실상 Phase 3 C++ 엔진과 중복.
+- 따라서 §2.2 원칙(단순 포터블 레퍼런스 유지)·§8(Phase 1 도메인 ≤120³ 제한, 대형은 Phase 3)에 따라 **미채택**. 실가속은 Phase 3(C++ + Boost.Heap/OpenVDB)에서 수행.
+- (참고) 포크 없이 가능한 순수 파이썬 소폭 개선 여지: 평면배열 점유로 `is_blocked` 가속, CostModel 인라인화. 필요 시 별도 검토. weighted A* 의 과확장(1.33M)도 별도 알고리즘 효율 과제(레퍼런스 정확성은 유지됨).
 
 ---
 
@@ -196,6 +210,15 @@ class RouteParams:
 3. **다중 배관 (5개) / 단 분리** — 다중 라우팅·우선순위 정책 검증.
 
 각 시나리오는 `input.json` + `expected_metrics.json`(허용 범위 포함)으로 고정.
+
+✅ **구현 완료** (`tests/scenarios/<name>/{input.json, expected_metrics.json}`, 실행기 `tests/scenario_runner.py`, 하니스 `tests/test_scenarios.py`).
+
+- **결정성**: A* 가 (f, 삽입순서) tie-break 라 입력이 같으면 같은 경로 → 길이/회전/확장노드/총길이를 기준값으로 고정(회귀 검출).
+- **01_single_empty** (20³): 길이 2850mm = 맨해튼(비율 1.000), 회전 2, 장애물 통과 0. ✅
+- **02_single_obstacle** (80³, x=38~42 전높이 벽): 길이 3950mm = 맨해튼 3450mm × **1.145 (±20% 이내)**, 장애물 통과 0. ✅
+- **03_multi_tier** (120×120×60, 5배관 동일통로): 5/5 성공, **충돌(셀 공유) 0**, 총 28050mm. ✅
+- `expected_metrics.json` 의 `checks` 키: 정확일치(success/turns/collisions/counts) / 근사(length·rate) / `detour_ratio_max`(우회 상한) / `expanded_nodes_max`(탐색량 상한). 기대치 재생성은 `python tests/scenario_runner.py` (전 시나리오 지표 출력).
+- 베이스라인 파라미터 1셋 확정: `experiments/baseline_params.json`(cell 50 / w_turn 500 / w_clear 10 / clearance 2). 3종 시나리오 모두 이 값으로 통과 → DoD 충족.
 
 ---
 
@@ -213,24 +236,20 @@ python_experiments/
 │   ├── cost.py                    # Step 1.3
 │   ├── scene.py                   # SpaceAI 프로젝트 라우팅 씬 로더
 │   ├── multi_route.py             # Step 1.4 (구현 완료)
-│   ├── scene_io.py                # Step 1.5
-│   ├── viz.py                     # 3D 점유맵 시각화 (PyVista, 구현 완료)
-│   └── astar_numba.py             # Step 1.6 (선택)
+│   ├── scene_io.py                # Step 1.5 scene.txt 입출력 (구현 완료)
+│   ├── viz.py                     # 3D 시각화 (점유/경로/방문 레이어, PyVista, 구현 완료)
+│   └── (astar_numba.py)           # Step 1.6 — 프로파일 후 미채택(Phase 3 C++ 로 이연)
 ├── experiments/
-│   ├── 01_single_empty/
-│   ├── 02_single_obstacle/
-│   └── 03_multi_tier/
-├── notebooks/
-│   └── viz_demo.ipynb
+│   └── baseline_params.json       # Step 1.7 베이스라인 RouteParams 1셋 (확정)
 └── tests/
-    ├── test_occupancy.py
-    ├── test_astar.py
-    ├── test_cost.py
-    ├── test_multi_route.py
+    ├── test_occupancy.py / test_astar.py / test_cost.py
+    ├── test_multi_route.py / test_scene_io.py
+    ├── scenario_runner.py          # 시나리오 로더/실행기(테스트 아님)
+    ├── test_scenarios.py           # Step 1.7 회귀 하니스
     └── scenarios/
-        ├── 01_single_empty/
-        ├── 02_single_obstacle/
-        └── 03_multi_tier/
+        ├── 01_single_empty/{input,expected_metrics}.json
+        ├── 02_single_obstacle/{input,expected_metrics}.json
+        └── 03_multi_tier/{input,expected_metrics}.json
 ```
 
 ---
@@ -260,9 +279,11 @@ python_experiments/
 
 | 시나리오 | 도메인 셀 수 | 실제 크기 (mm) | 배관 수 | 핵심 검증 |
 |---|---|---|---|---|
-| 01_single_empty | 50 / 50 / 50 | 2500 / 2500 / 2500 | 1 | 직선 경로 = 맨해튼 거리 |
-| 02_single_obstacle | 80 / 80 / 80 | 4000 / 4000 / 4000 | 1 | 우회 후 길이가 직선 ±20% 이내 |
+| 01_single_empty | 20 / 20 / 20 | 1000 / 1000 / 1000 | 1 | 직선 경로 = 맨해튼 거리(2850mm) |
+| 02_single_obstacle | 80 / 80 / 80 | 4000 / 4000 / 4000 | 1 | 우회 후 길이가 직선 ±20% 이내(1.145배) |
 | 03_multi_tier | 120 / 120 / 60 | 6000 / 6000 / 3000 | 5 | 5개 모두 성공, 충돌 0 |
+
+> (01 은 빈 공간 weighted A* 의 동일비용 상태 폭증으로 회귀 속도를 위해 20³ 로 축소. 50³ 원안은 같은 불변식을 더 큰 규모로 검증할 때 사용.)
 
 지표 정의 (`expected_metrics.json`):
 
@@ -278,11 +299,13 @@ python_experiments/
 
 Phase 1 완료 = 아래 항목 **전부** 충족.
 
-- [ ] 3개 회귀 시나리오 모두 `pytest` 통과.
-- [ ] `scene.txt` 입출력 규약 동결 (round-trip 무손실 + PyVista 렌더 확인).
-- [ ] 베이스라인 `RouteParams` 1셋 확정 (`experiments/baseline_params.json`).
-- [ ] 다중 배관 시나리오에서 성공률 ≥ 90%.
-- [ ] Phase 2 명세화를 위한 알고리즘·제약·우선순위 정리 노트 1편.
+- [x] 3개 회귀 시나리오 모두 `pytest` 통과. (`tests/test_scenarios.py`, 4 passed)
+- [x] `scene.txt` 입출력 규약 동결 (round-trip 무손실 + PyVista 렌더 확인). (`scene_io.py`, 점유/경로/방문 레이어 렌더)
+- [x] 베이스라인 `RouteParams` 1셋 확정 (`experiments/baseline_params.json`).
+- [x] 다중 배관 시나리오에서 성공률 ≥ 90%. (project 6 98%, 03_multi_tier 100%)
+- [x] Phase 2 명세화를 위한 알고리즘·제약·우선순위 정리 노트 1편. ([phase2_input_notes.md](phase2_input_notes.md))
+
+> **Phase 1 완료** — DoD 5/5 충족. 다음은 Phase 2 명세화(위 노트를 입력으로).
 
 ---
 

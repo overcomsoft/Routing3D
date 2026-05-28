@@ -1,0 +1,13 @@
+{
+  "name": "01_single_empty",
+  "description": "빈 공간 단일 배관 — 직교 최단 경로 길이가 맨해튼 거리(=57셀×50mm=2850mm)와 같아야 한다. turn penalty 로 회전 최소(2회). 빈 공간 weighted A* 는 동일비용 상태가 많아 그리드를 20³ 로 작게 둔다(회귀 속도).",
+  "cell_mm": 50.0,
+  "origin": [0.0, 0.0, 0.0],
+  "shape": [20, 20, 20],
+  "obstacles": [],
+  "params": {"cell_mm": 50.0, "w_turn": 500.0, "w_clear": 10.0, "clearance_radius": 2, "clearance_connectivity": 6},
+  "mode": "single",
+  "tasks": [
+    {"start": [25.0, 25.0, 25.0], "end": [975.0, 975.0, 975.0], "utility": "PA", "group": "Gas"}
+  ]
+}

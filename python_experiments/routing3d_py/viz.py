@@ -152,6 +152,9 @@ def render_occupancy(
     grid_opacity: float = 0.25,
     path: list[tuple[int, int, int]] | None = None,
     path_color: str = "red",
+    visited: list[tuple[int, int, int]] | None = None,
+    visited_color: str = "khaki",
+    visited_opacity: float = 0.12,
     polylines: list[tuple[list[tuple[float, float, float]], str, str]] | None = None,
     line_radius: float | None = None,
     show: bool = False,
@@ -179,6 +182,11 @@ def render_occupancy(
         path       : A* 경로 셀 리스트(선택). 주어지면 경로를 튜브로, 시작=초록·
                      목표=빨강 구로 표시한다. 셀→월드 변환은 첫 레이어 맵 기준.
         path_color : 경로 튜브 색(기본 red).
+        visited    : A* 가 확장한 방문 셀 리스트(선택, AStarResult.visited). 주어지면
+                     탐색이 훑은 영역을 반투명 복셀 레이어로 함께 그린다(탐색 범위 가시화).
+                     첫 레이어의 shape/origin/cell_mm 기준 임시 점유맵으로 머지 렌더.
+        visited_color  : 방문 레이어 색(기본 khaki).
+        visited_opacity: 방문 레이어 불투명도(기본 0.12, 경로·점유가 비치도록 낮게).
         polylines  : 월드좌표(mm) 다중 선분 리스트. 각 원소 (점목록, 색, 라벨).
                      유틸리티별 경로(또는 start→end 직선)를 색으로 묶어 그릴 때 사용.
                      같은 라벨은 범례에 한 번만 표시.
@@ -233,6 +241,19 @@ def render_occupancy(
             label=label,
         )
 
+    # ②.5 방문(visited) 셀: 탐색이 훑은 영역을 반투명 복셀 레이어로(첫 레이어 격자 기준).
+    if visited and layer_map:
+        from .occupancy import DenseOccupancyMap
+
+        ref = next(iter(layer_map.values()))
+        vocc = DenseOccupancyMap(ref.shape, tuple(ref.origin), ref.cell_mm)
+        for c in visited:
+            vocc.block_cell(c)
+        vmesh = occupancy_to_voxels(vocc)
+        if vmesh.n_cells:
+            plotter.add_mesh(vmesh, color=visited_color, opacity=visited_opacity,
+                             label="visited")
+
     # ③ A* 경로(있으면): 셀 중심을 잇는 튜브 + 시작/목표 마커.
     if path and layer_map:
         ref = next(iter(layer_map.values()))
@@ -261,7 +282,7 @@ def render_occupancy(
             seen_labels.add(label)
             plotter.add_mesh(tube, color=color, label=lbl)
 
-    if len(layer_map) > 1 or path or polylines:
+    if len(layer_map) > 1 or path or polylines or visited:
         plotter.add_legend(bcolor="white", border=True)
     if show_grid:
         # 라벨 개수를 줄여 큰 mm 좌표값이 원점 부근에서 겹치는 것을 방지.

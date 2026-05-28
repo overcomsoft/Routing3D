@@ -1,0 +1,10 @@
+{
+  "description": "다중 배관 5개: 모두 성공, 성공 경로끼리 셀 공유 0(충돌 없음), 총 길이 28050mm.",
+  "checks": {
+    "success_count": 5,
+    "fail_count": 0,
+    "success_rate": 1.0,
+    "collisions": 0,
+    "total_length_mm": 28050.0
+  }
+}
