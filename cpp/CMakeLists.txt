@@ -47,3 +47,21 @@ target_link_libraries(test_scene_io PRIVATE routing3d_core)
 target_compile_definitions(test_scene_io PRIVATE
     SCENE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 add_test(NAME scene_io COMMAND test_scene_io)
+
+# pybind11 모듈(routing3d_cpp) — 기본 OFF. 활성화 시 .venv 의 pybind11/Python 필요.
+#   cmake ... -DBUILD_PYTHON_BINDINGS=ON -Dpybind11_DIR=<pybind11.get_cmake_dir()> \
+#             -DROUTING3D_TEST_PYTHON=<.venv\Scripts\python.exe>
+option(BUILD_PYTHON_BINDINGS "Build pybind11 module routing3d_cpp" OFF)
+if(BUILD_PYTHON_BINDINGS)
+    find_package(pybind11 CONFIG REQUIRED)
+    pybind11_add_module(routing3d_cpp bindings/bindings.cpp)
+    target_link_libraries(routing3d_cpp PRIVATE routing3d_core)
+
+    # 바인딩 교차검증 ctest. routing3d_py(editable) 가 설치된 파이썬이 필요(기본=빌드시 발견한 Python).
+    set(ROUTING3D_TEST_PYTHON "${PYTHON_EXECUTABLE}" CACHE FILEPATH
+        "Python interpreter for binding cross-validation (needs routing3d_py installed)")
+    add_test(NAME bindings
+        COMMAND "${ROUTING3D_TEST_PYTHON}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/bindings/test_bindings.py"
+                "$<TARGET_FILE_DIR:routing3d_cpp>")
+endif()
