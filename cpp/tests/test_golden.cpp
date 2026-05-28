@@ -41,6 +41,22 @@ static RouteParams baseline() {
     return p;
 }
 
+// ---- 백엔드 교차검증 헬퍼 (Step 3.6: A* 가 백엔드 무관임을 확인) ----
+// 임의 점유 백엔드에 동일 장면을 구성해 단일 비용함수 A* 를 실행.
+template <class Occ>
+static AStarResult run_single(Cell shape, Vec3 origin, double cell, const std::vector<AABB>& boxes,
+                              Vec3 s_mm, Vec3 g_mm) {
+    Occ occ(shape, origin, cell);
+    for (const AABB& b : boxes) occ.add_box(b);
+    return astar_weighted(occ, occ.to_cell(s_mm), occ.to_cell(g_mm), baseline());
+}
+
+// 두 AStarResult 가 지표 + 경로 셀까지 완전히 같은지.
+static bool same_result(const AStarResult& a, const AStarResult& b) {
+    return a.success == b.success && a.length_mm == b.length_mm && a.turns == b.turns &&
+           a.expanded_nodes == b.expanded_nodes && a.cost_mm == b.cost_mm && a.path == b.path;
+}
+
 static void scenario_01_single_empty() {
     std::printf("=== 01_single_empty ===\n");
     DenseOccupancy occ(Cell{20, 20, 20}, Vec3{0, 0, 0}, 50.0);
@@ -75,8 +91,9 @@ static void scenario_02_single_obstacle() {
     check(r.expanded_nodes <= 12000, "expanded_nodes <= 12000");
 }
 
-// 성공 경로들의 쌍별 셀 공유 횟수(충돌 수). scenario_runner.py 의 collisions 계산과 동일.
-static int count_collisions(const DenseOccupancy& occ, const MultiRouteResult& mr) {
+// 성공 경로들의 쌍별 셀 공유 횟수(충돌 수). scenario_runner.py 의 collisions 계산과 동일. 백엔드 무관.
+template <class Occ>
+static int count_collisions(const Occ& occ, const MultiRouteResult<Occ>& mr) {
     std::vector<std::unordered_set<int>> sets;  // 성공 배관별 점유 셀(선형 인덱스) 집합.
     for (const PipeResult& p : mr.pipes) {
         if (!p.result.success) continue;
@@ -97,13 +114,8 @@ static int count_collisions(const DenseOccupancy& occ, const MultiRouteResult& m
     return collisions;
 }
 
-static void scenario_03_multi_tier() {
-    std::printf("=== 03_multi_tier ===\n");
-    // shape 120x120x60, 셀 50mm. 바닥 슬래브(z 0~250mm = 셀 0~4) 장애물.
-    DenseOccupancy occ(Cell{120, 120, 60}, Vec3{0, 0, 0}, 50.0);
-    occ.add_box(AABB(Vec3{0, 0, 0}, Vec3{6000, 6000, 250}));
-
-    // 같은 통로(start/end 동일)를 지나려는 5개 배관 → 순차 라우팅으로 충돌 없이 우회.
+// 골든03 의 5개 배관 작업(같은 통로 start/end 동일).
+static std::vector<RouteTask> golden03_tasks() {
     RouteTask t;
     t.start_mm = Vec3{275, 3025, 1525};
     t.end_mm = Vec3{5725, 3025, 1525};
@@ -117,8 +129,16 @@ static void scenario_03_multi_tier() {
         t.utility_group = u[1];
         tasks.push_back(t);
     }
+    return tasks;
+}
 
-    MultiRouteResult mr = route_sequential(occ, tasks, baseline(), "longest");
+static void scenario_03_multi_tier() {
+    std::printf("=== 03_multi_tier ===\n");
+    // shape 120x120x60, 셀 50mm. 바닥 슬래브(z 0~250mm = 셀 0~4) 장애물.
+    DenseOccupancy occ(Cell{120, 120, 60}, Vec3{0, 0, 0}, 50.0);
+    occ.add_box(AABB(Vec3{0, 0, 0}, Vec3{6000, 6000, 250}));
+
+    auto mr = route_sequential(occ, golden03_tasks(), baseline(), "longest");
     int collisions = count_collisions(occ, mr);
     std::printf("  success=%d/%zu fail=%d total_length=%.1f collisions=%d\n",
                 mr.success_count(), mr.pipes.size(), mr.fail_count(),
@@ -130,10 +150,48 @@ static void scenario_03_multi_tier() {
     check(mr.total_length_mm() == 28050.0, "total_length_mm == 28050");
 }
 
+// 백엔드 무관 검증: 동일 골든 입력을 DenseOccupancy 와 SparseOccupancy 로 라우팅하면
+// 지표·경로가 완전히 같아야 한다(엔진이 백엔드 무관 = O1 + 결정성 보존).
+static void cross_backend_sparse() {
+    std::printf("=== 백엔드 교차검증: Dense vs Sparse ===\n");
+    // 골든01(빈 공간).
+    {
+        AStarResult d = run_single<DenseOccupancy>(Cell{20, 20, 20}, Vec3{0, 0, 0}, 50.0, {},
+                                                   Vec3{25, 25, 25}, Vec3{975, 975, 975});
+        AStarResult s = run_single<SparseOccupancy>(Cell{20, 20, 20}, Vec3{0, 0, 0}, 50.0, {},
+                                                    Vec3{25, 25, 25}, Vec3{975, 975, 975});
+        check(same_result(d, s), "golden01 Dense==Sparse (지표+경로)");
+    }
+    // 골든02(장애물 우회).
+    {
+        std::vector<AABB> boxes{AABB(Vec3{1900, 0, 0}, Vec3{2150, 2250, 4000})};
+        AStarResult d = run_single<DenseOccupancy>(Cell{80, 80, 80}, Vec3{0, 0, 0}, 50.0, boxes,
+                                                   Vec3{275, 2025, 2025}, Vec3{3725, 2025, 2025});
+        AStarResult s = run_single<SparseOccupancy>(Cell{80, 80, 80}, Vec3{0, 0, 0}, 50.0, boxes,
+                                                    Vec3{275, 2025, 2025}, Vec3{3725, 2025, 2025});
+        check(same_result(d, s), "golden02 Dense==Sparse (지표+경로)");
+    }
+    // 골든03(다중 순차).
+    {
+        DenseOccupancy docc(Cell{120, 120, 60}, Vec3{0, 0, 0}, 50.0);
+        docc.add_box(AABB(Vec3{0, 0, 0}, Vec3{6000, 6000, 250}));
+        SparseOccupancy socc(Cell{120, 120, 60}, Vec3{0, 0, 0}, 50.0);
+        socc.add_box(AABB(Vec3{0, 0, 0}, Vec3{6000, 6000, 250}));
+        auto dmr = route_sequential(docc, golden03_tasks(), baseline(), "longest");
+        auto smr = route_sequential(socc, golden03_tasks(), baseline(), "longest");
+        bool eq = dmr.success_count() == smr.success_count() &&
+                  dmr.total_length_mm() == smr.total_length_mm() &&
+                  count_collisions(docc, dmr) == count_collisions(socc, smr);
+        check(eq && smr.success_count() == 5 && count_collisions(socc, smr) == 0,
+              "golden03 Dense==Sparse (성공수/총길이/충돌)");
+    }
+}
+
 int main() {
     scenario_01_single_empty();
     scenario_02_single_obstacle();
     scenario_03_multi_tier();
+    cross_backend_sparse();
     std::printf("\n%s (failures=%d)\n", g_failures == 0 ? "ALL PASS" : "FAILED", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

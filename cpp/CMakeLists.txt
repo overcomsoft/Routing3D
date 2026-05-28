@@ -23,12 +23,10 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
+# 엔진(astar/cost/multi_route)은 백엔드 무관 템플릿(헤더 정의) → .cpp 없음.
 add_library(routing3d_core STATIC
     src/occupancy.cpp
     src/sparse_occupancy.cpp
-    src/cost.cpp
-    src/astar.cpp
-    src/multi_route.cpp
     src/scene_io.cpp
 )
 target_include_directories(routing3d_core PUBLIC include)

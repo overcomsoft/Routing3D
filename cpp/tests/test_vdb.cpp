@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+#include "routing3d/astar.hpp"
+#include "routing3d/multi_route.hpp"
 #include "routing3d/occupancy.hpp"
 #include "routing3d/vdb_occupancy.hpp"
 
@@ -117,8 +119,67 @@ static void test_tile_compression() {
     //       커진다 → 50mm 전역 fine 격자 대신 계층(coarse) 표현 + 로컬 corridor 가 필요(후속 단계).
 }
 
+// 백엔드 무관 검증: 골든 입력을 Dense 와 Vdb 로 라우팅하면 지표·경로가 같아야 한다.
+static void test_routing_cross_backend() {
+    std::printf("=== 라우팅 백엔드 교차검증: Dense vs Vdb ===\n");
+    RouteParams bp;  // baseline.
+
+    // 골든02(단일, 장애물 우회): 지표 + 경로 셀 완전 일치.
+    {
+        const Cell shape{80, 80, 80};
+        DenseOccupancy d(shape, Vec3{0, 0, 0}, 50.0);
+        VdbOccupancy v(shape, Vec3{0, 0, 0}, 50.0);
+        const AABB box(Vec3{1900, 0, 0}, Vec3{2150, 2250, 4000});
+        d.add_box(box);
+        v.add_box(box);
+        AStarResult rd = astar_weighted(d, d.to_cell(Vec3{275, 2025, 2025}),
+                                        d.to_cell(Vec3{3725, 2025, 2025}), bp);
+        AStarResult rv = astar_weighted(v, v.to_cell(Vec3{275, 2025, 2025}),
+                                        v.to_cell(Vec3{3725, 2025, 2025}), bp);
+        bool eq = rd.success == rv.success && rd.length_mm == rv.length_mm &&
+                  rd.turns == rv.turns && rd.expanded_nodes == rv.expanded_nodes &&
+                  rd.path == rv.path;
+        check(eq && rv.length_mm == 3950.0 && rv.turns == 2, "golden02 Dense==Vdb (지표+경로)");
+    }
+
+    // 골든03(다중 순차): 5/5 성공, 충돌 0, 총길이 28050.
+    {
+        const Cell shape{120, 120, 60};
+        VdbOccupancy v(shape, Vec3{0, 0, 0}, 50.0);
+        v.add_box(AABB(Vec3{0, 0, 0}, Vec3{6000, 6000, 250}));
+        RouteTask t;
+        t.start_mm = Vec3{275, 3025, 1525};
+        t.end_mm = Vec3{5725, 3025, 1525};
+        std::vector<RouteTask> tasks;
+        const char* utils[5][2] = {{"UPW_S", "UPW"}, {"NFW", "Waste Liquid"}, {"PA", "Gas"},
+                                   {"NW", "Water"}, {"ACID", "Exhaust"}};
+        for (auto& u : utils) { t.utility = u[0]; t.utility_group = u[1]; tasks.push_back(t); }
+        auto mr = route_sequential(v, tasks, bp, "longest");
+        // 충돌(쌍별 셀 공유) 계산.
+        std::vector<std::vector<int>> sets;
+        for (const PipeResult& p : mr.pipes) {
+            if (!p.result.success) continue;
+            std::vector<int> s;
+            for (const Cell& c : p.result.path) s.push_back(v.lin(c));
+            sets.push_back(std::move(s));
+        }
+        int collisions = 0;
+        for (size_t i = 0; i < sets.size(); ++i)
+            for (size_t j = i + 1; j < sets.size(); ++j) {
+                bool shared = false;
+                for (int a : sets[i]) { for (int b : sets[j]) if (a == b) { shared = true; break; } if (shared) break; }
+                if (shared) ++collisions;
+            }
+        std::printf("  success=%d/%zu total_length=%.1f collisions=%d\n", mr.success_count(),
+                    mr.pipes.size(), mr.total_length_mm(), collisions);
+        check(mr.success_count() == 5 && mr.total_length_mm() == 28050.0 && collisions == 0,
+              "golden03 Vdb 라우팅 (5/5, 28050mm, 충돌0)");
+    }
+}
+
 int main() {
     test_o1();
+    test_routing_cross_backend();
     test_8000m_scattered();
     test_tile_compression();
     std::printf("\n%s (failures=%d)\n", g_failures == 0 ? "ALL PASS" : "FAILED", g_failures);

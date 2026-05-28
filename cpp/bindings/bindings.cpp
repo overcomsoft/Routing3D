@@ -126,11 +126,11 @@ PYBIND11_MODULE(routing3d_cpp, m) {
 
     m.def("manhattan", &manhattan, py::arg("a"), py::arg("b"), "두 셀의 맨해튼 거리(셀 수).");
     m.def("count_turns", &count_turns, py::arg("path"), "경로의 방향 전환 횟수.");
-    m.def("astar", &astar, py::arg("occ"), py::arg("start"), py::arg("goal"),
+    m.def("astar", &astar<DenseOccupancy>, py::arg("occ"), py::arg("start"), py::arg("goal"),
           py::arg("step_cost") = -1.0, py::arg("max_expansions") = -1,
           "균일 비용 직교 A*. step_cost<0 이면 cell_mm 사용.");
-    m.def("astar_weighted", &astar_weighted, py::arg("occ"), py::arg("start"), py::arg("goal"),
-          py::arg("params"), py::arg("max_expansions") = -1,
+    m.def("astar_weighted", &astar_weighted<DenseOccupancy>, py::arg("occ"), py::arg("start"),
+          py::arg("goal"), py::arg("params"), py::arg("max_expansions") = -1,
           "비용함수 A*(turn penalty/클리어런스/단 분리). 상태=(셀,진입방향).");
 
     // ---------------------------------------------------------------- 작업/다중 라우팅
@@ -166,20 +166,23 @@ PYBIND11_MODULE(routing3d_cpp, m) {
         .def_readonly("result", &PipeResult::result)
         .def_readonly("order_index", &PipeResult::order_index);
 
-    py::class_<MultiRouteResult>(m, "MultiRouteResult", "다중 배관 순차 라우팅 결과 묶음.")
-        .def_readonly("pipes", &MultiRouteResult::pipes)
-        .def_readonly("occupancy", &MultiRouteResult::occupancy)
-        .def_readonly("priority", &MultiRouteResult::priority)
-        .def_property_readonly("success_count", &MultiRouteResult::success_count)
-        .def_property_readonly("fail_count", &MultiRouteResult::fail_count)
-        .def_property_readonly("total_length_mm", &MultiRouteResult::total_length_mm)
-        .def_property_readonly("success_rate", &MultiRouteResult::success_rate);
+    // 엔진은 백엔드 무관 템플릿 → 바인딩은 DenseOccupancy 인스턴스화를 노출.
+    using MultiRouteResultD = MultiRouteResult<DenseOccupancy>;
+    py::class_<MultiRouteResultD>(m, "MultiRouteResult", "다중 배관 순차 라우팅 결과 묶음.")
+        .def_readonly("pipes", &MultiRouteResultD::pipes)
+        .def_readonly("occupancy", &MultiRouteResultD::occupancy)
+        .def_readonly("priority", &MultiRouteResultD::priority)
+        .def_property_readonly("success_count", &MultiRouteResultD::success_count)
+        .def_property_readonly("fail_count", &MultiRouteResultD::fail_count)
+        .def_property_readonly("total_length_mm", &MultiRouteResultD::total_length_mm)
+        .def_property_readonly("success_rate", &MultiRouteResultD::success_rate);
 
-    m.def("order_tasks", &order_tasks, py::arg("occ"), py::arg("tasks"), py::arg("priority"),
-          "우선순위 규칙으로 작업 정렬(longest/shortest/utility/original).");
-    m.def("route_sequential", &route_sequential, py::arg("occ"), py::arg("tasks"), py::arg("params"),
-          py::arg("priority") = "longest", py::arg("pipe_radius") = 0, py::arg("snap_to_free") = 2,
-          py::arg("max_expansions") = -1, "배관들을 충돌 없이 순차 라우팅(원본 점유맵 불변).");
+    m.def("order_tasks", &order_tasks<DenseOccupancy>, py::arg("occ"), py::arg("tasks"),
+          py::arg("priority"), "우선순위 규칙으로 작업 정렬(longest/shortest/utility/original).");
+    m.def("route_sequential", &route_sequential<DenseOccupancy>, py::arg("occ"), py::arg("tasks"),
+          py::arg("params"), py::arg("priority") = "longest", py::arg("pipe_radius") = 0,
+          py::arg("snap_to_free") = 2, py::arg("max_expansions") = -1,
+          "배관들을 충돌 없이 순차 라우팅(원본 점유맵 불변).");
 
     // ---------------------------------------------------------------- scene.txt I/O
     py::class_<Obstacle>(m, "Obstacle", "장애물 1건(AABB + BIM 메타). 선택 문자열은 None 가능.")
