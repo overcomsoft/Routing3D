@@ -54,6 +54,22 @@ add_executable(test_occupancy tests/test_occupancy.cpp)
 target_link_libraries(test_occupancy PRIVATE routing3d_core)
 add_test(NAME occupancy COMMAND test_occupancy)
 
+# OpenVDB 백엔드(VdbOccupancy) — 기본 OFF. 활성화 시 vcpkg 의 OpenVDB 필요.
+#   cmake ... -DUSE_OPENVDB=ON -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake \
+#             -DVCPKG_TARGET_TRIPLET=x64-windows
+option(USE_OPENVDB "Build OpenVDB-backed occupancy (needs vcpkg openvdb)" OFF)
+if(USE_OPENVDB)
+    find_package(OpenVDB CONFIG REQUIRED)
+    add_library(routing3d_vdb STATIC src/vdb_occupancy.cpp)
+    target_include_directories(routing3d_vdb PUBLIC include)
+    target_link_libraries(routing3d_vdb PUBLIC routing3d_core OpenVDB::openvdb)
+    target_compile_definitions(routing3d_vdb PUBLIC ROUTING3D_USE_OPENVDB)
+
+    add_executable(test_vdb tests/test_vdb.cpp)
+    target_link_libraries(test_vdb PRIVATE routing3d_vdb)
+    add_test(NAME vdb COMMAND test_vdb)
+endif()
+
 # pybind11 모듈(routing3d_cpp) — 기본 OFF. 활성화 시 .venv 의 pybind11/Python 필요.
 #   cmake ... -DBUILD_PYTHON_BINDINGS=ON -Dpybind11_DIR=<pybind11.get_cmake_dir()> \
 #             -DROUTING3D_TEST_PYTHON=<.venv\Scripts\python.exe>
