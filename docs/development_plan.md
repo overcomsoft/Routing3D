@@ -40,8 +40,9 @@
 | 프로젝트 스켈레톤 (디렉토리·README·requirements) | 완료 (2026-05-27) |
 | 마스터 개발 계획서 | 본 문서 |
 | Phase 1 세부 개발계획서 | [phase1_plan.md](phase1_plan.md) |
-| Python 알고리즘 실험 | 미착수 — 다음 단계 |
-| C++ 엔진 | 미착수 (Phase 3) |
+| Python 알고리즘 실험 (Phase 1) | **완료 (2026-05-28, DoD 5/5, pytest 203)** |
+| Phase 2 인터페이스 동결 | **명세 작성 완료** ([phase2_plan.md](phase2_plan.md), spec 4종 + sign-off 대기) |
+| C++ 엔진 (Phase 3) | 미착수 — 다음 단계 |
 
 좌표·치수는 **밀리미터(mm)** 단위, 기본 셀 크기는 50mm 로 통일한다 (Phase 1 세부 계획 참조).
 
