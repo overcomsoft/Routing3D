@@ -18,6 +18,7 @@
   astar       : Step 1.2 직교 A* 탐색 + Step 1.3 비용함수 적용 A*(astar_weighted)
   cost        : Step 1.3 비용함수 — RouteParams / clearance_map / CostModel (구현 완료)
   scene       : SpaceAI 프로젝트 라우팅 씬 로더 (project→장애물/메인장비/종단/PoC페어/유틸)
+  multi_route : Step 1.4 다중 배관 순차 라우팅 (충돌 없이, 우선순위 + 깔린 경로 점유)
   multi_route : Step 1.4 다중 배관 전략 (예정)
   scene_io    : Step 1.5 scene.txt 입출력 (예정)
   viz         : Step 1.5 PyVista/Plotly 시각화 (예정)
@@ -33,6 +34,12 @@ from .astar import (
     manhattan,
 )
 from .cost import CostModel, RouteParams, clearance_map
+from .multi_route import (
+    MultiRouteResult,
+    PipeResult,
+    order_tasks,
+    route_sequential,
+)
 from .scene import (
     EndPoc,
     MainEquipment,
@@ -108,4 +115,9 @@ __all__ = [
     "route_tasks",
     "scene_polylines",
     "utility_colors",
+    # Step 1.4 다중 배관 순차 라우팅
+    "route_sequential",
+    "order_tasks",
+    "MultiRouteResult",
+    "PipeResult",
 ]

@@ -150,6 +150,14 @@ class RouteParams:
 
 **검증**: 5~10개 배관 시나리오에서 (성공률, 총 길이 합, 실패한 배관 수) 지표 측정.
 
+✅ **구현 완료** (`multi_route.py`: `route_sequential`/`order_tasks`/`MultiRouteResult`/`PipeResult`, `OccupancyMap.copy()`).
+
+- **충돌 회피 메커니즘**: 장애물 점유맵의 작업용 사본을 만들고, 한 배관을 라우팅(astar_weighted)할 때마다 성공 경로 셀(+`pipe_radius` 팽창)을 사본에 점유로 추가 → 다음 배관이 피함. 성공 경로끼리 셀 비공유(단위 테스트로 보장).
+- **우선순위**: longest(기본)/shortest/utility/original. (계획서의 '직경 큰 순'은 직경 데이터 확보 시 추가.)
+- **혼잡 출발부 실패는 측정 대상**: 메인장비 면에 PoC 가 밀집해 후순위 배관이 막힐 수 있음. rip-up & reroute / CBS 로 해소하는 것은 계획대로 **Phase 3 이연**. 본 단계는 baseline sequential 의 성공률을 측정하는 것이 목적.
+- 사용: `routing3d_py.scene` CLI `--multi --priority --pipe-radius`, 또는 `route_sequential(occ, scene.tasks, params)`.
+- 검증: project 6(208 배관) 전체 순차 라우팅 — 성공률/유틸리티별 성공 측정 + 유틸리티 색 렌더.
+
 ---
 
 ### 2.5 Step 1.5 — I/O와 시각화
@@ -203,7 +211,8 @@ python_experiments/
 │   ├── obstacle_db.py             # 장애물 DB 로더 (PostgreSQL → 점유맵)
 │   ├── astar.py                   # Step 1.2 (구현 완료)
 │   ├── cost.py                    # Step 1.3
-│   ├── multi_route.py             # Step 1.4
+│   ├── scene.py                   # SpaceAI 프로젝트 라우팅 씬 로더
+│   ├── multi_route.py             # Step 1.4 (구현 완료)
 │   ├── scene_io.py                # Step 1.5
 │   ├── viz.py                     # 3D 점유맵 시각화 (PyVista, 구현 완료)
 │   └── astar_numba.py             # Step 1.6 (선택)

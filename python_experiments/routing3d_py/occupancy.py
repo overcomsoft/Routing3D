@@ -311,6 +311,14 @@ class OccupancyMap(ABC):
         반환값은 내부 저장소와 독립적인 복사본이어야 한다.
         """
 
+    @abstractmethod
+    def copy(self) -> "OccupancyMap":
+        """동일 내용의 '독립' 복사본을 반환한다(같은 백엔드 타입).
+
+        다중 배관 순차 라우팅처럼, 원본 장애물 점유맵을 보존한 채 작업용 사본에
+        깔린 배관 셀을 추가해 나갈 때 사용한다.
+        """
+
 
 # ==============================================================================
 # 백엔드 1: Dense (NumPy bool 배열)
@@ -367,6 +375,11 @@ class DenseOccupancyMap(OccupancyMap):
 
     def to_numpy(self) -> np.ndarray:
         return self.grid.copy()
+
+    def copy(self) -> "DenseOccupancyMap":
+        out = DenseOccupancyMap(self.shape, tuple(self.origin), self.cell_mm)
+        out.grid = self.grid.copy()
+        return out
 
 
 # ==============================================================================
@@ -427,6 +440,11 @@ class SparseOccupancyMap(OccupancyMap):
         for (i, j, k) in self.blocked:
             grid[i, j, k] = True
         return grid
+
+    def copy(self) -> "SparseOccupancyMap":
+        out = SparseOccupancyMap(self.shape, tuple(self.origin), self.cell_mm)
+        out.blocked = set(self.blocked)
+        return out
 
 
 # ==============================================================================
@@ -492,6 +510,11 @@ class BitPackedOccupancyMap(OccupancyMap):
 
     def to_numpy(self) -> np.ndarray:
         return self._to_dense_bool()
+
+    def copy(self) -> "BitPackedOccupancyMap":
+        out = BitPackedOccupancyMap(self.shape, tuple(self.origin), self.cell_mm)
+        out.packed = self.packed.copy()
+        return out
 
 
 # ------------------------------------------------------------------ 팽창 헬퍼

@@ -504,7 +504,14 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="프로젝트 목록 출력")
     parser.add_argument("--project", type=int, default=None, help="프로젝트 id")
     parser.add_argument("--cell-mm", type=float, default=50.0, help="셀 크기 mm")
-    parser.add_argument("--route", action="store_true", help="작업을 실제 A* 로 라우팅")
+    parser.add_argument("--route", action="store_true", help="작업을 독립 A* 로 라우팅(충돌 허용)")
+    parser.add_argument("--multi", action="store_true",
+                        help="다중 배관 순차 라우팅(충돌 없이, 깔린 경로를 점유로 추가)")
+    parser.add_argument("--priority", default="longest",
+                        choices=["longest", "shortest", "utility", "original"],
+                        help="--multi 우선순위 규칙(기본 longest)")
+    parser.add_argument("--pipe-radius", type=int, default=0,
+                        help="--multi 시 깔린 배관 점유 팽창 반경(셀). 기본 0")
     parser.add_argument("--utility", default=None, help="이 유틸리티 라벨만 (예: \"[Gas] PN2\")")
     parser.add_argument("--max-tasks", type=int, default=None, help="라우팅할 최대 작업 수")
     parser.add_argument("--w-turn", type=float, default=500.0, help="회전 비용 mm")
@@ -543,12 +550,24 @@ def _main(argv: list[str] | None = None) -> int:
         tasks = tasks[: args.max_tasks]
 
     routed = None
-    if args.route:
+    if args.route or args.multi:
         params = RouteParams(cell_mm=args.cell_mm, w_turn=args.w_turn,
                              w_clear=args.w_clear, clearance_radius=args.clearance)
-        routed = route_tasks(occ, tasks, params)
-        ok = sum(1 for r in routed if r.result.success)
-        print(f"라우팅: {ok}/{len(routed)} 성공")
+        if args.multi:
+            from .multi_route import route_sequential
+            mr = route_sequential(occ, tasks, params, priority=args.priority,
+                                  pipe_radius=args.pipe_radius)
+            print(mr.summary())
+            print("유틸리티별 성공/전체:")
+            for util, plist in sorted(mr.by_utility().items(),
+                                      key=lambda x: -len(x[1])):
+                ok = sum(1 for p in plist if p.result.success)
+                print(f"  {util}: {ok}/{len(plist)}")
+            routed = mr.pipes   # PipeResult 는 .task/.result 보유 → scene_polylines 호환
+        else:
+            routed = route_tasks(occ, tasks, params)
+            ok = sum(1 for r in routed if r.result.success)
+            print(f"라우팅(독립): {ok}/{len(routed)} 성공")
     scene = RoutingScene(scene.project, scene.bounds_lo, scene.bounds_hi,
                          scene.obstacles, scene.main_equipment, scene.terminals, tasks)
 
