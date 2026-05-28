@@ -73,6 +73,22 @@ if(USE_OPENVDB)
     add_test(NAME vdb COMMAND test_vdb)
 endif()
 
+# FCL 정밀 충돌(FclScene) — 기본 OFF. 활성화 시 vcpkg 의 fcl 필요.
+#   cmake ... -DUSE_FCL=ON -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake \
+#             -DVCPKG_TARGET_TRIPLET=x64-windows
+option(USE_FCL "Build FCL precise collision (needs vcpkg fcl)" OFF)
+if(USE_FCL)
+    find_package(fcl CONFIG REQUIRED)
+    add_library(routing3d_fcl STATIC src/fcl_scene.cpp)
+    target_include_directories(routing3d_fcl PUBLIC include)
+    target_link_libraries(routing3d_fcl PUBLIC routing3d_core fcl)
+    target_compile_definitions(routing3d_fcl PUBLIC ROUTING3D_USE_FCL)
+
+    add_executable(test_fcl tests/test_fcl.cpp)
+    target_link_libraries(test_fcl PRIVATE routing3d_fcl)
+    add_test(NAME fcl COMMAND test_fcl)
+endif()
+
 # pybind11 모듈(routing3d_cpp) — 기본 OFF. 활성화 시 .venv 의 pybind11/Python 필요.
 #   cmake ... -DBUILD_PYTHON_BINDINGS=ON -Dpybind11_DIR=<pybind11.get_cmake_dir()> \
 #             -DROUTING3D_TEST_PYTHON=<.venv\Scripts\python.exe>
