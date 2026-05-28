@@ -52,6 +52,11 @@ add_executable(test_occupancy tests/test_occupancy.cpp)
 target_link_libraries(test_occupancy PRIVATE routing3d_core)
 add_test(NAME occupancy COMMAND test_occupancy)
 
+# 계층 corridor + 해시 A*: 거대 장면 로컬 배관 + coarse 가이드 tube 검증.
+add_executable(test_corridor tests/test_corridor.cpp)
+target_link_libraries(test_corridor PRIVATE routing3d_core)
+add_test(NAME corridor COMMAND test_corridor)
+
 # OpenVDB 백엔드(VdbOccupancy) — 기본 OFF. 활성화 시 vcpkg 의 OpenVDB 필요.
 #   cmake ... -DUSE_OPENVDB=ON -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake \
 #             -DVCPKG_TARGET_TRIPLET=x64-windows
