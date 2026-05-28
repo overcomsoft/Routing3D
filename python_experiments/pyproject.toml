@@ -1,0 +1,23 @@
+# Routing3D Phase 1 — Python 실험 패키지 정의
+# editable 설치하면(아래) 작업 디렉토리와 무관하게 `python -m routing3d_py.*` 실행 가능.
+#   .\.venv\Scripts\python.exe -m pip install -e python_experiments
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "routing3d-py"
+version = "0.1.0"
+description = "Routing3D Phase 1 — 플랜트 배관 3D 직교 라우팅 Python 알고리즘 실험"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "psycopg2-binary>=2.9.9",
+]
+
+[project.optional-dependencies]
+viz = ["pyvista>=0.43"]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+packages = ["routing3d_py"]

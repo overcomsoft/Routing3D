@@ -4,6 +4,9 @@
 # 핵심 수치 / 자료구조
 numpy>=1.26
 
+# 장애물 DB 로더 (PostgreSQL TB_BIM_OBSTACLES)
+psycopg2-binary>=2.9.9
+
 # 시각화 — 즉석 3D 렌더
 pyvista>=0.43
 plotly>=5.18
