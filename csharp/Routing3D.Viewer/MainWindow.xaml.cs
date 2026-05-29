@@ -10,10 +10,10 @@ namespace Routing3D.Viewer
     {
         private readonly SceneViewModel _vm;
 
-        public MainWindow()
+        public MainWindow(string? initialScene = null)
         {
             InitializeComponent();
-            _vm = new SceneViewModel();
+            _vm = new SceneViewModel(initialScene);
             _vm.SceneRebuilt += () => Dispatcher.BeginInvoke(new Action(() => View.ZoomExtents()));
             DataContext = _vm;
 

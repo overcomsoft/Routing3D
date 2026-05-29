@@ -381,9 +381,17 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P2** | **인터랙티브 재라우팅**: 작업 목록(ListBox)에서 배관 선택 → 종단점(시작/끝 XYZ) 편집 → 단일 재라우팅(`set_task_endpoints`+`route_task`) 또는 전체(`route_multi`) → 모델 갱신. | 인터랙티브 뷰어 | **완료 2026-05-29** |
 | **P3a (뷰어)** | 충돌 셀 시각화(빨간 큐브), 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(`FindNearestPoint`→셀 스냅), 장애물/경로 메시 머지. | 뷰어 기능 | **완료 2026-05-29** |
 | **P3b (엔진)** | 대형 장면 **계층 corridor 라우팅을 C ABI 로 노출**(`r3d_route_corridor`). **SparseOccupancy + astar_hashed** 라 배열 할당 없이 초대형 격자 동작 → **OpenVDB DLL 동봉 불필요**(DLL 코어 전용 유지). C# 뷰어 corridor 버튼. ctest `capi` 가 2000²×8 Sparse 장면 라우팅 검증. | 대형장면 라우팅 | **완료 2026-05-29** |
+| **P3c (검증)** | 뷰어 **명령행 인자 로드**(`scene.txt` 경로 → 데모 대신 해당 장면 로드) + **헤드리스 셀프테스트**(`--selftest <scene> <out>`: 창 없이 파싱+P/Invoke 라우팅+모델 구성 후 상태 문자열을 파일로 기록). 실 DB 장면 교차검증에 사용. | 검증 모드 | **완료 2026-05-29** |
 | P3b' (선택) | VDB 백엔드 capi(`USE_OPENVDB` 빌드 + openvdb/tbb DLL 동봉) — Sparse 로 목표 충족되어 보류. | (선택) | 미착수 |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).
+
+### 9.x 실데이터 교차검증 결과(2026-05-29)
+
+- 동일 파일 `python_experiments/out/project6.scene.txt`(실 DB AUTOROUTINGV7, 장애물 983·작업 208, cell=200mm)에서
+  **C# 뷰어(--selftest) = C++ CLI(`route --mode multi --priority longest`)** 가 **77/208 성공·총 1,532,800 mm 완전 일치** →
+  뷰어가 동일 capi(`route_multi_into_doc`)로 엔진 결과를 그대로 재현함을 확인.
+- 격자 해상도에 따라 성공 수가 달라짐(cell=200: 77/208, cell=100: 194/208) — 같은 파일끼리 비교해야 함.
 
 ---
 

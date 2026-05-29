@@ -46,7 +46,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showPaths = true;
         private bool _showCollisions = true;
 
-        public SceneViewModel()
+        public SceneViewModel(string? initialScene = null)
         {
             OpenCommand = new RelayCommand(Open);
             DemoCommand = new RelayCommand(LoadDemo);
@@ -56,7 +56,11 @@ namespace Routing3D.Viewer.ViewModels
             PickStartCommand = new RelayCommand(() => SetPick(PickMode.Start), () => _selectedTask != null);
             PickEndCommand = new RelayCommand(() => SetPick(PickMode.End), () => _selectedTask != null);
 
-            try { LoadDemo(); }
+            try
+            {
+                if (!string.IsNullOrEmpty(initialScene) && File.Exists(initialScene)) LoadFile(initialScene);
+                else LoadDemo();
+            }
             catch (Exception ex) { Status = "엔진 초기화 오류: " + ex.Message; }
         }
 
