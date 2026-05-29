@@ -32,6 +32,11 @@ cmake_install.cmake
 Makefile
 compile_commands.json
 
+# C# / .NET (csharp/ 뷰어) — 빌드 산출물만 무시(소스 .cs/.csproj/.sln/.xaml 은 추적).
+[Bb]in/
+[Oo]bj/
+*.user
+
 # IDE
 .vscode/
 .idea/

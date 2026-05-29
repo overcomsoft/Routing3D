@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Routing3D C# 뷰어 (WPF + HelixToolkit) : C++ 엔진(routing3d_capi.dll) P/Invoke 가시화.
+       빌드/실행 명령은 docs/csharp_helix_interop_design.md 참고.
+       먼저 cpp/build 에서 routing3d_capi 타깃을 빌드해 DLL 을 만든 뒤 dotnet build/run.
+       x64 고정(네이티브 DLL 비트 일치). routing3d_capi.dll 은 빌드 출력으로 자동 복사. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Routing3D.Viewer</RootNamespace>
+    <AssemblyName>Routing3D.Viewer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- C++ 엔진 C ABI DLL 을 실행 폴더로 복사(코어만 → 외부 의존성 없는 단일 DLL). -->
+    <None Include="..\..\cpp\build\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 2.x = WPF 네이티브 MeshBuilder/MeshGeometry3D API. 3.x 는 geometry 가 System.Numerics 로 분리됨. -->
+    <PackageReference Include="HelixToolkit.Wpf" Version="2.24.0" />
+  </ItemGroup>
+
+</Project>

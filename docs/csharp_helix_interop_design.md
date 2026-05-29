@@ -373,12 +373,12 @@ cmake --build cpp/build --config Release --target routing3d_capi
 
 ## 8. 단계적 도입 로드맵
 
-| 단계 | 내용 | 산출물 |
-|---|---|---|
-| **P0** | `routing3d_capi`(코어 전용) + **Level 1 문자열 ABI**. C# 콘솔로 `r3d_route_scene_text` 왕복 검증(골든 03 = 5/5·28050mm 재현). | DLL + 스모크 테스트 |
-| **P1** | C# WPF + HelixToolkit 뷰어. scene.txt(또는 Level 1 결과) 로드 → 장애물·유틸별 경로 렌더(정적). | 뷰어 앱 |
-| **P2** | **Level 2 핸들 ABI**. 종단점 편집 → 단일 재라우팅 → 튜브 갱신(인터랙티브). | 인터랙티브 뷰어 |
-| **P3** | 대형 장면(OpenVDB/계층 corridor) DLL 옵션, 메시 머지·성능 튜닝, 다중 배관 충돌 표시. | 성능판 |
+| 단계 | 내용 | 산출물 | 상태 |
+|---|---|---|---|
+| **P0** | `routing3d_capi`(코어 전용) + **Level 1·2 ABI**. ctest `capi` 로 골든 03(5/5·28050mm) DLL 재현 + 문자열 왕복. | DLL + 스모크 테스트 | **완료 2026-05-29** |
+| **P1** | C# WPF + HelixToolkit 뷰어(`csharp/Routing3D.Viewer`). 내장 데모/scene.txt 로드 → 엔진(P/Invoke)으로 `route_multi` → 장애물 반투명 박스 + 유틸별 경로 튜브 렌더. | 뷰어 앱 | **완료 2026-05-29** |
+| **P2** | **종단점 편집 → 단일 재라우팅**(`r3d_set_task_endpoints`+`r3d_route_task`) → 튜브 갱신(인터랙티브). ABI·Engine 래퍼는 준비됨, UI 인터랙션만 남음. | 인터랙티브 뷰어 | 예정 |
+| **P3** | 대형 장면(OpenVDB/계층 corridor) DLL 옵션, 메시 머지·성능 튜닝, 다중 배관 충돌 표시. | 성능판 | 예정 |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).
 
@@ -402,6 +402,10 @@ cmake --build cpp/build --config Release --target routing3d_capi
 .\run.ps1 route --in scene.txt --out out/routed.scene.txt --mode multi
 .\.venv\Scripts\python.exe -m routing3d_py.viz_scene --in out/routed.scene.txt --screenshot out/routed.png
 
-# (설계 대상) DLL 빌드 후 C# 뷰어에서 직접 호출 — P0 부터 구현
-cmake --build cpp/build --config Release --target routing3d_capi
+# C# 뷰어(P1, 구현 완료): DLL 빌드 → 뷰어 빌드/실행
+cmake --build cpp/build --config Release --target routing3d_capi   # routing3d_capi.dll 생성
+dotnet build csharp/Routing3D.Viewer.sln -c Release                # DLL 자동 복사
+dotnet run --project csharp/Routing3D.Viewer -c Release            # 창: 내장 데모 자동 표시
 ```
+
+> 뷰어 구성: `csharp/Routing3D.Viewer/` — `Interop`(Native/SafeHandle/Engine) · `Model`(SceneData/SceneTextParser/UtilityColors) · `ViewModels`(SceneViewModel) · `MainWindow`. HelixToolkit.Wpf **2.24.0**(WPF 네이티브 MeshBuilder; 3.x 는 geometry 가 System.Numerics 로 분리). x64 고정, `routing3d_capi.dll` 은 빌드 출력으로 복사. 시작 시 내장 데모(골든03)를 엔진으로 라우팅해 표시한다.
