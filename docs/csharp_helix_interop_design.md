@@ -378,7 +378,8 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P0** | `routing3d_capi`(코어 전용) + **Level 1·2 ABI**. ctest `capi` 로 골든 03(5/5·28050mm) DLL 재현 + 문자열 왕복. | DLL + 스모크 테스트 | **완료 2026-05-29** |
 | **P1** | C# WPF + HelixToolkit 뷰어(`csharp/Routing3D.Viewer`). 내장 데모/scene.txt 로드 → 엔진(P/Invoke)으로 `route_multi` → 장애물 반투명 박스 + 유틸별 경로 튜브 렌더. | 뷰어 앱 | **완료 2026-05-29** |
 | **P2** | **인터랙티브 재라우팅**: 작업 목록(ListBox)에서 배관 선택 → 종단점(시작/끝 XYZ) 편집 → 단일 재라우팅(`set_task_endpoints`+`route_task`) 또는 전체(`route_multi`) → 모델 갱신. | 인터랙티브 뷰어 | **완료 2026-05-29** |
-| **P3** | 대형 장면(OpenVDB/계층 corridor) DLL 옵션, 메시 머지·성능 튜닝, 다중 배관 충돌 표시, 3D 직접 드래그 편집. | 성능판 | 예정 |
+| **P3a (뷰어)** | 충돌 셀 시각화(빨간 큐브), 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(`FindNearestPoint`→셀 스냅), 장애물/경로 메시 머지. | 뷰어 기능 | **완료 2026-05-29** |
+| **P3b (엔진)** | 대형 장면 OpenVDB/계층 corridor 라우팅을 C ABI 로 노출 + `routing3d_capi` 를 `USE_OPENVDB` 빌드(+런타임 openvdb/tbb DLL 동봉), 성능 튜닝. | 대형장면판 | 예정(후속) |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).
 
