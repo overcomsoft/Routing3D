@@ -392,6 +392,7 @@ cmake --build cpp/build --config Release --target routing3d_capi
   **C# 뷰어(--selftest) = C++ CLI(`route --mode multi --priority longest`)** 가 **77/208 성공·총 1,532,800 mm 완전 일치** →
   뷰어가 동일 capi(`route_multi_into_doc`)로 엔진 결과를 그대로 재현함을 확인.
 - 격자 해상도에 따라 성공 수가 달라짐(cell=200: 77/208, cell=100: 194/208) — 같은 파일끼리 비교해야 함.
+- **3자 교차검증(cell=100, `project6_c100.scene.txt`)**: Python(`route_sequential`) · C++ CLI(`route_multi`) · C# 뷰어(`--selftest`, P/Invoke) **모두 194/208 성공 · 총 3,400,800 mm 완전 일치** → Python 원형 → C++ 엔진 → C# 뷰어까지 동일 결과 보장.
 
 ---
 
