@@ -190,7 +190,8 @@ R3D_API R3dStatus r3d_dump_scene_text(const R3dEngine*, char** out_text);
 
 ---
 
-## 4. C# P/Invoke 계층
+## 4.
+계층
 
 ```csharp
 // Native.cs — 원시 P/Invoke (UTF-8 마샬링 주의)
@@ -379,7 +380,8 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P1** | C# WPF + HelixToolkit 뷰어(`csharp/Routing3D.Viewer`). 내장 데모/scene.txt 로드 → 엔진(P/Invoke)으로 `route_multi` → 장애물 반투명 박스 + 유틸별 경로 튜브 렌더. | 뷰어 앱 | **완료 2026-05-29** |
 | **P2** | **인터랙티브 재라우팅**: 작업 목록(ListBox)에서 배관 선택 → 종단점(시작/끝 XYZ) 편집 → 단일 재라우팅(`set_task_endpoints`+`route_task`) 또는 전체(`route_multi`) → 모델 갱신. | 인터랙티브 뷰어 | **완료 2026-05-29** |
 | **P3a (뷰어)** | 충돌 셀 시각화(빨간 큐브), 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(`FindNearestPoint`→셀 스냅), 장애물/경로 메시 머지. | 뷰어 기능 | **완료 2026-05-29** |
-| **P3b (엔진)** | 대형 장면 OpenVDB/계층 corridor 라우팅을 C ABI 로 노출 + `routing3d_capi` 를 `USE_OPENVDB` 빌드(+런타임 openvdb/tbb DLL 동봉), 성능 튜닝. | 대형장면판 | 예정(후속) |
+| **P3b (엔진)** | 대형 장면 **계층 corridor 라우팅을 C ABI 로 노출**(`r3d_route_corridor`). **SparseOccupancy + astar_hashed** 라 배열 할당 없이 초대형 격자 동작 → **OpenVDB DLL 동봉 불필요**(DLL 코어 전용 유지). C# 뷰어 corridor 버튼. ctest `capi` 가 2000²×8 Sparse 장면 라우팅 검증. | 대형장면 라우팅 | **완료 2026-05-29** |
+| P3b' (선택) | VDB 백엔드 capi(`USE_OPENVDB` 빌드 + openvdb/tbb DLL 동봉) — Sparse 로 목표 충족되어 보류. | (선택) | 미착수 |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).
 

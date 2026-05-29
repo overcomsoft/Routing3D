@@ -96,6 +96,35 @@ int main() {
     r3d_free_string(routed);
     r3d_destroy(e);
 
+    // ---------------------------------------------------------------- corridor(대형 Sparse)
+    // 2000x2000x8 격자(=Dense weighted A* 의 closed 배열 2000*2000*8*7≈2.2e11 불가)를
+    // Sparse + corridor 로 라우팅. 빈 공간 직선 → 길이 = 맨해튼 × cell.
+    {
+        R3dEngine* be = r3d_create();
+        check(be != nullptr, "corridor create");
+        const double sc = 50.0;
+        R3dGrid bg{sc, 0, 0, 0, 2000, 2000, 8};
+        check(r3d_set_grid(be, &bg) == R3D_OK, "corridor set_grid");
+        R3dParams bp{sc, 500.0, 10.0, 2, 6};
+        check(r3d_set_params(be, &bp) == R3D_OK, "corridor set_params");
+
+        const int si = 10, sj = 10, sk = 4, gi = 1990, gj = 1990, gk = 4;
+        double sx = (si + 0.5) * sc, sy = (sj + 0.5) * sc, sz = (sk + 0.5) * sc;
+        double gx = (gi + 0.5) * sc, gy = (gj + 0.5) * sc, gz = (gk + 0.5) * sc;
+        int ti = r3d_add_task(be, sx, sy, sz, gx, gy, gz, "X", "Y");
+        check(ti == 0, "corridor add_task");
+
+        check(r3d_route_corridor(be, 16, 4) == R3D_OK, "route_corridor");
+        R3dResult cr{};
+        check(r3d_get_result(be, 0, &cr) == R3D_OK, "corridor get_result");
+        double man = (double)((gi - si) + (gj - sj) + (gk - sk)) * sc;  // 198000
+        std::printf("[corridor] success=%d length=%.0f (manhattan=%.0f) expanded=%lld\n",
+                    cr.success, cr.length_mm, man, cr.expanded_nodes);
+        check(cr.success != 0, "corridor success on huge sparse scene");
+        check(cr.length_mm >= man - 1e-6 && cr.length_mm <= man * 1.10, "corridor length ~ manhattan");
+        r3d_destroy(be);
+    }
+
     if (g_failures == 0) {
         std::printf("ALL CAPI TESTS PASSED\n");
         return 0;

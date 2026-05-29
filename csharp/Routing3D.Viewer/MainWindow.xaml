@@ -10,6 +10,7 @@
             <Button Content="scene.txt 열기…" Command="{Binding OpenCommand}" Padding="8,2"/>
             <Separator/>
             <Button Content="전체 재라우팅(multi)" Command="{Binding RerouteCommand}" Padding="8,2"/>
+            <Button Content="corridor 라우팅(대형/독립)" Command="{Binding RerouteCorridorCommand}" Padding="8,2"/>
             <Separator/>
             <TextBlock Text="표시:" VerticalAlignment="Center" Margin="4,0,2,0"/>
             <CheckBox Content="장애물" IsChecked="{Binding ShowObstacles}" VerticalAlignment="Center" Margin="3,0"/>

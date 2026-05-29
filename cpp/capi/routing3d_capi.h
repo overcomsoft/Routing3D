@@ -106,6 +106,12 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
 R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(원본 장애물)
 
+// 계층 corridor 라우팅(대형 장면용). Sparse 점유 + coarse 가이드→fine tube(astar_hashed,
+// 해시 기반 → 8,000m 등 초대형 격자도 배열 할당 없이 동작). 작업별 독립(충돌 회피 없음).
+//   factor : coarse/fine 셀 비율(예 16).  radius : corridor 팽창 반경(coarse 셀).
+// 비용함수(회전/클리어런스)는 미적용(균일 비용). 결과는 작업 인덱스별로 저장.
+R3D_API R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius);
+
 // 결과/경로 조회.
 R3D_API R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out);
 // 경로 셀을 buf(int32_t[3*buf_cells], (i,j,k) 연속)에 복사. 반환=실제 복사한 셀 수.

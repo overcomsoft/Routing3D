@@ -51,6 +51,7 @@ namespace Routing3D.Viewer.ViewModels
             OpenCommand = new RelayCommand(Open);
             DemoCommand = new RelayCommand(LoadDemo);
             RerouteCommand = new RelayCommand(RerouteMulti, () => _scene != null);
+            RerouteCorridorCommand = new RelayCommand(RerouteCorridor, () => _scene != null);
             RerouteSelectedCommand = new RelayCommand(RerouteSelected, () => _selectedTask != null);
             PickStartCommand = new RelayCommand(() => SetPick(PickMode.Start), () => _selectedTask != null);
             PickEndCommand = new RelayCommand(() => SetPick(PickMode.End), () => _selectedTask != null);
@@ -75,6 +76,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand OpenCommand { get; }
         public RelayCommand DemoCommand { get; }
         public RelayCommand RerouteCommand { get; }
+        public RelayCommand RerouteCorridorCommand { get; }
         public RelayCommand RerouteSelectedCommand { get; }
         public RelayCommand PickStartCommand { get; }
         public RelayCommand PickEndCommand { get; }
@@ -183,6 +185,20 @@ namespace Routing3D.Viewer.ViewModels
                 BuildModel();
             }
             catch (Exception ex) { Status = "재라우팅 오류: " + ex.Message; }
+        }
+
+        // 대형 장면용 corridor 라우팅(작업별 독립 → 데모 같은 좁은 통로에선 겹쳐 충돌이 보인다).
+        private void RerouteCorridor()
+        {
+            if (_engine == null || _scene == null) return;
+            try
+            {
+                SyncEndpoints();
+                _engine.RouteCorridor(16, 2);
+                RefreshResults();
+                BuildModel();
+            }
+            catch (Exception ex) { Status = "corridor 라우팅 오류: " + ex.Message; }
         }
 
         private void RerouteSelected()

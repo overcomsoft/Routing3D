@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "routing3d/astar.hpp"
+#include "routing3d/corridor.hpp"
 #include "routing3d/cost.hpp"
 #include "routing3d/multi_route.hpp"
 #include "routing3d/occupancy.hpp"
@@ -253,6 +254,43 @@ extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     if (!e) return R3D_ERR_ARG;
     try {
         route_multi_into_doc(e->doc, priority ? priority : "longest");
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+// 대형 장면용 corridor 라우팅: 장애물을 fine/coarse Sparse 점유로 만들고 작업별 route_corridor.
+// Sparse + astar_hashed 라 occ.size() 배열을 잡지 않으므로 초대형 격자도 동작(메모리=점유 셀).
+extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius) {
+    if (!e) return R3D_ERR_ARG;
+    if (factor < 1 || radius < 0) return R3D_ERR_ARG;
+    try {
+        SceneDoc& doc = e->doc;
+
+        // fine/coarse 희소 점유맵(장애물만). coarse 셀 = fine 셀 × factor.
+        SparseOccupancy fine(doc.shape, doc.origin, doc.cell_mm);
+        Cell cshape{(doc.shape.i + factor - 1) / factor, (doc.shape.j + factor - 1) / factor,
+                    (doc.shape.k + factor - 1) / factor};
+        SparseOccupancy coarse(cshape, doc.origin, doc.cell_mm * factor);
+        for (const Obstacle& o : doc.obstacles) {
+            try {
+                AABB box(o.min_xyz, o.max_xyz);
+                fine.add_box(box);
+                coarse.add_box(box);
+            } catch (...) {
+                // 퇴화 박스 무시.
+            }
+        }
+
+        doc.results.assign(doc.tasks.size(), std::nullopt);
+        for (size_t i = 0; i < doc.tasks.size(); ++i) {
+            const RouteTask& t = doc.tasks[i];
+            Cell s = snap_to_free_cell(fine, fine.to_cell(t.start_mm), 2);
+            Cell g = snap_to_free_cell(fine, fine.to_cell(t.end_mm), 2);
+            CorridorRoute cr = route_corridor(fine, coarse, s, g, factor, radius, -1);
+            doc.results[i] = to_scene_result(cr.fine);
+        }
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;

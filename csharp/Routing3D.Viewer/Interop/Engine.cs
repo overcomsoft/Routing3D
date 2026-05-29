@@ -73,6 +73,10 @@ namespace Routing3D.Viewer.Interop
             return GetResult(task);
         }
 
+        // 대형 장면용 계층 corridor 라우팅(Sparse + coarse→fine). 작업별 독립(충돌 회피 없음).
+        public void RouteCorridor(int factor = 16, int radius = 2)
+            => Check(Native.r3d_route_corridor(H, factor, radius), "route_corridor");
+
         // ---- 결과 조회 ----
         public RouteResult GetResult(int task)
         {
