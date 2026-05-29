@@ -35,6 +35,10 @@ if(MSVC)
     target_compile_options(routing3d_core PRIVATE /W4 /permissive-)
 endif()
 
+# 엔진 실행 CLI (scene.txt 라우팅 + 내장 데모). 외부 의존성 불필요(코어만).
+add_executable(routing3d_cli cli/routing3d_cli.cpp)
+target_link_libraries(routing3d_cli PRIVATE routing3d_core)
+
 enable_testing()
 add_executable(test_golden tests/test_golden.cpp)
 target_link_libraries(test_golden PRIVATE routing3d_core)
