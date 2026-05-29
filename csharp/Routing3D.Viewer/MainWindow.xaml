@@ -3,19 +3,74 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:h="http://helix-toolkit.org/wpf"
         Title="Routing3D Viewer — C++ engine · C# HelixToolkit"
-        Height="820" Width="1240">
+        Height="820" Width="1320">
     <DockPanel>
         <ToolBar DockPanel.Dock="Top">
             <Button Content="내장 데모" Command="{Binding DemoCommand}" Padding="8,2"/>
             <Button Content="scene.txt 열기…" Command="{Binding OpenCommand}" Padding="8,2"/>
             <Separator/>
-            <Button Content="재라우팅(multi)" Command="{Binding RerouteCommand}" Padding="8,2"/>
+            <Button Content="전체 재라우팅(multi)" Command="{Binding RerouteCommand}" Padding="8,2"/>
         </ToolBar>
 
         <StatusBar DockPanel.Dock="Bottom">
-            <TextBlock Text="{Binding Status}"/>
+            <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis"/>
         </StatusBar>
 
+        <!-- 오른쪽: 작업 목록 + 종단점 편집(인터랙티브 재라우팅) -->
+        <Border DockPanel.Dock="Right" Width="320" BorderBrush="#FFCCCCCC" BorderThickness="1,0,0,0">
+            <DockPanel Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="작업 목록" FontWeight="Bold" Margin="0,0,0,6"/>
+
+                <!-- 하단: 선택 배관 종단점 편집기 -->
+                <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8"
+                        Background="#FFF6F6F6" BorderBrush="#FFDDDDDD" BorderThickness="1" CornerRadius="4">
+                    <StackPanel>
+                        <TextBlock Text="선택 배관 종단점 편집 (mm)" FontWeight="Bold" Margin="0,0,0,6"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="X / Y / Z" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="시작" VerticalAlignment="Center" Margin="0,2"/>
+                            <TextBox  Grid.Row="1" Grid.Column="1" Margin="2" Text="{Binding SelectedTask.Sx, Mode=TwoWay}"/>
+                            <TextBox  Grid.Row="1" Grid.Column="2" Margin="2" Text="{Binding SelectedTask.Sy, Mode=TwoWay}"/>
+                            <TextBox  Grid.Row="1" Grid.Column="3" Margin="2" Text="{Binding SelectedTask.Sz, Mode=TwoWay}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="끝" VerticalAlignment="Center" Margin="0,2"/>
+                            <TextBox  Grid.Row="2" Grid.Column="1" Margin="2" Text="{Binding SelectedTask.Gx, Mode=TwoWay}"/>
+                            <TextBox  Grid.Row="2" Grid.Column="2" Margin="2" Text="{Binding SelectedTask.Gy, Mode=TwoWay}"/>
+                            <TextBox  Grid.Row="2" Grid.Column="3" Margin="2" Text="{Binding SelectedTask.Gz, Mode=TwoWay}"/>
+                        </Grid>
+                        <Button Content="선택 배관 재라우팅(단일)" Margin="0,8,0,0" Padding="6,3"
+                                Command="{Binding RerouteSelectedCommand}"/>
+                        <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시). 충돌없는 결과는 상단 '전체 재라우팅'."
+                                   TextWrapping="Wrap" Foreground="#FF777777" FontSize="11" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 작업 리스트 -->
+                <ListBox ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
+                                           Stroke="#FF888888" StrokeThickness="0.5" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding Display}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 중앙: 3D 뷰 + 범례 오버레이 -->
         <Grid>
             <h:HelixViewport3D x:Name="View"
                                Background="White"
@@ -30,7 +85,6 @@
                 <ModelVisual3D Content="{Binding SceneModel}"/>
             </h:HelixViewport3D>
 
-            <!-- 범례 오버레이 -->
             <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12"
                     Background="#E6FFFFFF" BorderBrush="#FFBBBBBB" BorderThickness="1"
                     CornerRadius="4" Padding="8">

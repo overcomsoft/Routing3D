@@ -1,17 +1,17 @@
-// 뷰모델 — C++ 엔진(routing3d_capi) 라우팅 + HelixToolkit 3D 모델 구성
+// 뷰모델 — C++ 엔진(routing3d_capi) 라우팅 + HelixToolkit 3D 모델 구성 + 인터랙티브 재라우팅(P2)
 // =============================================================================
 // [이 파일이 하는 일]
-//   scene.txt(또는 내장 데모)를 읽어 격자/장애물/작업을 파싱하고, 같은 장면을 C++
-//   엔진에 적재해 라우팅한 뒤(엔진=C++, 뷰어=C#), 결과 경로를 받아 HelixToolkit
-//   Model3DGroup(장애물 반투명 박스 + 유틸리티별 경로 튜브)으로 만든다.
+//   scene.txt(또는 내장 데모)를 읽어 격자/장애물/작업을 파싱하고, 같은 장면을 C++ 엔진에
+//   적재해 라우팅한 뒤(엔진=C++, 뷰어=C#), 결과 경로를 받아 HelixToolkit Model3DGroup
+//   (장애물 반투명 박스 + 유틸리티별 경로 튜브)으로 만든다.
+//   P2: 작업 목록에서 배관을 선택해 종단점을 편집하고, 단일 재라우팅(set_task_endpoints +
+//   route_task)으로 해당 경로만 즉시 갱신한다. 전체 재라우팅(route_multi)도 제공한다.
 // =============================================================================
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
@@ -19,7 +19,6 @@ using HelixToolkit.Wpf;
 using Microsoft.Win32;
 using Routing3D.Viewer.Interop;
 using Routing3D.Viewer.Model;
-using Routing3D.Viewer.ViewModels;
 
 namespace Routing3D.Viewer.ViewModels
 {
@@ -30,49 +29,44 @@ namespace Routing3D.Viewer.ViewModels
         public string Label { get; init; } = string.Empty;
     }
 
-    public sealed class SceneViewModel : INotifyPropertyChanged
+    public sealed class SceneViewModel : ObservableObject
     {
         private Engine? _engine;
         private SceneData? _scene;
-        private string _priority = "longest";
+        private readonly string _priority = "longest";
 
         private Model3D? _sceneModel;
         private string _status = string.Empty;
+        private TaskRowVM? _selectedTask;
 
         public SceneViewModel()
         {
             OpenCommand = new RelayCommand(Open);
             DemoCommand = new RelayCommand(LoadDemo);
-            RerouteCommand = new RelayCommand(Reroute, () => _scene != null);
+            RerouteCommand = new RelayCommand(RerouteMulti, () => _scene != null);
+            RerouteSelectedCommand = new RelayCommand(RerouteSelected, () => _selectedTask != null);
 
-            // 시작 시 내장 데모를 자동 표시(엔진 호출 검증). DLL 없으면 상태에 오류 표시.
             try { LoadDemo(); }
             catch (Exception ex) { Status = "엔진 초기화 오류: " + ex.Message; }
         }
 
         // ---- 바인딩 속성 ----
-        public Model3D? SceneModel
-        {
-            get => _sceneModel;
-            private set { _sceneModel = value; OnChanged(); }
-        }
+        public Model3D? SceneModel { get => _sceneModel; private set => Set(ref _sceneModel, value); }
+        public string Status { get => _status; private set => Set(ref _status, value); }
+        public TaskRowVM? SelectedTask { get => _selectedTask; set => Set(ref _selectedTask, value); }
 
-        public string Status
-        {
-            get => _status;
-            private set { _status = value; OnChanged(); }
-        }
-
+        public ObservableCollection<TaskRowVM> Tasks { get; } = new();
         public ObservableCollection<LegendItem> Legend { get; } = new();
 
         public RelayCommand OpenCommand { get; }
         public RelayCommand DemoCommand { get; }
         public RelayCommand RerouteCommand { get; }
+        public RelayCommand RerouteSelectedCommand { get; }
 
         /// <summary>모델을 새로 만들면 발생(코드비하인드가 ZoomExtents 호출).</summary>
         public event Action? SceneRebuilt;
 
-        // ---- 명령 구현 ----
+        // ---- 로드 ----
         private void Open()
         {
             var dlg = new OpenFileDialog
@@ -89,10 +83,10 @@ namespace Routing3D.Viewer.ViewModels
         {
             string text = File.ReadAllText(path, Encoding.UTF8);
             _scene = SceneTextParser.Parse(text);
-
             ResetEngine();
             _engine!.LoadSceneText(text);
-            Reroute();
+            BuildTaskRows();
+            RerouteMulti();
         }
 
         /// <summary>내장 데모(골든03): 120x120x60, 바닥 슬래브, 같은 통로 5개 배관.</summary>
@@ -120,20 +114,89 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var t in sc.Tasks)
                 _engine.AddTask(t.Sx, t.Sy, t.Sz, t.Gx, t.Gy, t.Gz, t.Utility, t.Group);
 
-            Reroute();
-        }
-
-        private void Reroute()
-        {
-            if (_engine == null || _scene == null) return;
-            _engine.RouteMulti(_priority);
-            BuildModel();
+            BuildTaskRows();
+            RerouteMulti();
         }
 
         private void ResetEngine()
         {
             _engine?.Dispose();
             _engine = new Engine();
+        }
+
+        // ---- 작업 목록 ----
+        private void BuildTaskRows()
+        {
+            Tasks.Clear();
+            var scene = _scene!;
+            var colorMap = UtilityColors.Assign(scene.Tasks.Select(t => t.UtilityLabel));
+            for (int i = 0; i < scene.Tasks.Count; i++)
+            {
+                var t = scene.Tasks[i];
+                var color = colorMap.TryGetValue(t.UtilityLabel, out var c) ? c : Colors.Gray;
+                Tasks.Add(new TaskRowVM
+                {
+                    Index = i, Label = t.UtilityLabel, Swatch = new SolidColorBrush(color),
+                    Sx = t.Sx, Sy = t.Sy, Sz = t.Sz, Gx = t.Gx, Gy = t.Gy, Gz = t.Gz
+                });
+            }
+            SelectedTask = Tasks.FirstOrDefault();
+        }
+
+        // 편집된 종단점을 SceneData + 엔진에 반영.
+        private void SyncEndpoints()
+        {
+            if (_engine == null || _scene == null) return;
+            foreach (var row in Tasks)
+            {
+                var t = _scene.Tasks[row.Index];
+                t.Sx = row.Sx; t.Sy = row.Sy; t.Sz = row.Sz;
+                t.Gx = row.Gx; t.Gy = row.Gy; t.Gz = row.Gz;
+                _engine.SetTaskEndpoints(row.Index, row.Sx, row.Sy, row.Sz, row.Gx, row.Gy, row.Gz);
+            }
+        }
+
+        // ---- 재라우팅 ----
+        private void RerouteMulti()
+        {
+            if (_engine == null || _scene == null) return;
+            try
+            {
+                SyncEndpoints();
+                _engine.RouteMulti(_priority);
+                RefreshResults();
+                BuildModel();
+            }
+            catch (Exception ex) { Status = "재라우팅 오류: " + ex.Message; }
+        }
+
+        private void RerouteSelected()
+        {
+            if (_engine == null || _scene == null || SelectedTask == null) return;
+            try
+            {
+                SyncEndpoints();                       // 편집 반영(전체 동기화).
+                _engine.RouteTask(SelectedTask.Index); // 선택 배관만 단일 재라우팅(원본 장애물).
+                RefreshResults();
+                BuildModel();
+                Status = $"선택 배관 #{SelectedTask.Index} 단일 재라우팅 완료   |   " + Status;
+            }
+            catch (Exception ex) { Status = "단일 재라우팅 오류: " + ex.Message; }
+        }
+
+        // 엔진 결과를 작업 행에 반영(성공/길이).
+        private void RefreshResults()
+        {
+            foreach (var row in Tasks)
+            {
+                try
+                {
+                    var r = _engine!.GetResult(row.Index);
+                    row.Success = r.Success;
+                    row.LengthMm = r.LengthMm;
+                }
+                catch { row.Success = false; row.LengthMm = 0; }
+            }
         }
 
         // ---- 3D 모델 구성 ----
@@ -205,12 +268,7 @@ namespace Routing3D.Viewer.ViewModels
         private static GeometryModel3D Geometry(MeshBuilder mb, Color color, byte alpha)
         {
             var mat = MaterialFor(color, alpha);
-            return new GeometryModel3D
-            {
-                Geometry = mb.ToMesh(),
-                Material = mat,
-                BackMaterial = mat
-            };
+            return new GeometryModel3D { Geometry = mb.ToMesh(), Material = mat, BackMaterial = mat };
         }
 
         private static Material MaterialFor(Color color, byte alpha)
@@ -218,10 +276,5 @@ namespace Routing3D.Viewer.ViewModels
             var c = Color.FromArgb(alpha, color.R, color.G, color.B);
             return new DiffuseMaterial(new SolidColorBrush(c));
         }
-
-        // ---- INotifyPropertyChanged ----
-        public event PropertyChangedEventHandler? PropertyChanged;
-        private void OnChanged([CallerMemberName] string? name = null) =>
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

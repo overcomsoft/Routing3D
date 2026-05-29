@@ -66,6 +66,13 @@ namespace Routing3D.Viewer.Interop
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
+        // 단일 작업 재라우팅(원본 장애물 기준, 다른 배관 무시). 결과는 엔진에 저장된다.
+        public RouteResult RouteTask(int task)
+        {
+            Check(Native.r3d_route_task(H, task, out _), "route_task");
+            return GetResult(task);
+        }
+
         // ---- 결과 조회 ----
         public RouteResult GetResult(int task)
         {
