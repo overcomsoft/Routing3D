@@ -77,7 +77,8 @@ def ch_intro():
               "각 단계는 '무엇을·왜·어떻게'를 흐름도와 알고리즘으로 설명하고, 구현의 자료구조·주요 "
               "함수·주요 변수, 그리고 측정된 결과와 실행명령어를 포함한다."),
         ("p", "구성은 프로젝트 전체 개요(1장) → Phase 1 Python 알고리즘 실험(2장) → Phase 2 인터페이스 "
-              "동결(3장) → Phase 3 C++ 엔진 + pybind11(4장) → 전체 결과·향후 과제(5장) 순이다."),
+              "동결(3장) → Phase 3 C++ 엔진 + pybind11(4장) → C++↔C# 인터롭·HelixToolkit 뷰어(5장) → "
+              "전체 결과·향후 과제(6장) 순이다."),
         ("h2", "0.1 목차"),
         ("b", [
             "1. 프로젝트 전체 개요 — 목적 / 3단계 전략 / 아키텍처 / 개념 / 환경 / 불변식",
@@ -85,9 +86,10 @@ def ch_intro():
             "scene.txt I/O(2.5) · 성능 프로파일(2.6) · 회귀 골든셋(2.7)",
             "3. Phase 2 — 알고리즘 명세(3.1) · scene.txt v1 규격(3.2) · 회귀 골든셋(3.3) · 성능 목표(3.4)",
             "4. Phase 3 — 빌드 체계(4.1) · 점유 백엔드(4.2) · 직교 A*(4.3) · 비용함수(4.4) · "
-            "다중배관(4.5) · scene.txt I/O(4.6) · 계층 corridor(4.7) · FCL 충돌(4.8) · "
+            "다중배관+rip-up(4.5) · scene.txt I/O(4.6) · 계층 corridor(4.7) · FCL 충돌(4.8) · "
             "pybind11(4.9) · 실행 CLI(4.10)",
-            "5. 전체 결과 요약 및 향후 과제",
+            "5. C++↔C# 인터롭 — C ABI DLL(5.1) · HelixToolkit 뷰어(5.2) · 실데이터 교차검증(5.3)",
+            "6. 전체 결과 요약 및 향후 과제",
         ]),
         ("pb", None),
     ]
@@ -594,7 +596,8 @@ def ch_phase3():
                 ["8,000m 로컬 배관", "해시 A* + corridor 로 ~75ms 라우팅(전역 최단 동일 길이)"],
                 ["FCL sub-voxel", "틈 200mm: 가는 파이프(r50) 통과·굵은(r150) 충돌"],
                 ["pybind11", "routing3d_cpp 경유 골든 01/02 경로셀·03·scene.txt 왕복 일치"],
-                ["ctest 전체", "7/7 통과(golden·scene_io·occupancy·corridor·vdb·fcl·bindings)"],
+                ["rip-up(3.8)", "합성 혼잡 1/2→2/2(+1) 실증, project6 는 베이스라인과 동일(접근불가 한계)"],
+                ["ctest 전체", "8/8 통과(golden·scene_io·occupancy·corridor·vdb·fcl·bindings·capi)"],
             ],
         )),
         ("pb", None),
@@ -731,6 +734,36 @@ def _p3_multi():
         )),
         ("h3", "결과"),
         ("p", "골든 03: 5/5 성공·충돌 0·총 28050mm. 계약 M1(충돌 0)·M2(원본 불변) 보존(DenseOccupancy::copy)."),
+        ("h3", "rip-up & reroute (Step 3.8)"),
+        ("p", "순차 라우팅(greedy)은 먼저 깔린 배관이 통로를 선점하면 후순위 배관이 막힌다. "
+              "route_ripup 은 이를 '뜯어내고 다시 깔아' 해소한다. 무손실(채택 시 성공 +1) "
+              "결정적 알고리즘이라 성공 수가 절대 줄지 않고, Python·C++ 가 동일 결과를 낸다."),
+        ("code",
+         "  route_ripup(occ, tasks, params, priority, max_rounds, max_ripup)\n"
+         "   0) route_sequential 베이스라인(placed = 성공 배관 경로 맵)\n"
+         "   라운드 반복:\n"
+         "     실패 배관 f 마다:\n"
+         "       a) '장애물만' 점유맵에서 f 의 이상(ideal) 경로 — 실패하면 접근불가(영구 실패)\n"
+         "       b) ideal 이 가로지르는 기존 배관 = blocker (max_ripup 개 이하)\n"
+         "       c) blocker 뜯어냄 → f 배치 → blocker 전부 재라우팅\n"
+         "       d) f 성공 + blocker 전부 재배치 성공일 때만 채택(무손실), 아니면 폐기\n"
+         "     채택이 없으면 종료"),
+        ("b", [
+            "단조성: 채택마다 +1 → 라운드·시도는 유한(초기 실패 수가 상한).",
+            "결정성: placed 를 std::map(키 정렬)으로 반복, blocker 는 인덱스 오름차순 → Python set/sorted 와 동일.",
+            "CLI: routing3d_cli route --mode ripup. C ABI: r3d_route_ripup.",
+        ]),
+        ("table", (
+            ["검증", "결과"],
+            [
+                ["합성 혼잡(틈 2개 벽)", "순차 1/2 → rip-up 2/2 (긴 배관 1000→1300mm 우회, 짧은 배관 회생). +1 실증"],
+                ["project6 cell=100", "순차 194/208 = rip-up 194/208 (Python·C++ 동일). 실패 14건은 종단 PoC 접근성 한계로 무손실 rip-up 으로는 해소 불가"],
+                ["Python ↔ C++", "동일 씬·동일 순서 → 동일 성공 수·총 길이(교차검증)"],
+            ],
+        )),
+        ("p", "해석: rip-up 은 '혼잡(다른 배관이 막음)'은 해소하지만 '접근불가(종단이 장애물에 파묻힘)'는 "
+              "구조상 해소할 수 없다. project6 의 잔여 실패는 후자 성격이며, 해소하려면 PoC 전처리/스냅 확장 또는 "
+              "비용기반 negotiated-congestion(후속)이 필요하다."),
     ]
 
 
@@ -844,19 +877,100 @@ def _p3_cli():
 
 
 # =============================================================================
-# 5. 전체 결과 요약 및 향후 과제
+# 5. C++ ↔ C# 인터롭 + HelixToolkit 뷰어
+# =============================================================================
+def ch_csharp():
+    return [
+        ("h1", "5. C++ ↔ C# 인터롭 + HelixToolkit 뷰어"),
+        ("p", "엔진은 C++ 로 두고 가시화를 C#(WPF + HelixToolkit)로 구현한다. C++ 코어를 의존성 없는 "
+              "단일 DLL(C ABI)로 노출하고, C# 가 P/Invoke 로 호출해 라우팅 결과를 3D 로 그린다. "
+              "단계 P0(DLL) → P1(뷰어) → P2(인터랙티브) → P3a(뷰어 기능) → P3b(대형장면) → P3c(검증)."),
+        ("h2", "5.1 C ABI 네이티브 DLL (routing3d_capi)"),
+        ("h3", "개요 / 설계"),
+        ("p", "C++ 코어만 링크한 외부 의존성 0 의 단일 DLL(약 261KB). 경계는 순수 C ABI(extern \"C\", cdecl): "
+              "불투명 핸들 + POD blittable 구조체 + 원시 배열. 예외는 절대 경계를 넘지 않게 try/catch→상태코드. "
+              "한글 이름을 위해 모든 문자열은 UTF-8."),
+        ("b", [
+            "Level 1(문자열): r3d_route_scene_text — scene.txt in→out (mode multi|single).",
+            "Level 2(핸들): r3d_create/destroy/load_scene_text/set_grid/set_params/add_obstacle/add_task/"
+            "set_task_endpoints/route_multi/route_task/route_corridor/route_ripup/get_result/copy_path/dump_scene_text.",
+            "불투명 핸들 R3dEngine = SceneDoc 보유. 콜리 할당 문자열은 r3d_free_string(동일 DLL malloc/free).",
+            "경로는 2단계(R3dResult.path_len → r3d_copy_path, 콜러 할당).",
+        ]),
+        ("h3", "주요 함수 / 결과"),
+        ("table", (
+            ["함수", "역할"],
+            [
+                ["r3d_route_scene_text", "Level 1: scene.txt 문자열을 받아 라우팅한 scene.txt 반환."],
+                ["r3d_route_multi / route_task", "전체 다중 / 단일 작업 라우팅(핸들)."],
+                ["r3d_route_corridor", "대형 장면 계층 corridor(Sparse, 배열 미할당)."],
+                ["r3d_route_ripup", "rip-up & reroute(Step 3.8)."],
+                ["r3d_get_result / r3d_copy_path", "결과 지표 / 경로 셀 복사."],
+            ],
+        )),
+        ("p", "검증: ctest capi 가 DLL 경유 골든03(5/5·28050mm) + 문자열 왕복 + 2000²×8 Sparse corridor 라우팅. "
+              "ctest 8/8 통과."),
+        ("h2", "5.2 C# WPF + HelixToolkit 뷰어 (Routing3D.Viewer)"),
+        ("h3", "개요 / 구성"),
+        ("p", ".NET 9(net9.0-windows, x64 고정) WPF. P/Invoke + SafeHandle + 관리형 Engine 래퍼로 DLL 을 호출하고 "
+              "HelixToolkit.Wpf 2.24.0(WPF 네이티브 MeshBuilder)로 3D 렌더. MVVM(SceneViewModel)."),
+        ("b", [
+            "Interop/: Native(P/Invoke, UTF-8 byte[] 마샬링) · R3dEngineHandle(SafeHandle) · Engine(OOP 래퍼).",
+            "Model/: SceneData · SceneTextParser · UtilityColors(Python utility_colors 동일 규약) · CollisionFinder.",
+            "ViewModels/SceneViewModel: 장애물 반투명 박스 머지 + 유틸리티별 경로 튜브 + 충돌 빨간 큐브.",
+            "HelixToolkit 3.x 는 geometry 가 System.Numerics 로 분리돼 WPF 변환이 번거로워 2.24.0 채택.",
+        ]),
+        ("h3", "단계별 기능"),
+        ("table", (
+            ["단계", "내용"],
+            [
+                ["P1 뷰어", "내장 데모/scene.txt 로드 → route_multi → 장애물·경로 3D 렌더."],
+                ["P2 인터랙티브", "작업 목록 선택 → 종단점(XYZ) 편집 → 단일/전체 재라우팅."],
+                ["P3a 뷰어 기능", "충돌 셀 시각화, 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(셀 스냅)."],
+                ["P3b 대형장면", "corridor 라우팅 버튼(Sparse, OpenVDB 불필요 → DLL 코어 전용 유지)."],
+                ["P3c 검증", "명령행 인자 scene.txt 로드 + --selftest 헤드리스(창 없이 전체 파이프라인) 검증."],
+            ],
+        )),
+        ("h2", "5.3 실데이터 교차검증 (PostgreSQL → Python · C++ · C#)"),
+        ("p", "기존 플랜트 DB(AUTOROUTINGV7 / TB_BIM_OBSTACLES)의 실제 장애물로 project6 씬을 만들고 "
+              "세 구현이 같은 파일에서 같은 결과를 내는지 검증했다."),
+        ("table", (
+            ["엔진", "project6 (cell=100, 장애물 983·작업 208)"],
+            [
+                ["Python (route_sequential)", "194/208 성공"],
+                ["C++ CLI (route_multi)", "194/208 성공 · 총 3,400,800 mm"],
+                ["C# 뷰어 (--selftest, P/Invoke)", "194/208 성공 · 총 3,400,800 mm"],
+            ],
+        )),
+        ("p", "→ Python 원형 → C++ 엔진 → C# 뷰어까지 완전 동일 결과. cell=200 동일 파일에서도 셋 다 "
+              "77/208·1,532,800mm 로 일치(격자 해상도에 따라 성공 수가 달라지므로 같은 파일끼리 비교)."),
+        ("h3", "실행명령어"),
+        ("code",
+         "# DLL 빌드 → 뷰어 빌드/실행\n"
+         "cmake --build cpp/build --config Release --target routing3d_capi\n"
+         "dotnet build csharp/Routing3D.Viewer.sln -c Release\n"
+         "dotnet run --project csharp/Routing3D.Viewer -c Release            # 창: 내장 데모\n"
+         "Routing3D.Viewer.exe path\\to\\scene.txt                            # 그 scene 로드\n"
+         "Routing3D.Viewer.exe --selftest scene.txt out.txt                  # 헤드리스 검증"),
+        ("pb", None),
+    ]
+
+
+# =============================================================================
+# 6. 전체 결과 요약 및 향후 과제
 # =============================================================================
 def ch_conclusion():
     return [
-        ("h1", "5. 전체 결과 요약 및 향후 과제"),
-        ("h2", "5.1 달성 요약"),
+        ("h1", "6. 전체 결과 요약 및 향후 과제"),
+        ("h2", "6.1 달성 요약"),
         ("b", [
             "Phase 1: Python 알고리즘(점유맵·A*·비용·다중배관·scene.txt·시각화·회귀 골든셋) 완료, pytest 203 통과.",
             "Phase 2: 알고리즘/포맷/골든셋/성능목표 명세 동결, 계약(불변식) 확정.",
-            "Phase 3: C++ 엔진(코어 + OpenVDB + 계층 corridor + FCL + pybind11 + CLI) 구현, ctest 7/7 통과.",
+            "Phase 3: C++ 엔진(코어 + OpenVDB + 계층 corridor + FCL + rip-up + pybind11 + CLI) 구현, ctest 8/8 통과.",
+            "C# 인터롭: C ABI DLL + HelixToolkit 뷰어(P0~P3c). 실 DB 데이터로 Python=C++=C# 결과 일치 교차검증.",
             "교차검증: 골든 01/02/03 을 expanded_nodes 까지 Python 과 정확 일치(세 백엔드 동일).",
         ]),
-        ("h2", "5.2 성능 목표 대비 현황"),
+        ("h2", "6.2 성능 목표 대비 현황"),
         ("table", (
             ["목표", "현황"],
             [
@@ -866,13 +980,15 @@ def ch_conclusion():
                 ["골든셋 재현", "3종 모두 허용범위 내(다수 항목 정확) 재현."],
             ],
         )),
-        ("h2", "5.3 향후 과제 (Phase 3 잔여)"),
+        ("h2", "6.3 향후 과제 (Phase 3 잔여)"),
         ("table", (
             ["항목", "내용"],
             [
-                ["3.8 rip-up & reroute / CBS", "혼잡 출발부 경합 해소 → 성공률↑(현 greedy 한계)."],
+                ["3.8 rip-up & reroute", "구현·교차검증 완료(합성 +1 실증). 잔여: 접근불가(매장 PoC)는 PoC 전처리/스냅 확장, "
+                 "혼잡은 비용기반 negotiated-congestion/CBS 로 추가 개선."],
                 ["3.11 벤치 · 최적화", "corridor 폭/해상도 튜닝, 클리어런스 로컬화, 라우팅에 FCL 통합, 독립 배관 병렬화."],
                 ["3.12 회귀 리포트", "표준 벤치 셋(골든 3종 + project6 + 8,000m 합성)의 성능·정확도 리포트."],
+                ["P3b' OpenVDB capi(선택)", "VDB 백엔드를 C ABI 로 노출 + 런타임 DLL 동봉 — Sparse 로 충족돼 보류."],
             ],
         )),
         ("p", "본 보고서는 2026-05-29 시점의 구현을 기준으로 한다. 최신 상태는 코드와 git 이력이 정답이다."),
@@ -885,7 +1001,7 @@ def main():
     set_base_style(doc)
     add_cover(doc)
     doc.add_page_break()
-    for chapter in (ch_intro, ch_overview, ch_phase1, ch_phase2, ch_phase3, ch_conclusion):
+    for chapter in (ch_intro, ch_overview, ch_phase1, ch_phase2, ch_phase3, ch_csharp, ch_conclusion):
         emit(doc, chapter())
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     doc.save(OUT_PATH)
