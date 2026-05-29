@@ -15,8 +15,8 @@
 import pytest
 
 from routing3d_py.cost import RouteParams
-from routing3d_py.multi_route import order_tasks, route_sequential
-from routing3d_py.occupancy import DenseOccupancyMap
+from routing3d_py.multi_route import order_tasks, route_ripup, route_sequential
+from routing3d_py.occupancy import AABB, DenseOccupancyMap
 from routing3d_py.scene import RouteTask
 
 
@@ -142,3 +142,49 @@ def test_summary_string():
     s = mr.summary()
     assert "다중배관" in s
     assert "1/1" in s
+
+
+# ----------------------------------------------------------------- rip-up & reroute (3.8)
+
+def _center(i, j, k=0, cell=100.0):
+    return ((i + 0.5) * cell, (j + 0.5) * cell, (k + 0.5) * cell)
+
+
+def test_ripup_resolves_congestion():
+    """벽에 틈 2개. 긴 배관이 먼저 틈6 을 막아 짧은 배관이 실패하지만, rip-up 이 긴 배관을
+    틈2 로 우회시켜 둘 다 성공시킨다(순차 1/2 → rip-up 2/2). 값은 C++ test_ripup 과 동일."""
+    cell = 100.0
+    occ = DenseOccupancyMap(shape=(9, 9, 1), cell_mm=cell)
+    for i in range(9):                       # j=4 벽, i=2·i=6 만 틈.
+        if i in (2, 6):
+            continue
+        occ.add_box(AABB((i * cell, 4 * cell, 0.0), ((i + 1) * cell, 5 * cell, cell)))
+
+    long_ = _task(_center(6, 0), _center(4, 8), util="LONG", grp="Demo")   # dist 10 → 먼저
+    short = _task(_center(7, 0), _center(6, 8), util="SHORT", grp="Demo")  # dist 9  → 나중
+    params = RouteParams(cell_mm=cell)
+
+    base = route_sequential(occ, [long_, short], params, priority="longest")
+    rip = route_ripup(occ, [long_, short], params, priority="longest")
+
+    assert base.success_count == 1            # 순차(greedy): SHORT 막힘.
+    assert rip.success_count == 2             # rip-up: 혼잡 해소(+1).
+    assert rip.success_count >= base.success_count  # 무손실 보장.
+
+    by = {p.task.utility: p.result for p in rip.pipes}
+    assert by["LONG"].length_mm == 1300.0     # 우회(틈2).
+    assert by["SHORT"].length_mm == 900.0
+    base_long = next(p.result for p in base.pipes if p.task.utility == "LONG")
+    assert base_long.length_mm == 1000.0      # 순차 LONG 은 최단(우회 전).
+
+
+def test_ripup_never_worse_than_sequential():
+    """rip-up 성공 수는 항상 순차 이상(무손실)."""
+    occ = _occ((10, 10, 1))
+    tasks = [
+        _task((25, 25, 25), (475, 25, 25), util="A"),
+        _task((25, 225, 25), (475, 225, 25), util="B"),
+    ]
+    base = route_sequential(occ, tasks, RouteParams(cell_mm=50, w_turn=0))
+    rip = route_ripup(occ, tasks, RouteParams(cell_mm=50, w_turn=0))
+    assert rip.success_count >= base.success_count

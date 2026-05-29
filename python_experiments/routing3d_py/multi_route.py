@@ -186,6 +186,129 @@ def route_sequential(
     return MultiRouteResult(pipes=pipes, occupancy=work, priority=priority)
 
 
+# ------------------------------------------------------------------ rip-up & reroute
+
+def route_ripup(
+    occ: OccupancyMap,
+    tasks: list[RouteTask],
+    params: RouteParams | None = None,
+    *,
+    priority: str = "longest",
+    pipe_radius: int = 0,
+    snap_to_free: int = 2,
+    max_expansions: int | None = None,
+    max_rounds: int = 10,
+    max_ripup: int = 4,
+) -> MultiRouteResult:
+    """순차 라우팅 후 **rip-up & reroute** 로 실패 배관을 해소한다(Phase 3 Step 3.8).
+
+    [알고리즘 — 결정적 · 단조증가(채택 시 항상 성공 +1)]
+      1) route_sequential 과 동일한 베이스라인을 깐다(placed = 성공 배관 경로 맵).
+      2) 라운드 반복(최대 max_rounds):
+         실패 배관 f(우선순위 순)마다:
+           a) '장애물만' 점유맵에서 f 의 이상(ideal) 경로를 구한다. 실패하면 f 는
+              장애물만으로도 불가 → 영구 실패로 두고 건너뛴다.
+           b) 이상 경로가 가로지르는 기존 배관 = blocker 집합. 없거나 max_ripup 초과면 건너뛴다.
+           c) blocker 들을 뜯어내고(placed 에서 제거) f 를 배치한 뒤, 뜯어낸 blocker 를
+              (결정적 순서로) 모두 재라우팅한다.
+           d) **f 성공 + 모든 blocker 재배치 성공** 일 때만 채택(무손실 → 성공 수 +1).
+              하나라도 실패하면 그 시도를 통째로 버린다(원상 복귀).
+         한 라운드에서 채택이 하나도 없으면 종료.
+
+    blocker 를 전부 되살릴 수 있을 때만 받아들이므로 성공 수는 절대 줄지 않고 단조 증가하며,
+    채택마다 +1 이라 라운드/시도는 유한하다(초기 실패 수로 상한). 진짜 혼잡/불가 배관은
+    그대로 실패로 남는다(올바른 동작).
+
+    매개변수(route_sequential 과 동일 + ):
+        max_rounds : 전체 rip-up 라운드 상한.
+        max_ripup  : 한 번에 뜯어낼 blocker 수 상한(너무 큰 교란 방지).
+    반환값:
+        MultiRouteResult. pipes 는 우선순위 정렬 순서(order_index = 그 순서).
+
+    지역 변수:
+        static  : 장애물만의 기준 점유맵(불변).
+        placed  : 정렬 인덱스 → 배관 경로(현재 깔린 것).
+        results : 정렬 인덱스 → 그 배관의 최종 AStarResult.
+    """
+    params = params or RouteParams(cell_mm=occ.cell_mm)
+    ordered = order_tasks(occ, tasks, priority)
+    n = len(ordered)
+    static = occ.copy()  # 장애물만(불변 기준).
+
+    placed: dict[int, list[Cell]] = {}
+    results: dict[int, AStarResult] = {}
+
+    def _route(w: OccupancyMap, task: RouteTask) -> AStarResult:
+        s = _snap(w, w.to_cell(task.start_mm), snap_to_free)
+        g = _snap(w, w.to_cell(task.end_mm), snap_to_free)
+        return astar_weighted(w, s, g, params, max_expansions=max_expansions)
+
+    def _build_work(paths: dict[int, list[Cell]]) -> OccupancyMap:
+        w = static.copy()
+        for p in paths.values():
+            _mark_pipe(w, p, pipe_radius)
+        return w
+
+    # 1) 베이스라인 순차 라우팅(route_sequential 과 동일).
+    work = static.copy()
+    for idx, task in enumerate(ordered):
+        res = _route(work, task)
+        results[idx] = res
+        if res.success and res.path:
+            placed[idx] = res.path
+            _mark_pipe(work, res.path, pipe_radius)
+
+    # 2) rip-up 라운드.
+    for _round in range(max_rounds):
+        failed = [idx for idx in range(n) if idx not in placed]
+        if not failed:
+            break
+        changed = False
+        for f in failed:
+            task_f = ordered[f]
+            ideal = _route(static, task_f)  # 장애물만의 이상 경로.
+            if not (ideal.success and ideal.path):
+                continue  # 장애물만으로도 불가 → 영구 실패.
+            cellset = set(ideal.path)
+            blockers = sorted(b for b, p in placed.items() if any(c in cellset for c in p))
+            if not blockers or len(blockers) > max_ripup:
+                continue
+
+            trial = dict(placed)
+            for b in blockers:
+                del trial[b]
+            wt = _build_work(trial)
+
+            rf = _route(wt, task_f)  # 뜯어낸 자리에 f 배치.
+            if not (rf.success and rf.path):
+                continue
+            trial[f] = rf.path
+            _mark_pipe(wt, rf.path, pipe_radius)
+
+            reres: dict[int, AStarResult] = {}
+            all_ok = True
+            for b in blockers:  # 뜯어낸 배관 재라우팅(결정적 순서).
+                rb = _route(wt, ordered[b])
+                reres[b] = rb
+                if rb.success and rb.path:
+                    trial[b] = rb.path
+                    _mark_pipe(wt, rb.path, pipe_radius)
+                else:
+                    all_ok = False
+
+            if all_ok:  # 무손실일 때만 채택(성공 수 +1).
+                placed = trial
+                results[f] = rf
+                for b in blockers:
+                    results[b] = reres[b]
+                changed = True
+        if not changed:
+            break
+
+    pipes = [PipeResult(task=ordered[idx], result=results[idx], order_index=idx) for idx in range(n)]
+    return MultiRouteResult(pipes=pipes, occupancy=_build_work(placed), priority=priority)
+
+
 def _mark_pipe(occ: OccupancyMap, path: list[Cell], radius: int) -> None:
     """경로 셀(+반경 radius 이웃)을 점유로 표시한다(다음 배관이 피하도록).
 

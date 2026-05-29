@@ -19,9 +19,12 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "routing3d/astar.hpp"
@@ -65,36 +68,48 @@ struct MultiRouteResult {
 };
 
 // ---- 우선순위 ----
-// 우선순위 규칙에 따라 작업 순서를 정렬해 반환한다(원본 변경 없음, 안정 정렬 = Python sorted).
+// 우선순위 규칙에 따른 '원본 인덱스 순열'을 반환한다(안정 정렬 = Python sorted 결정성).
 //   longest  : 맨해튼 거리 긴 것 먼저(기본).  shortest : 짧은 것 먼저.
 //   utility  : (유틸 라벨 오름차순, 거리 내림차순).  original : 입력 순서.
 template <class Occ>
-std::vector<RouteTask> order_tasks(const Occ& occ, const std::vector<RouteTask>& tasks,
-                                   const std::string& priority) {
-    auto dist = [&](const RouteTask& t) {
-        return manhattan(occ.to_cell(t.start_mm), occ.to_cell(t.end_mm));
+std::vector<int> order_indices(const Occ& occ, const std::vector<RouteTask>& tasks,
+                               const std::string& priority) {
+    auto dist = [&](int t) {
+        return manhattan(occ.to_cell(tasks[static_cast<size_t>(t)].start_mm),
+                         occ.to_cell(tasks[static_cast<size_t>(t)].end_mm));
     };
-    std::vector<RouteTask> out = tasks;  // 원본 보존(사본 정렬).
-    if (priority == "original") return out;
+    std::vector<int> idx(tasks.size());
+    for (int i = 0; i < static_cast<int>(tasks.size()); ++i) idx[static_cast<size_t>(i)] = i;
+    if (priority == "original") return idx;
     if (priority == "shortest") {
-        std::stable_sort(out.begin(), out.end(),
-                         [&](const RouteTask& a, const RouteTask& b) { return dist(a) < dist(b); });
-        return out;
+        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return dist(a) < dist(b); });
+        return idx;
     }
     if (priority == "longest") {
-        std::stable_sort(out.begin(), out.end(),
-                         [&](const RouteTask& a, const RouteTask& b) { return dist(a) > dist(b); });
-        return out;
+        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return dist(a) > dist(b); });
+        return idx;
     }
     if (priority == "utility") {
-        std::stable_sort(out.begin(), out.end(), [&](const RouteTask& a, const RouteTask& b) {
-            const std::string la = a.utility_label(), lb = b.utility_label();
+        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) {
+            const std::string la = tasks[static_cast<size_t>(a)].utility_label();
+            const std::string lb = tasks[static_cast<size_t>(b)].utility_label();
             if (la != lb) return la < lb;
             return dist(a) > dist(b);
         });
-        return out;
+        return idx;
     }
     throw std::invalid_argument("unknown priority: " + priority);
+}
+
+// 우선순위 규칙에 따라 작업 순서를 정렬해 반환한다(원본 변경 없음). order_indices 위에 구현.
+template <class Occ>
+std::vector<RouteTask> order_tasks(const Occ& occ, const std::vector<RouteTask>& tasks,
+                                   const std::string& priority) {
+    std::vector<int> idx = order_indices(occ, tasks, priority);
+    std::vector<RouteTask> out;
+    out.reserve(tasks.size());
+    for (int i : idx) out.push_back(tasks[static_cast<size_t>(i)]);
+    return out;
 }
 
 // ---- 보조: 스냅 ----
@@ -168,6 +183,130 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
     }
 
     return MultiRouteResult<Occ>{std::move(pipes), std::move(work), priority};
+}
+
+// ---- rip-up & reroute (Step 3.8) ----
+// 순차 라우팅 후 막힌 배관을, '장애물만' 이상 경로가 가로지르는 기존 배관(blocker)을
+// 뜯어내고 재배치해 해소한다. **무손실(채택 시 성공 +1)** 결정적 알고리즘:
+//   라운드마다 실패 배관 f 의 장애물-only 이상 경로가 통과하는 placed 배관을 blocker 로
+//   잡아 모두 뜯어내고, f 를 깐 뒤 blocker 를 (키 오름차순) 전부 재라우팅 → f 성공 +
+//   모든 blocker 재배치 성공일 때만 채택. 하나라도 실패하면 시도를 버린다.
+// 성공 수는 단조 증가(채택 +1)하므로 라운드/시도는 유한(초기 실패 수 상한). Python
+// routing3d_py.multi_route.route_ripup 와 1:1 대응(동일 occ 상태·순서 → 동일 결과).
+template <class Occ>
+MultiRouteResult<Occ> route_ripup(const Occ& occ, const std::vector<RouteTask>& tasks,
+                                  const RouteParams& params,
+                                  const std::string& priority = "longest",
+                                  int pipe_radius = 0, int snap_to_free = 2,
+                                  long long max_expansions = -1, int max_rounds = 10,
+                                  int max_ripup = 4) {
+    std::vector<RouteTask> ordered = order_tasks(occ, tasks, priority);
+    const int n = static_cast<int>(ordered.size());
+    Occ static_occ = occ.copy();  // 장애물만(불변 기준).
+
+    auto pack = [](const Cell& c) -> uint64_t {
+        return (static_cast<uint64_t>(c.i) << 42) | (static_cast<uint64_t>(c.j) << 21) |
+               static_cast<uint64_t>(c.k);
+    };
+    auto route_on = [&](const Occ& w, const RouteTask& t) -> AStarResult {
+        Cell s = snap_to_free_cell(w, w.to_cell(t.start_mm), snap_to_free);
+        Cell g = snap_to_free_cell(w, w.to_cell(t.end_mm), snap_to_free);
+        return astar_weighted(w, s, g, params, max_expansions);
+    };
+    auto build_work = [&](const std::map<int, std::vector<Cell>>& paths) -> Occ {
+        Occ w = static_occ.copy();
+        for (const auto& kv : paths) mark_pipe(w, kv.second, pipe_radius);
+        return w;
+    };
+
+    std::map<int, std::vector<Cell>> placed;          // 정렬 인덱스 → 경로(결정적 반복).
+    std::vector<AStarResult> results(static_cast<size_t>(n));
+    std::vector<char> have(static_cast<size_t>(n), 0);
+
+    // 1) 베이스라인 순차 라우팅(route_sequential 과 동일).
+    {
+        Occ work = static_occ.copy();
+        for (int idx = 0; idx < n; ++idx) {
+            AStarResult res = route_on(work, ordered[static_cast<size_t>(idx)]);
+            bool ok = res.success && !res.path.empty();
+            if (ok) {
+                mark_pipe(work, res.path, pipe_radius);
+                placed[idx] = res.path;
+            }
+            results[static_cast<size_t>(idx)] = std::move(res);
+            have[static_cast<size_t>(idx)] = ok ? 1 : 0;
+        }
+    }
+
+    // 2) rip-up 라운드.
+    for (int round = 0; round < max_rounds; ++round) {
+        std::vector<int> failed;
+        for (int idx = 0; idx < n; ++idx)
+            if (!have[static_cast<size_t>(idx)]) failed.push_back(idx);
+        if (failed.empty()) break;
+
+        bool changed = false;
+        for (int f : failed) {
+            AStarResult ideal = route_on(static_occ, ordered[static_cast<size_t>(f)]);
+            if (!(ideal.success && !ideal.path.empty())) continue;  // 장애물만으로도 불가.
+
+            std::unordered_set<uint64_t> cellset;
+            cellset.reserve(ideal.path.size() * 2);
+            for (const Cell& c : ideal.path) cellset.insert(pack(c));
+
+            std::vector<int> blockers;  // placed 키 오름차순(std::map) → 결정적.
+            for (const auto& kv : placed) {
+                for (const Cell& c : kv.second)
+                    if (cellset.count(pack(c))) {
+                        blockers.push_back(kv.first);
+                        break;
+                    }
+            }
+            if (blockers.empty() || static_cast<int>(blockers.size()) > max_ripup) continue;
+
+            std::map<int, std::vector<Cell>> trial = placed;
+            for (int b : blockers) trial.erase(b);
+            Occ wt = build_work(trial);
+
+            AStarResult rf = route_on(wt, ordered[static_cast<size_t>(f)]);
+            if (!(rf.success && !rf.path.empty())) continue;
+            mark_pipe(wt, rf.path, pipe_radius);
+            trial[f] = rf.path;
+
+            std::vector<AStarResult> reres(blockers.size());
+            bool all_ok = true;
+            for (size_t bi = 0; bi < blockers.size(); ++bi) {
+                AStarResult rb = route_on(wt, ordered[static_cast<size_t>(blockers[bi])]);
+                bool bok = rb.success && !rb.path.empty();
+                if (bok) {
+                    mark_pipe(wt, rb.path, pipe_radius);
+                    trial[blockers[bi]] = rb.path;
+                } else {
+                    all_ok = false;
+                }
+                reres[bi] = std::move(rb);
+            }
+
+            if (all_ok) {  // 무손실일 때만 채택(성공 +1).
+                placed = std::move(trial);
+                results[static_cast<size_t>(f)] = std::move(rf);
+                have[static_cast<size_t>(f)] = 1;
+                for (size_t bi = 0; bi < blockers.size(); ++bi) {
+                    results[static_cast<size_t>(blockers[bi])] = std::move(reres[bi]);
+                    have[static_cast<size_t>(blockers[bi])] = 1;
+                }
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+
+    std::vector<PipeResult> pipes;
+    pipes.reserve(static_cast<size_t>(n));
+    for (int idx = 0; idx < n; ++idx)
+        pipes.push_back(PipeResult{ordered[static_cast<size_t>(idx)],
+                                   std::move(results[static_cast<size_t>(idx)]), idx});
+    return MultiRouteResult<Occ>{std::move(pipes), build_work(placed), priority};
 }
 
 }  // namespace routing3d

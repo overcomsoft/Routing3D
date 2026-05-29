@@ -106,6 +106,13 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
 R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(원본 장애물)
 
+// rip-up & reroute(Step 3.8): 순차 베이스라인 후, 막힌 배관을 '가로막는 기존 배관'을
+// 뜯어내고 재배치해 해소한다. 무손실(채택 시 성공 +1) 결정적 알고리즘. 결과는 원본 작업
+// 인덱스별로 저장(get_result/copy_path 매핑 보존). 0=실패 작업 없음 의미 아님(상태코드만).
+//   max_rounds : 라운드 상한.  max_ripup : 한 번에 뜯어낼 배관 수 상한.
+R3D_API R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t max_rounds,
+                                  int32_t max_ripup);
+
 // 계층 corridor 라우팅(대형 장면용). Sparse 점유 + coarse 가이드→fine tube(astar_hashed,
 // 해시 기반 → 8,000m 등 초대형 격자도 배열 할당 없이 동작). 작업별 독립(충돌 회피 없음).
 //   factor : coarse/fine 셀 비율(예 16).  radius : corridor 팽창 반경(coarse 셀).

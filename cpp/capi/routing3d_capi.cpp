@@ -260,6 +260,28 @@ extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     }
 }
 
+// rip-up & reroute(Step 3.8): 헤더 route_ripup 을 호출하되, 결과를 '원본 작업 인덱스'로
+// 되돌려 doc.results 에 저장(get_result 매핑 보존, doc.tasks 불변). 우선순위 순열은
+// order_indices 로 재현(route_ripup 내부 order_tasks 와 동일 안정 정렬 → 위치 일치).
+extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t max_rounds,
+                                     int32_t max_ripup) {
+    if (!e) return R3D_ERR_ARG;
+    try {
+        SceneDoc& doc = e->doc;
+        const std::string prio = priority ? priority : "longest";
+        DenseOccupancy occ = occupancy_from_doc(doc);
+        std::vector<int> order = order_indices(occ, doc.tasks, prio);
+        auto mr = route_ripup(occ, doc.tasks, doc.params, prio, 0, 2, -1,
+                              max_rounds > 0 ? max_rounds : 10, max_ripup > 0 ? max_ripup : 4);
+        doc.results.assign(doc.tasks.size(), std::nullopt);
+        for (size_t pos = 0; pos < mr.pipes.size(); ++pos)
+            doc.results[static_cast<size_t>(order[pos])] = to_scene_result(mr.pipes[pos].result);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
 // 대형 장면용 corridor 라우팅: 장애물을 fine/coarse Sparse 점유로 만들고 작업별 route_corridor.
 // Sparse + astar_hashed 라 occ.size() 배열을 잡지 않으므로 초대형 격자도 동작(메모리=점유 셀).
 extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius) {

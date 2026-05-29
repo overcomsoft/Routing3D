@@ -68,6 +68,11 @@ add_executable(test_corridor tests/test_corridor.cpp)
 target_link_libraries(test_corridor PRIVATE routing3d_core)
 add_test(NAME corridor COMMAND test_corridor)
 
+# rip-up & reroute(Step 3.8): 합성 혼잡 시나리오에서 순차 1/2 → rip-up 2/2(Python 일치).
+add_executable(test_ripup tests/test_ripup.cpp)
+target_link_libraries(test_ripup PRIVATE routing3d_core)
+add_test(NAME ripup COMMAND test_ripup)
+
 # C ABI 스모크 테스트: DLL 경유 골든03 재현(5/5·28050mm) + 문자열 ABI 왕복.
 add_executable(test_capi tests/test_capi.cpp)
 target_link_libraries(test_capi PRIVATE routing3d_capi)

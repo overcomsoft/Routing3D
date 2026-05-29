@@ -67,8 +67,8 @@ void print_usage() {
         "Routing3D CLI — 사용법\n"
         "  routing3d_cli demo [--out OUT.scene.txt]\n"
         "      내장 데모 장면(골든03: 5개 배관 순차)을 라우팅하고 요약 출력.\n"
-        "  routing3d_cli route --in IN.scene.txt [--out OUT.scene.txt] [--mode multi|single] [--priority longest]\n"
-        "      scene.txt 를 읽어 라우팅하고 결과를 (지정 시) 저장.\n"
+        "  routing3d_cli route --in IN.scene.txt [--out OUT.scene.txt] [--mode multi|single|ripup] [--priority longest]\n"
+        "      scene.txt 를 읽어 라우팅하고 결과를 (지정 시) 저장. (ripup = 순차 후 rip-up&reroute)\n"
         "  routing3d_cli summary --in IN.scene.txt\n"
         "      scene.txt 요약 출력.\n");
 }
@@ -84,6 +84,20 @@ void fill_multi(SceneDoc& doc, const Occ& occ, const std::string& priority) {
         doc.results.push_back(to_scene_result(p.result));
     }
     std::printf("[다중배관/%s] %d/%zu 성공 (실패 %d), 총 길이 %.0f mm\n", priority.c_str(),
+                mr.success_count(), mr.pipes.size(), mr.fail_count(), mr.total_length_mm());
+}
+
+// rip-up & reroute(Step 3.8): 순차 베이스라인 후 막힌 배관을 blocker 뜯어내기로 해소.
+template <class Occ>
+void fill_ripup(SceneDoc& doc, const Occ& occ, const std::string& priority) {
+    auto mr = route_ripup(occ, doc.tasks, doc.params, priority);
+    doc.tasks.clear();
+    doc.results.clear();
+    for (const PipeResult& p : mr.pipes) {
+        doc.tasks.push_back(p.task);
+        doc.results.push_back(to_scene_result(p.result));
+    }
+    std::printf("[rip-up/%s] %d/%zu 성공 (실패 %d), 총 길이 %.0f mm\n", priority.c_str(),
                 mr.success_count(), mr.pipes.size(), mr.fail_count(), mr.total_length_mm());
 }
 
@@ -163,6 +177,7 @@ int cmd_route(int argc, char** argv) {
 
     const std::string mode = opt(argc, argv, "--mode", "multi");
     if (mode == "single") fill_single(doc, occ);
+    else if (mode == "ripup") fill_ripup(doc, occ, opt(argc, argv, "--priority", "longest"));
     else fill_multi(doc, occ, opt(argc, argv, "--priority", "longest"));
 
     const std::string out = opt(argc, argv, "--out");
