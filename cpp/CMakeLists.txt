@@ -39,6 +39,13 @@ endif()
 add_executable(routing3d_cli cli/routing3d_cli.cpp)
 target_link_libraries(routing3d_cli PRIVATE routing3d_core)
 
+# 네이티브 C ABI 공유 라이브러리 (C#/P-Invoke·ctypes 인터롭). 코어만 링크 → 외부 의존성 없는 단일 DLL.
+#   산출물: routing3d_capi.dll (+ import .lib). 설계: docs/csharp_helix_interop_design.md.
+add_library(routing3d_capi SHARED capi/routing3d_capi.cpp)
+target_link_libraries(routing3d_capi PRIVATE routing3d_core)
+target_include_directories(routing3d_capi PUBLIC include capi)
+target_compile_definitions(routing3d_capi PRIVATE ROUTING3D_CAPI_EXPORTS)
+
 enable_testing()
 add_executable(test_golden tests/test_golden.cpp)
 target_link_libraries(test_golden PRIVATE routing3d_core)
@@ -60,6 +67,12 @@ add_test(NAME occupancy COMMAND test_occupancy)
 add_executable(test_corridor tests/test_corridor.cpp)
 target_link_libraries(test_corridor PRIVATE routing3d_core)
 add_test(NAME corridor COMMAND test_corridor)
+
+# C ABI 스모크 테스트: DLL 경유 골든03 재현(5/5·28050mm) + 문자열 ABI 왕복.
+add_executable(test_capi tests/test_capi.cpp)
+target_link_libraries(test_capi PRIVATE routing3d_capi)
+target_include_directories(test_capi PRIVATE capi)
+add_test(NAME capi COMMAND test_capi)
 
 # OpenVDB 백엔드(VdbOccupancy) — 기본 OFF. 활성화 시 vcpkg 의 OpenVDB 필요.
 #   cmake ... -DUSE_OPENVDB=ON -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake \
