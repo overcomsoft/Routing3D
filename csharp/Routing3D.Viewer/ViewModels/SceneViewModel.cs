@@ -53,6 +53,12 @@ namespace Routing3D.Viewer.ViewModels
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
+        // DB 접속 설정(환경변수 우선) + 선택된 프로젝트 / 격자 셀 크기.
+        private readonly DbConfig _dbConfig = DbConfig.FromEnv();
+        private ProjectInfo? _selectedProject;
+        private double _cellMm = 100.0;
+        private bool _suppressProjectAutoLoad;
+
         public SceneViewModel(string? initialScene = null)
         {
             OpenCommand = new RelayCommand(Open);
@@ -65,14 +71,27 @@ namespace Routing3D.Viewer.ViewModels
             FitViewCommand = new RelayCommand(() => FitViewRequested?.Invoke());
             UtilityAllCommand = new RelayCommand(() => SetAllUtilities(true));
             UtilityClearCommand = new RelayCommand(() => SetAllUtilities(false));
+            LoadProjectsCommand = new RelayCommand(LoadProjects);
+            LoadDbCommand = new RelayCommand(
+                () => { if (_selectedProject != null) LoadFromDb(_selectedProject.ProjectId); },
+                () => _selectedProject != null);
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
 
             try
             {
-                if (!string.IsNullOrEmpty(initialScene) && File.Exists(initialScene)) LoadFile(initialScene);
-                else LoadDemo();
+                if (!string.IsNullOrEmpty(initialScene) && File.Exists(initialScene))
+                {
+                    LoadFile(initialScene);
+                }
+                else
+                {
+                    // 사용자 요청: 실행 시 DB 에서 장애물·시작/끝점 자동 로드 후 라우팅·전체보기.
+                    // 실패하면(연결 불가 등) 내장 데모로 폴백 — 앱이 비어 보이지 않게.
+                    LoadProjects();
+                    if (_scene == null) LoadDemo();
+                }
             }
             catch (Exception ex) { Status = "엔진 초기화 오류: " + ex.Message; }
         }
@@ -124,6 +143,29 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand FitViewCommand { get; }
         public RelayCommand UtilityAllCommand { get; }
         public RelayCommand UtilityClearCommand { get; }
+        public RelayCommand LoadProjectsCommand { get; }
+        public RelayCommand LoadDbCommand { get; }
+
+        // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
+        public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
+        public int DbPort { get => _dbConfig.Port; set { _dbConfig.Port = value; OnChanged(); } }
+        public string DbUser { get => _dbConfig.User; set { _dbConfig.User = value; OnChanged(); } }
+        public string DbPassword { get => _dbConfig.Password; set { _dbConfig.Password = value; OnChanged(); } }
+        public string DbDatabase { get => _dbConfig.Database; set { _dbConfig.Database = value; OnChanged(); } }
+        public double CellMm { get => _cellMm; set => Set(ref _cellMm, value); }
+
+        public ObservableCollection<ProjectInfo> Projects { get; } = new();
+        public ProjectInfo? SelectedProject
+        {
+            get => _selectedProject;
+            set
+            {
+                if (!Set(ref _selectedProject, value)) return;
+                if (_suppressProjectAutoLoad || value == null) return;
+                try { LoadFromDb(value.ProjectId); }
+                catch (Exception ex) { Status = "DB 로드 오류: " + ex.Message; }
+            }
+        }
 
         /// <summary>모델을 새로 만들면 발생(코드비하인드가 ZoomExtents 호출).</summary>
         public event Action? SceneRebuilt;
@@ -183,6 +225,52 @@ namespace Routing3D.Viewer.ViewModels
             _engine!.LoadSceneText(text);
             BuildTaskRows();
             RerouteMulti();
+        }
+
+        // ---- DB 로드 ----
+        /// <summary>space_project_map 에서 프로젝트 목록을 읽어 Projects 에 채우고, 첫 항목 선택 시
+        /// SelectedProject 의 set 이 자동으로 LoadFromDb 를 호출(전체 자동 로드 흐름).</summary>
+        private void LoadProjects()
+        {
+            try
+            {
+                var list = ObstacleDbLoader.ListProjects(_dbConfig);
+                _suppressProjectAutoLoad = true;
+                Projects.Clear();
+                foreach (var p in list) Projects.Add(p);
+                _suppressProjectAutoLoad = false;
+                if (Projects.Count == 0)
+                {
+                    Status = "DB 에 프로젝트가 없습니다(space_project_map 비어 있음)";
+                    return;
+                }
+                Status = $"프로젝트 {Projects.Count}개 로드";
+                // 자동 선택 → 자동 로드.
+                SelectedProject = Projects[0];
+            }
+            catch (Exception ex)
+            {
+                _suppressProjectAutoLoad = false;
+                Status = "DB 접속 실패: " + ex.Message;
+            }
+        }
+
+        /// <summary>한 프로젝트의 장애물·PoC 페어를 DB 에서 읽어 엔진에 적재하고 자동 라우팅한다.</summary>
+        private void LoadFromDb(int projectId)
+        {
+            var sd = ObstacleDbLoader.LoadScene(_dbConfig, projectId, _cellMm);
+            _scene = sd;
+            ResetEngine();
+            var g = sd.Grid;
+            _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6);   // 기본 비용함수 파라미터.
+            foreach (var o in sd.Obstacles)
+                _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            foreach (var t in sd.Tasks)
+                _engine.AddTask(t.Sx, t.Sy, t.Sz, t.Gx, t.Gy, t.Gz, t.Utility, t.Group);
+            BuildTaskRows();
+            Status = $"DB 로드: 장애물 {sd.Obstacles.Count} · 작업 {sd.Tasks.Count} · 격자 {g.Nx}×{g.Ny}×{g.Nz} cell={g.CellMm:0}mm";
+            RerouteMulti();   // 라우팅 → BuildModel → SceneRebuilt → ZoomExtents(전체보기).
         }
 
         /// <summary>내장 데모(골든03): 120x120x60, 바닥 슬래브, 같은 통로 5개 배관.</summary>

@@ -29,6 +29,8 @@
   <ItemGroup>
     <!-- 2.x = WPF 네이티브 MeshBuilder/MeshGeometry3D API. 3.x 는 geometry 가 System.Numerics 로 분리됨. -->
     <PackageReference Include="HelixToolkit.Wpf" Version="2.24.0" />
+    <!-- PostgreSQL(AUTOROUTINGV7) 접속용 — 시작 시 TB_BIM_OBSTACLES / TB_BIM_EQUIPMENT 로딩. -->
+    <PackageReference Include="Npgsql" Version="8.0.4" />
   </ItemGroup>
 
 </Project>

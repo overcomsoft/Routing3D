@@ -52,19 +52,40 @@
             <RowDefinition Height="Auto"/>   <!-- status bar -->
         </Grid.RowDefinitions>
 
-        <!-- =========== Top toolbar =========== -->
+        <!-- =========== Top toolbar (SpaceAI 스타일 DB 접속 + 프로젝트) =========== -->
         <Border Grid.Row="0" Background="#252b3d" BorderBrush="#404a64" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal" Margin="6,4">
-                <Button Content="📁 scene.txt 열기" Command="{Binding OpenCommand}"/>
-                <Button Content="🧪 내장 데모" Command="{Binding DemoCommand}"/>
+                <Label   Content="DB:" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding DbHost,     Mode=TwoWay}" Width="100" Height="26" VerticalContentAlignment="Center"/>
+                <TextBox Text="{Binding DbPort,     Mode=TwoWay}" Width="55"  Height="26" VerticalContentAlignment="Center"/>
+                <TextBox Text="{Binding DbUser,     Mode=TwoWay}" Width="80"  Height="26" VerticalContentAlignment="Center"/>
+                <TextBox Text="{Binding DbPassword, Mode=TwoWay}" Width="80"  Height="26" VerticalContentAlignment="Center"/>
+                <TextBox Text="{Binding DbDatabase, Mode=TwoWay}" Width="130" Height="26" VerticalContentAlignment="Center"/>
+                <Label   Content="프로젝트:" VerticalAlignment="Center"/>
+                <ComboBox Width="300" Height="26" VerticalContentAlignment="Center"
+                          ItemsSource="{Binding Projects}"
+                          SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
+                          DisplayMemberPath="Display"
+                          ToolTip="space_project_map 의 프로젝트.&#x0a;선택 시 자동 로드(장애물·PoC → 라우팅 → 전체보기)."/>
+                <Button  Content="↻ 다시 로드" Command="{Binding LoadProjectsCommand}"
+                         ToolTip="DB 접속 정보 변경 후 프로젝트 목록을 다시 가져온다"/>
+                <Separator Width="1" Background="#404a64" Margin="6,2"/>
+                <Label   Content="셀:" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding CellMm, Mode=TwoWay}" Width="60" Height="26"
+                         VerticalContentAlignment="Center"
+                         ToolTip="격자 셀 크기(mm). 변경 후 '↻ 다시 로드' 또는 프로젝트 재선택."/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
                 <Button Content="▶ 전체 재라우팅"     Command="{Binding RerouteCommand}"
                         Background="#385b85" MinWidth="110"/>
                 <Button Content="🌐 corridor (대형)"  Command="{Binding RerouteCorridorCommand}"
                         Background="#3a4e7a" MinWidth="110"/>
-                <Separator Width="1" Background="#404a64" Margin="6,2"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
+                <Separator Width="1" Background="#404a64" Margin="6,2"/>
+                <Button Content="📁 scene.txt"   Command="{Binding OpenCommand}"
+                        ToolTip="scene.txt 파일을 열어 그 장면을 로드(폴백)"/>
+                <Button Content="🧪 데모"        Command="{Binding DemoCommand}"
+                        ToolTip="내장 데모(골든03) 로드"/>
             </StackPanel>
         </Border>
 
