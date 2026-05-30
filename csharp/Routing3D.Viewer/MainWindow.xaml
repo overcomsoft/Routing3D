@@ -3,116 +3,272 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:h="http://helix-toolkit.org/wpf"
         Title="Routing3D Viewer — C++ engine · C# HelixToolkit"
-        Height="820" Width="1320">
-    <DockPanel>
-        <ToolBar DockPanel.Dock="Top">
-            <Button Content="내장 데모" Command="{Binding DemoCommand}" Padding="8,2"/>
-            <Button Content="scene.txt 열기…" Command="{Binding OpenCommand}" Padding="8,2"/>
-            <Separator/>
-            <Button Content="전체 재라우팅(multi)" Command="{Binding RerouteCommand}" Padding="8,2"/>
-            <Button Content="corridor 라우팅(대형/독립)" Command="{Binding RerouteCorridorCommand}" Padding="8,2"/>
-            <Separator/>
-            <TextBlock Text="표시:" VerticalAlignment="Center" Margin="4,0,2,0"/>
-            <CheckBox Content="장애물" IsChecked="{Binding ShowObstacles}" VerticalAlignment="Center" Margin="3,0"/>
-            <CheckBox Content="경로" IsChecked="{Binding ShowPaths}" VerticalAlignment="Center" Margin="3,0"/>
-            <CheckBox Content="충돌" IsChecked="{Binding ShowCollisions}" VerticalAlignment="Center" Margin="3,0"/>
-        </ToolBar>
+        Width="1520" Height="900"
+        Background="#1e2230"
+        WindowStartupLocation="CenterScreen">
 
-        <StatusBar DockPanel.Dock="Bottom">
-            <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis"/>
-        </StatusBar>
+    <!-- ===== 다크 테마 (SpaceAI 팔레트 호환) ===== -->
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding"         Value="10,5"/>
+            <Setter Property="Margin"          Value="3"/>
+            <Setter Property="MinWidth"        Value="90"/>
+            <Setter Property="Background"      Value="#3a4862"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="BorderBrush"     Value="#5a6a8a"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin"     Value="3,2"/>
+            <Setter Property="Foreground" Value="#e8eaf0"/>
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="Foreground" Value="#bfc6d6"/>
+            <Setter Property="Padding"    Value="3,1"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#e8eaf0"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin"      Value="2"/>
+            <Setter Property="Padding"     Value="3,2"/>
+            <Setter Property="Background"  Value="#2b3548"/>
+            <Setter Property="Foreground"  Value="White"/>
+            <Setter Property="BorderBrush" Value="#5a6a8a"/>
+        </Style>
+        <!-- 다크 ListBox + 항목 호버/선택색 -->
+        <Style TargetType="ListBox">
+            <Setter Property="Background"      Value="#2b3548"/>
+            <Setter Property="Foreground"      Value="#e8eaf0"/>
+            <Setter Property="BorderBrush"     Value="#404a64"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Window.Resources>
 
-        <!-- 오른쪽: 작업 목록 + 종단점 편집(인터랙티브 재라우팅) -->
-        <Border DockPanel.Dock="Right" Width="320" BorderBrush="#FFCCCCCC" BorderThickness="1,0,0,0">
-            <DockPanel Margin="8">
-                <TextBlock DockPanel.Dock="Top" Text="작업 목록" FontWeight="Bold" Margin="0,0,0,6"/>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- top toolbar -->
+            <RowDefinition Height="*"/>      <!-- main content -->
+            <RowDefinition Height="Auto"/>   <!-- status bar -->
+        </Grid.RowDefinitions>
 
-                <!-- 하단: 선택 배관 종단점 편집기 -->
-                <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8"
-                        Background="#FFF6F6F6" BorderBrush="#FFDDDDDD" BorderThickness="1" CornerRadius="4">
-                    <StackPanel>
-                        <TextBlock Text="선택 배관 종단점 편집 (mm)" FontWeight="Bold" Margin="0,0,0,6"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition/>
-                                <RowDefinition/>
-                                <RowDefinition/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="X / Y / Z" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="시작" VerticalAlignment="Center" Margin="0,2"/>
-                            <TextBox  Grid.Row="1" Grid.Column="1" Margin="2" Text="{Binding SelectedTask.Sx, Mode=TwoWay}"/>
-                            <TextBox  Grid.Row="1" Grid.Column="2" Margin="2" Text="{Binding SelectedTask.Sy, Mode=TwoWay}"/>
-                            <TextBox  Grid.Row="1" Grid.Column="3" Margin="2" Text="{Binding SelectedTask.Sz, Mode=TwoWay}"/>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="끝" VerticalAlignment="Center" Margin="0,2"/>
-                            <TextBox  Grid.Row="2" Grid.Column="1" Margin="2" Text="{Binding SelectedTask.Gx, Mode=TwoWay}"/>
-                            <TextBox  Grid.Row="2" Grid.Column="2" Margin="2" Text="{Binding SelectedTask.Gy, Mode=TwoWay}"/>
-                            <TextBox  Grid.Row="2" Grid.Column="3" Margin="2" Text="{Binding SelectedTask.Gz, Mode=TwoWay}"/>
-                        </Grid>
-                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <Button Content="3D 시작점 지정" Command="{Binding PickStartCommand}" Padding="6,3" Margin="0,0,4,0"/>
-                            <Button Content="3D 끝점 지정" Command="{Binding PickEndCommand}" Padding="6,3"/>
-                        </StackPanel>
-                        <Button Content="선택 배관 재라우팅(단일)" Margin="0,6,0,0" Padding="6,3"
-                                Command="{Binding RerouteSelectedCommand}"/>
-                        <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 빨간 충돌 셀로 겹침 확인. 충돌없는 결과는 상단 '전체 재라우팅'."
-                                   TextWrapping="Wrap" Foreground="#FF777777" FontSize="11" Margin="0,6,0,0"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- 작업 리스트 -->
-                <ListBox ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask, Mode=TwoWay}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
-                                           Stroke="#FF888888" StrokeThickness="0.5" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding Display}" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+        <!-- =========== Top toolbar =========== -->
+        <Border Grid.Row="0" Background="#252b3d" BorderBrush="#404a64" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Margin="6,4">
+                <Button Content="📁 scene.txt 열기" Command="{Binding OpenCommand}"/>
+                <Button Content="🧪 내장 데모" Command="{Binding DemoCommand}"/>
+                <Separator Width="1" Background="#404a64" Margin="6,2"/>
+                <Button Content="▶ 전체 재라우팅"     Command="{Binding RerouteCommand}"
+                        Background="#385b85" MinWidth="110"/>
+                <Button Content="🌐 corridor (대형)"  Command="{Binding RerouteCorridorCommand}"
+                        Background="#3a4e7a" MinWidth="110"/>
+                <Separator Width="1" Background="#404a64" Margin="6,2"/>
+                <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
+                        ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
+            </StackPanel>
         </Border>
 
-        <!-- 중앙: 3D 뷰 + 범례 오버레이 -->
-        <Grid>
-            <h:HelixViewport3D x:Name="View"
-                               Background="White"
-                               ModelUpDirection="0,0,1"
-                               ShowCoordinateSystem="True"
-                               ZoomExtentsWhenLoaded="True">
-                <h:DefaultLights/>
-                <h:GridLinesVisual3D Center="3000,3000,0" Width="8000" Length="8000"
-                                     MinorDistance="1000" MajorDistance="1000" Thickness="3"
-                                     Normal="0,0,1" LengthDirection="1,0,0"
-                                     Fill="#FFDDDDDD"/>
-                <ModelVisual3D Content="{Binding SceneModel}"/>
-            </h:HelixViewport3D>
+        <!-- =========== Main content =========== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>   <!-- Left: 검색·필터·작업목록 -->
+                <ColumnDefinition Width="*"/>     <!-- Center: 3D + 레이어 -->
+                <ColumnDefinition Width="320"/>   <!-- Right: 범례·선택 작업·편집 -->
+            </Grid.ColumnDefinitions>
 
-            <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12"
-                    Background="#E6FFFFFF" BorderBrush="#FFBBBBBB" BorderThickness="1"
-                    CornerRadius="4" Padding="8">
-                <StackPanel>
-                    <TextBlock Text="범례 (유틸리티)" FontWeight="Bold" Margin="0,0,0,6"/>
-                    <ItemsControl ItemsSource="{Binding Legend}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,2">
-                                    <Rectangle Width="16" Height="16" Fill="{Binding Swatch}"
-                                               Stroke="#FF888888" StrokeThickness="0.5"/>
-                                    <TextBlock Text="{Binding Label}" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
+            <!-- ===== LEFT: 검색 + 유틸리티 필터 + 작업 목록 + 상태 ===== -->
+            <Border Grid.Column="0" Background="#252b3d" BorderBrush="#404a64"
+                    BorderThickness="0,0,1,0">
+                <DockPanel LastChildFill="True" Margin="6">
+
+                    <!-- 검색 + 필터 카운트 -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <DockPanel>
+                                <TextBlock x:Name="TaskCountTextBlock"
+                                           DockPanel.Dock="Right" Width="80" TextAlignment="Right"
+                                           Text="{Binding TaskCountText}" FontFamily="Consolas" FontSize="11"/>
+                                <TextBlock Text="🔍 라우팅 경로 검색" FontWeight="Bold" Margin="0,0,0,4"/>
+                            </DockPanel>
+                            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="유틸리티 라벨 부분일치(대소문자 무시). 비우면 모두 표시"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 유틸리티 필터 (체크박스 리스트) -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="유틸리티 필터" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <UniformGrid Rows="1" Columns="2" Margin="0,0,0,4">
+                                <Button Content="✓ 전체 선택" Command="{Binding UtilityAllCommand}"   Margin="0,0,2,0"/>
+                                <Button Content="✕ 전체 해제" Command="{Binding UtilityClearCommand}" Margin="2,0,0,0"/>
+                            </UniformGrid>
+                            <Border Background="#252b3d" BorderBrush="#404a64"
+                                    BorderThickness="1" MaxHeight="180">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding UtilityFilters}" Margin="4">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                                    <CheckBox IsChecked="{Binding IsVisible, Mode=TwoWay}"
+                                                              VerticalAlignment="Center"/>
+                                                    <Rectangle Width="12" Height="12" Fill="{Binding Swatch}"
+                                                               Stroke="#888" StrokeThickness="0.5"
+                                                               VerticalAlignment="Center" Margin="4,0,4,0"/>
+                                                    <TextBlock Text="{Binding Display}"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 작업 목록 (필터 + 검색 적용된 뷰) -->
+                    <Border Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Top" Text="작업 목록"
+                                       FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ListBox ItemsSource="{Binding TasksView}"
+                                     SelectedItem="{Binding SelectedTask, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                            <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
+                                                       Stroke="#888" StrokeThickness="0.5"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Display}" Margin="6,0,0,0"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                </DockPanel>
+            </Border>
+
+            <!-- ===== CENTER: 3D 뷰 + 하단 레이어 토글 ===== -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <h:HelixViewport3D x:Name="View" Grid.Row="0"
+                                   Background="#0f1320"
+                                   ZoomExtentsWhenLoaded="True"
+                                   ShowCoordinateSystem="True"
+                                   ShowViewCube="True"
+                                   IsHeadLightEnabled="True"
+                                   ModelUpDirection="0,0,1">
+                    <h:DefaultLights/>
+                    <h:GridLinesVisual3D Center="3000,3000,0" Width="8000" Length="8000"
+                                         MinorDistance="1000" MajorDistance="1000" Thickness="2"
+                                         Normal="0,0,1" LengthDirection="1,0,0"
+                                         Fill="#404a64"/>
+                    <ModelVisual3D Content="{Binding SceneModel}"/>
+                </h:HelixViewport3D>
+
+                <!-- 레이어 표시: SpaceAI 와 같이 viewport 하단 가로형 WrapPanel -->
+                <Border Grid.Row="1" Background="#252b3d" BorderBrush="#404a64"
+                        BorderThickness="0,1,0,0" Padding="8,5">
+                    <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="레이어 표시:"
+                                   FontWeight="Bold" Foreground="#bfc6d6"
+                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <WrapPanel Orientation="Horizontal" ItemHeight="22">
+                            <CheckBox Content="장애물 (AABB)"
+                                      IsChecked="{Binding ShowObstacles}" Margin="0,0,12,0"/>
+                            <CheckBox Content="라우팅 경로 (튜브)"
+                                      IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"/>
+                            <CheckBox Content="충돌 셀 (빨간 큐브)"
+                                      IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"/>
+                        </WrapPanel>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
+            <!-- ===== RIGHT: 범례 + 선택 작업 + 종단점 편집 ===== -->
+            <Border Grid.Column="2" Background="#252b3d" BorderBrush="#404a64"
+                    BorderThickness="1,0,0,0">
+                <DockPanel LastChildFill="True" Margin="6">
+
+                    <!-- 범례 -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="범례 (유틸리티)" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ItemsControl ItemsSource="{Binding Legend}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                            <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
+                                                       Stroke="#888" StrokeThickness="0.5"/>
+                                            <TextBlock Text="{Binding Label}" Margin="6,0,0,0"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 선택 작업 정보 + 종단점 편집 -->
+                    <Border Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="선택 배관 — 종단점 편집 (mm)"
+                                       FontWeight="Bold" Margin="0,0,0,4"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="36"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="X" TextAlignment="Center" Foreground="#9aa3b8"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Y" TextAlignment="Center" Foreground="#9aa3b8"/>
+                                <TextBlock Grid.Row="0" Grid.Column="3" Text="Z" TextAlignment="Center" Foreground="#9aa3b8"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="시작" VerticalAlignment="Center" Margin="0,2"/>
+                                <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding SelectedTask.Sx, Mode=TwoWay}"/>
+                                <TextBox  Grid.Row="1" Grid.Column="2" Text="{Binding SelectedTask.Sy, Mode=TwoWay}"/>
+                                <TextBox  Grid.Row="1" Grid.Column="3" Text="{Binding SelectedTask.Sz, Mode=TwoWay}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="끝" VerticalAlignment="Center" Margin="0,2"/>
+                                <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding SelectedTask.Gx, Mode=TwoWay}"/>
+                                <TextBox  Grid.Row="2" Grid.Column="2" Text="{Binding SelectedTask.Gy, Mode=TwoWay}"/>
+                                <TextBox  Grid.Row="2" Grid.Column="3" Text="{Binding SelectedTask.Gz, Mode=TwoWay}"/>
+                            </Grid>
+
+                            <UniformGrid Rows="1" Columns="2" Margin="0,8,0,0">
+                                <Button Content="3D 시작점 지정" Command="{Binding PickStartCommand}" Margin="0,0,2,0"/>
+                                <Button Content="3D 끝점 지정"   Command="{Binding PickEndCommand}"   Margin="2,0,0,0"/>
+                            </UniformGrid>
+                            <Button Content="▶ 선택 배관 재라우팅 (단일)"
+                                    Command="{Binding RerouteSelectedCommand}"
+                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"/>
+                            <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. 충돌없는 결과는 상단 '전체 재라우팅' 사용."
+                                       TextWrapping="Wrap" Foreground="#9aa3b8" FontSize="11" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </DockPanel>
             </Border>
         </Grid>
-    </DockPanel>
+
+        <!-- =========== Status bar =========== -->
+        <Border Grid.Row="2" Background="#252b3d" BorderBrush="#404a64" BorderThickness="0,1,0,0">
+            <TextBlock Text="{Binding Status}" Foreground="#bfc6d6" Margin="8,4"
+                       TextTrimming="CharacterEllipsis"/>
+        </Border>
+    </Grid>
 </Window>

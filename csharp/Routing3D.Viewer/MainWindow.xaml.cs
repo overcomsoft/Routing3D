@@ -15,6 +15,7 @@ namespace Routing3D.Viewer
             InitializeComponent();
             _vm = new SceneViewModel(initialScene);
             _vm.SceneRebuilt += () => Dispatcher.BeginInvoke(new Action(() => View.ZoomExtents()));
+            _vm.FitViewRequested += () => Dispatcher.BeginInvoke(new Action(() => View.ZoomExtents()));
             DataContext = _vm;
 
             // 피킹 모드일 때만 좌클릭으로 3D 지점을 잡아 종단점으로 설정(평소 회전은 그대로).

@@ -10,9 +10,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using HelixToolkit.Wpf;
@@ -45,6 +47,8 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showObstacles = true;
         private bool _showPaths = true;
         private bool _showCollisions = true;
+        private string _searchText = string.Empty;
+        private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
         public SceneViewModel(string? initialScene = null)
         {
@@ -55,6 +59,12 @@ namespace Routing3D.Viewer.ViewModels
             RerouteSelectedCommand = new RelayCommand(RerouteSelected, () => _selectedTask != null);
             PickStartCommand = new RelayCommand(() => SetPick(PickMode.Start), () => _selectedTask != null);
             PickEndCommand = new RelayCommand(() => SetPick(PickMode.End), () => _selectedTask != null);
+            FitViewCommand = new RelayCommand(() => FitViewRequested?.Invoke());
+            UtilityAllCommand = new RelayCommand(() => SetAllUtilities(true));
+            UtilityClearCommand = new RelayCommand(() => SetAllUtilities(false));
+
+            TasksView = CollectionViewSource.GetDefaultView(Tasks);
+            TasksView.Filter = TaskFilter;
 
             try
             {
@@ -76,6 +86,27 @@ namespace Routing3D.Viewer.ViewModels
 
         public ObservableCollection<TaskRowVM> Tasks { get; } = new();
         public ObservableCollection<LegendItem> Legend { get; } = new();
+        public ObservableCollection<UtilityFilterVM> UtilityFilters { get; } = new();
+
+        /// <summary>유틸리티/검색 필터가 적용된 작업 목록 뷰(ListBox 바인딩).</summary>
+        public ICollectionView TasksView { get; }
+
+        /// <summary>작업 라벨 검색 문자열(부분일치, 대소문자 무시). 비우면 모두 통과.</summary>
+        public string SearchText
+        {
+            get => _searchText;
+            set { if (Set(ref _searchText, value)) { TasksView.Refresh(); OnChanged(nameof(TaskCountText)); } }
+        }
+
+        /// <summary>현재 표시되는 작업 수/전체 수(예: "120 / 208"). 좌측 패널 헤더용.</summary>
+        public string TaskCountText
+        {
+            get
+            {
+                int visible = Tasks.Count(TaskFilterCore);
+                return $"{visible} / {Tasks.Count}";
+            }
+        }
 
         public RelayCommand OpenCommand { get; }
         public RelayCommand DemoCommand { get; }
@@ -84,9 +115,46 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand RerouteSelectedCommand { get; }
         public RelayCommand PickStartCommand { get; }
         public RelayCommand PickEndCommand { get; }
+        public RelayCommand FitViewCommand { get; }
+        public RelayCommand UtilityAllCommand { get; }
+        public RelayCommand UtilityClearCommand { get; }
 
         /// <summary>모델을 새로 만들면 발생(코드비하인드가 ZoomExtents 호출).</summary>
         public event Action? SceneRebuilt;
+
+        /// <summary>'전체보기' 명령(코드비하인드가 ZoomExtents 호출).</summary>
+        public event Action? FitViewRequested;
+
+        // ---- 필터 ----
+        private bool TaskFilter(object o) => o is TaskRowVM r && TaskFilterCore(r);
+
+        private bool TaskFilterCore(TaskRowVM r)
+        {
+            if (!string.IsNullOrWhiteSpace(_searchText) &&
+                r.Label.IndexOf(_searchText, StringComparison.OrdinalIgnoreCase) < 0)
+                return false;
+            var f = UtilityFilters.FirstOrDefault(u => u.Label == r.Label);
+            return f == null || f.IsVisible;
+        }
+
+        private void OnUtilityFilterChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (_suppressFilterRebuild) return;
+            if (e.PropertyName != nameof(UtilityFilterVM.IsVisible)) return;
+            TasksView.Refresh();
+            OnChanged(nameof(TaskCountText));
+            if (_scene != null && _engine != null) BuildModel();
+        }
+
+        private void SetAllUtilities(bool visible)
+        {
+            _suppressFilterRebuild = true;
+            foreach (var u in UtilityFilters) u.IsVisible = visible;
+            _suppressFilterRebuild = false;
+            TasksView.Refresh();
+            OnChanged(nameof(TaskCountText));
+            if (_scene != null && _engine != null) BuildModel();
+        }
 
         // ---- 로드 ----
         private void Open()
@@ -163,6 +231,31 @@ namespace Routing3D.Viewer.ViewModels
                 });
             }
             SelectedTask = Tasks.FirstOrDefault();
+            BuildUtilityFilters(colorMap);
+            OnChanged(nameof(TaskCountText));
+            TasksView.Refresh();
+        }
+
+        // 유틸리티별 필터 행을 작업 라벨 분포에서 새로 만든다(기존 항목은 PropertyChanged 해제).
+        private void BuildUtilityFilters(Dictionary<string, Color> colorMap)
+        {
+            _suppressFilterRebuild = true;
+            foreach (var f in UtilityFilters) f.PropertyChanged -= OnUtilityFilterChanged;
+            UtilityFilters.Clear();
+            var groups = Tasks.GroupBy(t => t.Label).OrderBy(g => g.Key);
+            foreach (var g in groups)
+            {
+                var color = colorMap.TryGetValue(g.Key, out var c) ? c : Colors.Gray;
+                var f = new UtilityFilterVM
+                {
+                    Label = g.Key,
+                    Swatch = new SolidColorBrush(color),
+                    Count = g.Count(),
+                };
+                f.PropertyChanged += OnUtilityFilterChanged;
+                UtilityFilters.Add(f);
+            }
+            _suppressFilterRebuild = false;
         }
 
         private void SyncEndpoints()
@@ -302,6 +395,9 @@ namespace Routing3D.Viewer.ViewModels
 
                 if (!ShowPaths) continue;
                 string label = scene.Tasks[i].UtilityLabel;
+                // 유틸리티 필터에서 숨겨진 라벨은 3D 에서도 그리지 않는다.
+                var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
+                if (uf != null && !uf.IsVisible) continue;
                 if (!perUtil.TryGetValue(label, out var mb))
                 {
                     mb = new MeshBuilder(false, false);
