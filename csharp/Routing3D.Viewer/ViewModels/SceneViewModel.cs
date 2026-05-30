@@ -47,6 +47,9 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showObstacles = true;
         private bool _showPaths = true;
         private bool _showCollisions = true;
+        private bool _showGridFrame = false;        // 복셀 전체맵(격자 BBOX 와이어).
+        private bool _showOccupancyVoxels = false;  // 점유맵(복셀화된 장애물 셀).
+        private bool _showVisitedMap = false;       // 방문맵(A* 확장 셀, 유틸리티 색).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
@@ -83,6 +86,9 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowObstacles { get => _showObstacles; set { if (Set(ref _showObstacles, value)) RebuildIfReady(); } }
         public bool ShowPaths { get => _showPaths; set { if (Set(ref _showPaths, value)) RebuildIfReady(); } }
         public bool ShowCollisions { get => _showCollisions; set { if (Set(ref _showCollisions, value)) RebuildIfReady(); } }
+        public bool ShowGridFrame { get => _showGridFrame; set { if (Set(ref _showGridFrame, value)) RebuildIfReady(); } }
+        public bool ShowOccupancyVoxels { get => _showOccupancyVoxels; set { if (Set(ref _showOccupancyVoxels, value)) RebuildIfReady(); } }
+        public bool ShowVisitedMap { get => _showVisitedMap; set { if (Set(ref _showVisitedMap, value)) RebuildIfReady(); } }
 
         public ObservableCollection<TaskRowVM> Tasks { get; } = new();
         public ObservableCollection<LegendItem> Legend { get; } = new();
@@ -360,6 +366,17 @@ namespace Routing3D.Viewer.ViewModels
             var group = new Model3DGroup();
             Legend.Clear();
 
+            // ⓪ 복셀 전체맵(토글) — 격자 BBOX 12변(가는 실린더). 작업 공간을 한눈에.
+            if (ShowGridFrame)
+            {
+                AddGridFrame(group, grid);
+                Legend.Add(new LegendItem
+                {
+                    Swatch = new SolidColorBrush(Color.FromArgb(220, 122, 223, 176)),
+                    Label = $"복셀 전체맵 ({grid.Nx}×{grid.Ny}×{grid.Nz})"
+                });
+            }
+
             // ① 장애물(토글) — 하나의 메시로 머지(반투명 회색).
             if (ShowObstacles && scene.Obstacles.Count > 0)
             {
@@ -373,12 +390,29 @@ namespace Routing3D.Viewer.ViewModels
                 Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromArgb(160, 150, 150, 150)), Label = "장애물(obstacles)" });
             }
 
+            // ①' 점유맵(토글) — 엔진이 voxelize 한 블록 셀을 작은 큐브로(반투명 옅은 청회색).
+            //    대형 장면에서는 자동 다운샘플링(최대 50000 개)으로 WPF 부하 한도 유지.
+            if (ShowOccupancyVoxels && _engine != null)
+            {
+                int rendered = AddOccupancyVoxels(group, grid);
+                if (rendered > 0)
+                    Legend.Add(new LegendItem
+                    {
+                        Swatch = new SolidColorBrush(Color.FromArgb(170, 130, 170, 200)),
+                        Label = $"점유맵 (셀 {rendered:N0})"
+                    });
+            }
+
             // ② 경로 — 유틸리티별 색 튜브 + 시작/끝 구. (충돌 계산용으로 경로는 항상 수집)
             var colorMap = UtilityColors.Assign(scene.Tasks.Select(t => t.UtilityLabel));
             var perUtil = new Dictionary<string, MeshBuilder>();
+            var perUtilVisited = new Dictionary<string, MeshBuilder>();   // 방문맵 — 유틸리티별 머지 메시.
+            var perUtilVisitedCount = new Dictionary<string, int>();      // 표시 셀 카운트(다운샘플 후).
             var successPaths = new List<PathCell[]>();
             double tubeDia = grid.CellMm * 0.7;
             double markerR = grid.CellMm * 0.9;
+            double visitedBoxSize = grid.CellMm * 0.5;  // 방문 셀 큐브 변(작게 — 경로보다 가늘게).
+            const int VisitedCapPerUtility = 12000;     // 유틸리티당 표시 상한(WPF 부하 한도).
             int ok = 0;
             double total = 0;
 
@@ -393,20 +427,51 @@ namespace Routing3D.Viewer.ViewModels
                 total += r.LengthMm;
                 successPaths.Add(r.Path);
 
-                if (!ShowPaths) continue;
                 string label = scene.Tasks[i].UtilityLabel;
-                // 유틸리티 필터에서 숨겨진 라벨은 3D 에서도 그리지 않는다.
                 var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
-                if (uf != null && !uf.IsVisible) continue;
-                if (!perUtil.TryGetValue(label, out var mb))
+                bool utilVisible = uf == null || uf.IsVisible;
+
+                // 경로 튜브(ShowPaths + 유틸 가시 일 때).
+                if (ShowPaths && utilVisible)
                 {
-                    mb = new MeshBuilder(false, false);
-                    perUtil[label] = mb;
+                    if (!perUtil.TryGetValue(label, out var mb))
+                    {
+                        mb = new MeshBuilder(false, false);
+                        perUtil[label] = mb;
+                    }
+                    var pts = r.Path.Select(c => CellToWorld(grid, c)).ToList();
+                    if (pts.Count >= 2) mb.AddTube(pts, tubeDia, 8, false);
+                    mb.AddSphere(pts[0], markerR);
+                    mb.AddSphere(pts[^1], markerR);
                 }
-                var pts = r.Path.Select(c => CellToWorld(grid, c)).ToList();
-                if (pts.Count >= 2) mb.AddTube(pts, tubeDia, 8, false);
-                mb.AddSphere(pts[0], markerR);
-                mb.AddSphere(pts[^1], markerR);
+
+                // 방문맵 — 유틸리티별 머지 메시(다운샘플링으로 셀 수 상한).
+                if (ShowVisitedMap && utilVisible && r.Visited.Length > 0)
+                {
+                    if (!perUtilVisited.TryGetValue(label, out var vmb))
+                    {
+                        vmb = new MeshBuilder(false, false);
+                        perUtilVisited[label] = vmb;
+                        perUtilVisitedCount[label] = 0;
+                    }
+                    int already = perUtilVisitedCount[label];
+                    int remaining = VisitedCapPerUtility - already;
+                    if (remaining > 0)
+                    {
+                        // 균등 다운샘플: 셀 수가 remaining 보다 많으면 stride 로 솎아낸다.
+                        int len = r.Visited.Length;
+                        int take = Math.Min(remaining, len);
+                        double stride = (double)len / take;
+                        for (int s = 0; s < take; s++)
+                        {
+                            int idx = (int)(s * stride);
+                            var c = r.Visited[idx];
+                            var p = CellToWorld(grid, c);
+                            vmb.AddBox(p, visitedBoxSize, visitedBoxSize, visitedBoxSize);
+                        }
+                        perUtilVisitedCount[label] = already + take;
+                    }
+                }
             }
 
             if (ShowPaths)
@@ -417,6 +482,23 @@ namespace Routing3D.Viewer.ViewModels
                     group.Children.Add(Geometry(kv.Value, color, 255));
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(color), Label = kv.Key });
                 }
+            }
+
+            // 방문맵 — 유틸리티별 색의 반투명 큐브 집합. 경로와 같은 색 규약.
+            if (ShowVisitedMap && perUtilVisited.Count > 0)
+            {
+                int totalShown = 0;
+                foreach (var kv in perUtilVisited)
+                {
+                    var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
+                    group.Children.Add(Geometry(kv.Value, color, 80));   // alpha 80 = 약 31% 불투명.
+                    totalShown += perUtilVisitedCount[kv.Key];
+                }
+                Legend.Add(new LegendItem
+                {
+                    Swatch = new SolidColorBrush(Color.FromArgb(120, 200, 200, 200)),
+                    Label = $"방문맵 (셀 {totalShown:N0})"
+                });
             }
 
             // ③ 충돌(토글) — ≥2 배관이 공유하는 셀을 빨간 큐브로.
@@ -443,6 +525,47 @@ namespace Routing3D.Viewer.ViewModels
 
         private static Point3D CellToWorld(GridMeta g, PathCell c) =>
             new(g.Ox + (c.I + 0.5) * g.CellMm, g.Oy + (c.J + 0.5) * g.CellMm, g.Oz + (c.K + 0.5) * g.CellMm);
+
+        // 격자 BBOX 의 12 변을 가는 실린더로 그린다(복셀 전체맵 = 작업 공간 프레임).
+        private static void AddGridFrame(Model3DGroup group, GridMeta g)
+        {
+            double x0 = g.Ox, x1 = g.Ox + g.Nx * g.CellMm;
+            double y0 = g.Oy, y1 = g.Oy + g.Ny * g.CellMm;
+            double z0 = g.Oz, z1 = g.Oz + g.Nz * g.CellMm;
+            var corners = new[]
+            {
+                new Point3D(x0,y0,z0), new Point3D(x1,y0,z0), new Point3D(x1,y1,z0), new Point3D(x0,y1,z0),
+                new Point3D(x0,y0,z1), new Point3D(x1,y0,z1), new Point3D(x1,y1,z1), new Point3D(x0,y1,z1),
+            };
+            var edges = new (int, int)[]
+            {
+                (0,1),(1,2),(2,3),(3,0), (4,5),(5,6),(6,7),(7,4), (0,4),(1,5),(2,6),(3,7)
+            };
+            var mb = new MeshBuilder(false, false);
+            double r = Math.Max(g.CellMm * 0.08, 5);   // 변 굵기 — 너무 가늘면 안 보임.
+            foreach (var (a, b) in edges) mb.AddCylinder(corners[a], corners[b], r, 8);
+            group.Children.Add(Geometry(mb, Color.FromRgb(122, 223, 176), 230));   // 청록 계열.
+        }
+
+        // 점유맵 — 엔진이 voxelize 한 블록 셀을 작은 큐브로(반투명). 50k 초과 시 자동 다운샘플.
+        // 반환값 = 실제 그린 셀 수(범례 표기용).
+        private int AddOccupancyVoxels(Model3DGroup group, GridMeta g)
+        {
+            const int Cap = 50_000;
+            var cells = _engine!.CopyBlocked();
+            if (cells.Length == 0) return 0;
+            int take = Math.Min(Cap, cells.Length);
+            double stride = (double)cells.Length / take;
+            double s = g.CellMm * 0.9;
+            var mb = new MeshBuilder(false, false);
+            for (int n = 0; n < take; n++)
+            {
+                var c = cells[(int)(n * stride)];
+                mb.AddBox(CellToWorld(g, c), s, s, s);
+            }
+            group.Children.Add(Geometry(mb, Color.FromRgb(130, 170, 200), 100));   // 옅은 청회색 반투명.
+            return take;
+        }
 
         private static GeometryModel3D Geometry(MeshBuilder mb, Color color, byte alpha)
         {

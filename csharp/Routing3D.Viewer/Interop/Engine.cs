@@ -10,7 +10,7 @@ namespace Routing3D.Viewer.Interop
     /// <summary>경로 셀 (i, j, k).</summary>
     public readonly record struct PathCell(int I, int J, int K);
 
-    /// <summary>한 작업의 라우팅 결과(성공/길이/회전/경로).</summary>
+    /// <summary>한 작업의 라우팅 결과(성공/길이/회전/경로/방문 셀).</summary>
     public sealed class RouteResult
     {
         public bool Success { get; init; }
@@ -19,6 +19,8 @@ namespace Routing3D.Viewer.Interop
         public int Turns { get; init; }
         public long ExpandedNodes { get; init; }
         public PathCell[] Path { get; init; } = Array.Empty<PathCell>();
+        /// <summary>이 작업의 A* 가 확장한 셀(가시화 '방문맵'). 엔진의 collect_visited 가 ON 일 때만.</summary>
+        public PathCell[] Visited { get; init; } = Array.Empty<PathCell>();
     }
 
     public sealed class Engine : IDisposable
@@ -89,6 +91,14 @@ namespace Routing3D.Viewer.Interop
                 path = new PathCell[n];
                 for (int i = 0; i < n; i++) path[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
             }
+            var visited = Array.Empty<PathCell>();
+            if (r.visited_len > 0)
+            {
+                var buf = new int[r.visited_len * 3];
+                int n = Native.r3d_copy_visited(H, task, buf, r.visited_len);
+                visited = new PathCell[n];
+                for (int i = 0; i < n; i++) visited[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+            }
             return new RouteResult
             {
                 Success = r.success != 0,
@@ -96,9 +106,26 @@ namespace Routing3D.Viewer.Interop
                 CostMm = r.cost_mm,
                 Turns = r.turns,
                 ExpandedNodes = r.expanded_nodes,
-                Path = path
+                Path = path,
+                Visited = visited,
             };
         }
+
+        /// <summary>'점유맵' 가시화 용 — 현재 doc 의 voxelize 된 블록 셀 전체를 한 번에 반환.</summary>
+        public PathCell[] CopyBlocked()
+        {
+            int total = Native.r3d_copy_blocked(H, null!, 0);  // 사이즈 조회.
+            if (total <= 0) return Array.Empty<PathCell>();
+            var buf = new int[total * 3];
+            int n = Native.r3d_copy_blocked(H, buf, total);
+            var cells = new PathCell[n];
+            for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+            return cells;
+        }
+
+        /// <summary>방문(확장) 셀 수집을 켜고/끄기. 기본 ON. OFF 면 라우팅 후 Visited 가 비어있다.</summary>
+        public void SetCollectVisited(bool on)
+            => Check(Native.r3d_set_collect_visited(H, on ? 1 : 0), "set_collect_visited");
 
         public string DumpSceneText()
         {

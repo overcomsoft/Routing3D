@@ -189,6 +189,15 @@
                                       IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"/>
                             <CheckBox Content="충돌 셀 (빨간 큐브)"
                                       IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"/>
+                            <CheckBox Content="복셀 전체맵 (격자 BBOX)"
+                                      IsChecked="{Binding ShowGridFrame}" Margin="0,0,12,0"
+                                      ToolTip="작업 공간의 격자 12변을 가는 실린더로 표시"/>
+                            <CheckBox Content="점유맵 (복셀화 장애물)"
+                                      IsChecked="{Binding ShowOccupancyVoxels}" Margin="0,0,12,0"
+                                      ToolTip="엔진이 voxelize 한 블록 셀을 옅은 청회색 큐브로. 50k 초과 시 자동 다운샘플"/>
+                            <CheckBox Content="방문맵 (A* 확장 셀, 유틸 색)"
+                                      IsChecked="{Binding ShowVisitedMap}" Margin="0,0,12,0"
+                                      ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>

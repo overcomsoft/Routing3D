@@ -45,6 +45,7 @@ namespace Routing3D.Viewer.Interop
             public long expanded_nodes;
             public double elapsed_ms;
             public int path_len;
+            public int visited_len;   // 방문(확장) 셀 수 — '방문맵' 가시화 용. 비활성 시 0.
         }
 
         // ---- 공통 ----
@@ -79,6 +80,9 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_corridor(IntPtr e, int factor, int radius);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_get_result(IntPtr e, int task, out R3dResult outRes);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_collect_visited(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 
         // 문자열 → UTF-8 바이트(널 종료). 한글 보존.
