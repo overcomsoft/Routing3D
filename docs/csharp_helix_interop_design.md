@@ -1,6 +1,6 @@
 # C# HelixToolkit WPF 가시화 — 네이티브 DLL 인터롭 설계서
 
-> Routing3D Phase 3 보조 설계 · 버전 0.1 · 2026-05-29 · 단위 **mm**
+> Routing3D Phase 3 보조 설계 · 버전 0.2 · 2026-05-30 · 단위 **mm**
 > 대상: C++ 엔진(`cpp/`)을 네이티브 DLL 로 노출 → C#/.NET(WPF + HelixToolkit)에서 인프로세스 호출·가시화.
 > 본 문서는 **설계**다. 구현은 단계적 로드맵(§8)을 따른다. 알고리즘/포맷 계약은 기존 명세
 > ([algorithm_spec.md](spec/algorithm_spec.md), [scene_format_spec.md](spec/scene_format_spec.md))를 그대로 따른다.
@@ -385,7 +385,11 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P3d (UI 리스타일)** | SpaceAI 동일 팔레트 다크 3-컬럼 + **🔍 라우팅 경로 검색**(SearchText 부분일치) + **유틸리티 체크박스 필터**(전체 선택/해제, 작업 목록↔3D 동시 반영) + **↺ 전체보기**(FitViewCommand→ZoomExtents). | 사용자 UX | **완료 2026-05-30** |
 | **P3e (3D 신규 레이어)** | **복셀 전체맵**(격자 BBOX 와이어) · **점유맵**(voxelize된 블록 셀, ≥50k 자동 다운샘플) · **방문맵**(각 배관의 A* 확장 셀, 유틸리티 색, 유틸당 12k 다운샘플). 엔진까지 손봐 `AStarResult.visited`+`collect_visited` / capi `r3d_copy_visited`·`r3d_copy_blocked`·`r3d_set_collect_visited` 추가. | 가시화 레이어 | **완료 2026-05-30** |
 | **P3f (DB 자동 로드)** | 실행 시 AUTOROUTINGV7 자동 접속 → 프로젝트 콤보 → 장애물·PoC 페어 로드 → 라우팅 → 전체보기. Npgsql 8.0.4, `space_project_map`/`TB_BIM_OBSTACLES`/`TB_BIM_EQUIPMENT(POC_LIST jsonb)`. DB 실패 시 데모 폴백. | DB 통합 | **완료 2026-05-30** |
+| **P3g (워크플로 재설계)** | **시작 시 창 즉시 표시 + DB 비동기 로드**(무거운 라우팅을 `Task.Run` 으로 → UI 비차단; 이전엔 첫 프로젝트 라우팅이 끝날 때까지 창이 안 떴음). **프로젝트 선택 시 장애물만 로드·전체화면 표시**(자동 라우팅 제거) → 사용자가 **탐색 범위(모두/유틸리티그룹별/유틸리티별)** 를 골라 실행. **좌측 패널 드릴다운**(유틸리티 그룹 → 유틸리티 → 개별 PoC, PoC 선택 시 3D 시작/끝 강조). | 뷰어 UX | **완료 2026-05-30** |
+| **P3h (DB 레이어 확장)** | SOURCE_FILE 기준 추가 레이어: **장비**(`TB_BIM_EQUIPMENT` MIN~MAX, 메인/서브 색 구분 큐브) · **레터럴/덕트**(`TB_DUCT_LATERAL`, `CATEGORY=LATERAL\|DUCT` 별 토글·색) · **공간 영역**(`TB_BIM_SPACE_INFO.LEVEL_NAME` = CR/A/F/CSF 와이어프레임 + BillboardText 라벨). 작업에 **PoC 이름**(`POC_LIST.name/endName`) 로드. 점유맵 **빈틈 없는 셀 크기 큐브** + **원본/샘플 해상도 토글**. **바닥격자를 씬 좌표에 맞춰 객체 중앙 정렬**(ZoomExtents 오정렬 수정). 레이어 토글 라벨 단축. | 가시화 레이어 | **완료 2026-05-30** |
+| **P3i (탐색 시각화)** | 선택 배관 **단계별 A\* 탐색 애니메이션**: 방문 셀을 `r3d_copy_visited` 의 **확장 순서대로** 점진 표시(점유맵 회피 과정), 종료 후 최종 경로 드러냄. 경로 **방향 전환(꺾임) 지점 마젠타 마커** + 우측 패널 **구간(단계) 리스트**(방향 수직/수평·길이, 클릭 시 해당 위치로 카메라 이동). | 탐색 가시화 | **완료 2026-05-30** |
 | P3b' (선택) | VDB 백엔드 capi(`USE_OPENVDB` 빌드 + openvdb/tbb DLL 동봉) — Sparse 로 목표 충족되어 보류. | (선택) | 미착수 |
+| DB 전환(보류) | `DDW_AI_DB`(스키마 전면 재설계: `TB_BIM_OBSTACLE`/`TB_EQUIPMENTS`/`TB_LATERAL_PIPE`/`TB_DUCT`, POC 평행 텍스트 배열, source_file 없음) 로 전환 요청 → 로더 재작성 필요로 **보류**. 현재 AUTOROUTINGV7 사용. | — | 보류 |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).
 
