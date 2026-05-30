@@ -150,7 +150,68 @@ namespace Routing3D.Viewer.Model
                 }
             }
 
-            // ── 4) 격자 메타 산출 ─────────────────────────────────────────────────
+            // ── 3.5) 장비 박스(TB_BIM_EQUIPMENT) — SOURCE_FILE 조건 전체 장비를 큐브로(시각화용) ──
+            using (var cmd = new NpgsqlCommand(
+                @"SELECT ""NAME"",""IS_MAIN"",""MIN_X"",""MIN_Y"",""MIN_Z"",""MAX_X"",""MAX_Y"",""MAX_Z""
+                  FROM ""TB_BIM_EQUIPMENT"" WHERE ""SOURCE_FILE""=@sf", conn))
+            {
+                cmd.Parameters.AddWithValue("@sf", sourceFile);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    double mnx = r.GetDouble(2), mny = r.GetDouble(3), mnz = r.GetDouble(4);
+                    double mxx = r.GetDouble(5), mxy = r.GetDouble(6), mxz = r.GetDouble(7);
+                    if (mxx <= mnx || mxy <= mny || mxz <= mnz) continue;   // 퇴화 박스 스킵.
+                    data.Equipment.Add(new EquipmentBox
+                    {
+                        Name = r.IsDBNull(0) ? string.Empty : r.GetString(0),
+                        IsMain = !r.IsDBNull(1) && r.GetBoolean(1),
+                        MinX = mnx, MinY = mny, MinZ = mnz,
+                        MaxX = mxx, MaxY = mxy, MaxZ = mxz,
+                    });
+                }
+            }
+
+            // ── 3.6) 덕트/레터럴(TB_DUCT_LATERAL) — SOURCE_FILE 조건 전체를 박스로(시각화용) ──
+            using (var cmd = new NpgsqlCommand(
+                @"SELECT ""NAME"",""CATEGORY"",""UTILITY"",""MIN_X"",""MIN_Y"",""MIN_Z"",""MAX_X"",""MAX_Y"",""MAX_Z""
+                  FROM ""TB_DUCT_LATERAL"" WHERE ""SOURCE_FILE""=@sf", conn))
+            {
+                cmd.Parameters.AddWithValue("@sf", sourceFile);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    data.DuctsLaterals.Add(new DuctLateral
+                    {
+                        Name = r.IsDBNull(0) ? string.Empty : r.GetString(0),
+                        Category = r.IsDBNull(1) ? string.Empty : r.GetString(1),
+                        Utility = r.IsDBNull(2) ? null : r.GetString(2),
+                        MinX = r.GetDouble(3), MinY = r.GetDouble(4), MinZ = r.GetDouble(5),
+                        MaxX = r.GetDouble(6), MaxY = r.GetDouble(7), MaxZ = r.GetDouble(8),
+                    });
+                }
+            }
+
+            // ── 4) 공간 영역(TB_BIM_SPACE_INFO) — CR/A/F/CSF 등 구역 AABB + 이름(시각화용) ──
+            using (var cmd = new NpgsqlCommand(
+                @"SELECT ""LEVEL_NAME"",""MIN_X"",""MIN_Y"",""MIN_Z"",""MAX_X"",""MAX_Y"",""MAX_Z""
+                  FROM ""TB_BIM_SPACE_INFO"" WHERE ""SOURCE_FILE""=@sf
+                  ORDER BY ""MIN_Z""", conn))
+            {
+                cmd.Parameters.AddWithValue("@sf", sourceFile);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    data.Spaces.Add(new SpaceArea
+                    {
+                        Name = r.IsDBNull(0) ? string.Empty : r.GetString(0),
+                        MinX = r.GetDouble(1), MinY = r.GetDouble(2), MinZ = r.GetDouble(3),
+                        MaxX = r.GetDouble(4), MaxY = r.GetDouble(5), MaxZ = r.GetDouble(6),
+                    });
+                }
+            }
+
+            // ── 5) 격자 메타 산출 ─────────────────────────────────────────────────
             data.Grid = ComputeGrid(data.Obstacles, cellMm);
             return data;
         }
@@ -168,6 +229,7 @@ namespace Routing3D.Viewer.Model
                     continue;
                 string? utility = TryGetString(poc, "utility");
                 string? group = TryGetString(poc, "utilityGroup");
+                string? pocName = TryGetString(poc, "name");
                 if (!poc.TryGetProperty("endPocs", out var ends) || ends.ValueKind != JsonValueKind.Array) continue;
                 foreach (var ep in ends.EnumerateArray())
                 {
@@ -179,6 +241,8 @@ namespace Routing3D.Viewer.Model
                         Gx = gx, Gy = gy, Gz = gz,
                         Utility = utility,
                         Group = group,
+                        PocName = pocName,
+                        EndName = TryGetString(ep, "endName"),
                     });
                 }
             }

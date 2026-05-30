@@ -66,7 +66,7 @@
                           ItemsSource="{Binding Projects}"
                           SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
                           DisplayMemberPath="Display"
-                          ToolTip="space_project_map 의 프로젝트.&#x0a;선택 시 자동 로드(장애물·PoC → 라우팅 → 전체보기)."/>
+                          ToolTip="space_project_map 의 프로젝트.&#x0a;선택 시 장애물만 로드해 전체화면 표시(라우팅은 '▶ 경로 탐색 실행'으로)."/>
                 <Button  Content="↻ 다시 로드" Command="{Binding LoadProjectsCommand}"
                          ToolTip="DB 접속 정보 변경 후 프로젝트 목록을 다시 가져온다"/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
@@ -75,8 +75,18 @@
                          VerticalContentAlignment="Center"
                          ToolTip="격자 셀 크기(mm). 변경 후 '↻ 다시 로드' 또는 프로젝트 재선택."/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
-                <Button Content="▶ 전체 재라우팅"     Command="{Binding RerouteCommand}"
-                        Background="#385b85" MinWidth="110"/>
+                <Label   Content="탐색 범위:" VerticalAlignment="Center"/>
+                <ComboBox Width="170" Height="26" VerticalContentAlignment="Center"
+                          ItemsSource="{Binding RouteScopes}"
+                          SelectedItem="{Binding SelectedRouteScope, Mode=TwoWay}"
+                          ToolTip="모두=전체 충돌회피 한 번에 / 그룹별·유틸별=선택한 1개 분류만 라우팅"/>
+                <ComboBox Width="160" Height="26" VerticalContentAlignment="Center"
+                          ItemsSource="{Binding RouteTargets}"
+                          SelectedItem="{Binding SelectedRouteTarget, Mode=TwoWay}"
+                          IsEnabled="{Binding IsTargetSelectable}"
+                          ToolTip="라우팅할 유틸리티그룹/유틸리티 1개 ('모두'에서는 비활성)"/>
+                <Button Content="▶ 경로 탐색 실행"    Command="{Binding RunRouteCommand}"
+                        Background="#385b85" MinWidth="120"/>
                 <Button Content="🌐 corridor (대형)"  Command="{Binding RerouteCorridorCommand}"
                         Background="#3a4e7a" MinWidth="110"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
@@ -97,65 +107,49 @@
                 <ColumnDefinition Width="320"/>   <!-- Right: 범례·선택 작업·편집 -->
             </Grid.ColumnDefinitions>
 
-            <!-- ===== LEFT: 검색 + 유틸리티 필터 + 작업 목록 + 상태 ===== -->
+            <!-- ===== LEFT: 드릴다운 (유틸리티 그룹 → 유틸리티 → 개별 PoC) ===== -->
             <Border Grid.Column="0" Background="#252b3d" BorderBrush="#404a64"
                     BorderThickness="0,0,1,0">
-                <DockPanel LastChildFill="True" Margin="6">
+                <Grid Margin="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>   <!-- 1단계: 그룹 -->
+                        <RowDefinition Height="Auto"/>   <!-- 2단계: 유틸리티 -->
+                        <RowDefinition Height="*"/>      <!-- 3단계: 개별 PoC -->
+                    </Grid.RowDefinitions>
 
-                    <!-- 검색 + 필터 카운트 -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                    <!-- 1단계: 유틸리티 그룹 -->
+                    <Border Grid.Row="0" Background="#2b3548" Padding="6"
                             BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
                         <StackPanel>
-                            <DockPanel>
-                                <TextBlock x:Name="TaskCountTextBlock"
-                                           DockPanel.Dock="Right" Width="80" TextAlignment="Right"
-                                           Text="{Binding TaskCountText}" FontFamily="Consolas" FontSize="11"/>
-                                <TextBlock Text="🔍 라우팅 경로 검색" FontWeight="Bold" Margin="0,0,0,4"/>
-                            </DockPanel>
-                            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="유틸리티 라벨 부분일치(대소문자 무시). 비우면 모두 표시"/>
+                            <TextBlock Text="① 유틸리티 그룹" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ComboBox Height="26" VerticalContentAlignment="Center"
+                                      ItemsSource="{Binding GroupList}"
+                                      SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                      ToolTip="유틸리티 그룹 선택 → 아래 유틸리티 목록이 나오고, 상단 '탐색 범위'가 이 그룹으로 설정됩니다."/>
                         </StackPanel>
                     </Border>
 
-                    <!-- 유틸리티 필터 (체크박스 리스트) -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                    <!-- 2단계: 유틸리티 -->
+                    <Border Grid.Row="1" Background="#2b3548" Padding="6"
                             BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
                         <StackPanel>
-                            <TextBlock Text="유틸리티 필터" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <UniformGrid Rows="1" Columns="2" Margin="0,0,0,4">
-                                <Button Content="✓ 전체 선택" Command="{Binding UtilityAllCommand}"   Margin="0,0,2,0"/>
-                                <Button Content="✕ 전체 해제" Command="{Binding UtilityClearCommand}" Margin="2,0,0,0"/>
-                            </UniformGrid>
+                            <TextBlock Text="② 유틸리티" FontWeight="Bold" Margin="0,0,0,4"/>
                             <Border Background="#252b3d" BorderBrush="#404a64"
-                                    BorderThickness="1" MaxHeight="180">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <ItemsControl ItemsSource="{Binding UtilityFilters}" Margin="4">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal" Margin="0,2">
-                                                    <CheckBox IsChecked="{Binding IsVisible, Mode=TwoWay}"
-                                                              VerticalAlignment="Center"/>
-                                                    <Rectangle Width="12" Height="12" Fill="{Binding Swatch}"
-                                                               Stroke="#888" StrokeThickness="0.5"
-                                                               VerticalAlignment="Center" Margin="4,0,4,0"/>
-                                                    <TextBlock Text="{Binding Display}"
-                                                               VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                                    BorderThickness="1" MaxHeight="160">
+                                <ListBox ItemsSource="{Binding UtilityList}"
+                                         SelectedItem="{Binding SelectedUtility, Mode=TwoWay}"
+                                         ToolTip="유틸리티 선택 → 아래 개별 PoC 목록이 나오고, 상단 '탐색 범위'가 이 유틸리티로 설정됩니다."/>
                             </Border>
                         </StackPanel>
                     </Border>
 
-                    <!-- 작업 목록 (필터 + 검색 적용된 뷰) -->
-                    <Border Background="#2b3548" Padding="6"
+                    <!-- 3단계: 개별 PoC (작업) -->
+                    <Border Grid.Row="2" Background="#2b3548" Padding="6"
                             BorderBrush="#404a64" BorderThickness="1">
                         <DockPanel LastChildFill="True">
-                            <TextBlock DockPanel.Dock="Top" Text="작업 목록"
+                            <TextBlock DockPanel.Dock="Top" Text="③ 개별 PoC (선택 = 3D 강조)"
                                        FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox ItemsSource="{Binding TasksView}"
+                            <ListBox ItemsSource="{Binding PocList}"
                                      SelectedItem="{Binding SelectedTask, Mode=TwoWay}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
@@ -163,15 +157,15 @@
                                             <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
                                                        Stroke="#888" StrokeThickness="0.5"
                                                        VerticalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Display}" Margin="6,0,0,0"
-                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding PocDisplay}" Margin="6,0,0,0"
+                                                       VerticalAlignment="Center" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </DockPanel>
                     </Border>
-                </DockPanel>
+                </Grid>
             </Border>
 
             <!-- ===== CENTER: 3D 뷰 + 하단 레이어 토글 ===== -->
@@ -189,11 +183,16 @@
                                    IsHeadLightEnabled="True"
                                    ModelUpDirection="0,0,1">
                     <h:DefaultLights/>
-                    <h:GridLinesVisual3D Center="3000,3000,0" Width="8000" Length="8000"
+                    <!-- 바닥 격자: 씬 좌표에 맞춰 코드비하인드가 Center/Width/Length 를 갱신(SceneRebuilt).
+                         하드코딩하면 실제 DB 좌표(수만 mm)와 떨어져 ZoomExtents 가 빗나간다. -->
+                    <h:GridLinesVisual3D x:Name="GroundGrid"
+                                         Center="0,0,0" Width="1000" Length="1000"
                                          MinorDistance="1000" MajorDistance="1000" Thickness="2"
                                          Normal="0,0,1" LengthDirection="1,0,0"
                                          Fill="#404a64"/>
                     <ModelVisual3D Content="{Binding SceneModel}"/>
+                    <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
+                    <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
                 </h:HelixViewport3D>
 
                 <!-- 레이어 표시: SpaceAI 와 같이 viewport 하단 가로형 WrapPanel -->
@@ -204,21 +203,40 @@
                                    FontWeight="Bold" Foreground="#bfc6d6"
                                    VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <WrapPanel Orientation="Horizontal" ItemHeight="22">
-                            <CheckBox Content="장애물 (AABB)"
-                                      IsChecked="{Binding ShowObstacles}" Margin="0,0,12,0"/>
-                            <CheckBox Content="라우팅 경로 (튜브)"
-                                      IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"/>
-                            <CheckBox Content="충돌 셀 (빨간 큐브)"
-                                      IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"/>
-                            <CheckBox Content="복셀 전체맵 (격자 BBOX)"
+                            <CheckBox Content="장애물"
+                                      IsChecked="{Binding ShowObstacles}" Margin="0,0,12,0"
+                                      ToolTip="장애물 (TB_BIM_OBSTACLES) AABB"/>
+                            <CheckBox Content="장비"
+                                      IsChecked="{Binding ShowEquipment}" Margin="0,0,12,0"
+                                      ToolTip="TB_BIM_EQUIPMENT(SOURCE_FILE 조건)의 장비를 주황 큐브 박스로 표시(메인은 진하게)"/>
+                            <CheckBox Content="레터럴"
+                                      IsChecked="{Binding ShowLaterals}" Margin="0,0,12,0"
+                                      ToolTip="TB_DUCT_LATERAL 의 CATEGORY=LATERAL 을 초록 박스로 표시"/>
+                            <CheckBox Content="덕트"
+                                      IsChecked="{Binding ShowDucts}" Margin="0,0,12,0"
+                                      ToolTip="TB_DUCT_LATERAL 의 CATEGORY=DUCT 을 청색 박스로 표시"/>
+                            <CheckBox Content="경로"
+                                      IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"
+                                      ToolTip="라우팅 경로 (유틸리티별 색 튜브)"/>
+                            <CheckBox Content="충돌"
+                                      IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"
+                                      ToolTip="충돌 셀 (≥2 배관이 공유하는 셀, 빨간 큐브)"/>
+                            <CheckBox Content="격자맵"
                                       IsChecked="{Binding ShowGridFrame}" Margin="0,0,12,0"
-                                      ToolTip="작업 공간의 격자 12변을 가는 실린더로 표시"/>
-                            <CheckBox Content="점유맵 (복셀화 장애물)"
-                                      IsChecked="{Binding ShowOccupancyVoxels}" Margin="0,0,12,0"
-                                      ToolTip="엔진이 voxelize 한 블록 셀을 옅은 청회색 큐브로. 50k 초과 시 자동 다운샘플"/>
-                            <CheckBox Content="방문맵 (A* 확장 셀, 유틸 색)"
+                                      ToolTip="복셀 전체맵 — 작업 공간의 격자 BBOX 12변을 가는 실린더로 표시"/>
+                            <CheckBox Content="점유맵"
+                                      IsChecked="{Binding ShowOccupancyVoxels}" Margin="0,0,6,0"
+                                      ToolTip="엔진이 voxelize 한 블록 셀을 옅은 청회색 큐브로 표시"/>
+                            <Button Content="{Binding OccupancyResolutionLabel}"
+                                    Command="{Binding ToggleOccupancyResCommand}"
+                                    Margin="0,0,12,0" Padding="8,1" MinWidth="0"
+                                    ToolTip="점유맵 해상도 전환: 원본(전체 셀, 정확하지만 느릴 수 있음) ↔ 다운샘플(상한 15만, 빠름)"/>
+                            <CheckBox Content="방문맵"
                                       IsChecked="{Binding ShowVisitedMap}" Margin="0,0,12,0"
                                       ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>
+                            <CheckBox Content="공간"
+                                      IsChecked="{Binding ShowSpaces}" Margin="0,0,12,0"
+                                      ToolTip="공간 영역 — TB_BIM_SPACE_INFO 의 구역(CR/A/F/CSF)을 선형 와이어프레임 + 텍스트 라벨로 표시"/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
@@ -250,8 +268,8 @@
                     </Border>
 
                     <!-- 선택 작업 정보 + 종단점 편집 -->
-                    <Border Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1">
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
                         <StackPanel>
                             <TextBlock Text="선택 배관 — 종단점 편집 (mm)"
                                        FontWeight="Bold" Margin="0,0,0,4"/>
@@ -287,9 +305,31 @@
                             <Button Content="▶ 선택 배관 재라우팅 (단일)"
                                     Command="{Binding RerouteSelectedCommand}"
                                     Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"/>
-                            <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. 충돌없는 결과는 상단 '전체 재라우팅' 사용."
+                            <Button Content="🔎 단계별 탐색 (선택 배관)"
+                                    Command="{Binding AnimateSelectedCommand}"
+                                    Margin="0,4,0,0" Background="#3a4e7a" FontWeight="SemiBold"
+                                    ToolTip="점유맵을 켜고, A* 가 시작 PoC 부터 점유를 회피해 종단 PoC 로 탐색하는 과정(방문 셀)을 순서대로 애니메이션으로 보여준 뒤 최종 경로를 드러냅니다."/>
+                            <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. '단계별 탐색'은 A* 진행 과정을 재생."
                                        TextWrapping="Wrap" Foreground="#9aa3b8" FontSize="11" Margin="0,6,0,0"/>
                         </StackPanel>
+                    </Border>
+
+                    <!-- 경로 단계(구간) 목록 — 방향 전환마다 한 항목. 클릭 시 그 위치로 카메라 이동 -->
+                    <Border Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Top" Text="경로 단계 (방향 전환 구간) — 클릭 시 이동"
+                                       FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ListBox ItemsSource="{Binding PathSteps}"
+                                     SelectedItem="{Binding SelectedStep, Mode=TwoWay}"
+                                     FontFamily="Consolas" FontSize="12">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Label}" Margin="2,1"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
                     </Border>
                 </DockPanel>
             </Border>
