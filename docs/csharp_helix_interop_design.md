@@ -382,6 +382,9 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P3a (뷰어)** | 충돌 셀 시각화(빨간 큐브), 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(`FindNearestPoint`→셀 스냅), 장애물/경로 메시 머지. | 뷰어 기능 | **완료 2026-05-29** |
 | **P3b (엔진)** | 대형 장면 **계층 corridor 라우팅을 C ABI 로 노출**(`r3d_route_corridor`). **SparseOccupancy + astar_hashed** 라 배열 할당 없이 초대형 격자 동작 → **OpenVDB DLL 동봉 불필요**(DLL 코어 전용 유지). C# 뷰어 corridor 버튼. ctest `capi` 가 2000²×8 Sparse 장면 라우팅 검증. | 대형장면 라우팅 | **완료 2026-05-29** |
 | **P3c (검증)** | 뷰어 **명령행 인자 로드**(`scene.txt` 경로 → 데모 대신 해당 장면 로드) + **헤드리스 셀프테스트**(`--selftest <scene> <out>`: 창 없이 파싱+P/Invoke 라우팅+모델 구성 후 상태 문자열을 파일로 기록). 실 DB 장면 교차검증에 사용. | 검증 모드 | **완료 2026-05-29** |
+| **P3d (UI 리스타일)** | SpaceAI 동일 팔레트 다크 3-컬럼 + **🔍 라우팅 경로 검색**(SearchText 부분일치) + **유틸리티 체크박스 필터**(전체 선택/해제, 작업 목록↔3D 동시 반영) + **↺ 전체보기**(FitViewCommand→ZoomExtents). | 사용자 UX | **완료 2026-05-30** |
+| **P3e (3D 신규 레이어)** | **복셀 전체맵**(격자 BBOX 와이어) · **점유맵**(voxelize된 블록 셀, ≥50k 자동 다운샘플) · **방문맵**(각 배관의 A* 확장 셀, 유틸리티 색, 유틸당 12k 다운샘플). 엔진까지 손봐 `AStarResult.visited`+`collect_visited` / capi `r3d_copy_visited`·`r3d_copy_blocked`·`r3d_set_collect_visited` 추가. | 가시화 레이어 | **완료 2026-05-30** |
+| **P3f (DB 자동 로드)** | 실행 시 AUTOROUTINGV7 자동 접속 → 프로젝트 콤보 → 장애물·PoC 페어 로드 → 라우팅 → 전체보기. Npgsql 8.0.4, `space_project_map`/`TB_BIM_OBSTACLES`/`TB_BIM_EQUIPMENT(POC_LIST jsonb)`. DB 실패 시 데모 폴백. | DB 통합 | **완료 2026-05-30** |
 | P3b' (선택) | VDB 백엔드 capi(`USE_OPENVDB` 빌드 + openvdb/tbb DLL 동봉) — Sparse 로 목표 충족되어 보류. | (선택) | 미착수 |
 
 각 단계는 독립 가치가 있고, **P0/P1 만으로도 "C++ 엔진 + C# 뷰어"가 성립**한다(scene.txt 폴백과 동치).

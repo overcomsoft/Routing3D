@@ -62,8 +62,8 @@ def add_cover(doc):
                     "· 흐름도 / 알고리즘 / 주요 함수·변수 / 결과")
     _set_run_font(r, BODY_FONT, 11, ea_font=BODY_FONT, color=(0x70, 0x70, 0x70))
     meta = doc.add_paragraph()
-    r2 = meta.add_run("단위 mm · 기본 셀 50mm · 작성일 2026-05-29 · 레퍼런스: python_experiments/ "
-                      "· C++ 엔진: cpp/")
+    r2 = meta.add_run("단위 mm · 기본 셀 50mm · 작성일 2026-05-30 · 레퍼런스: python_experiments/ "
+                      "· C++ 엔진: cpp/ · C# 뷰어: csharp/Routing3D.Viewer/")
     _set_run_font(r2, BODY_FONT, 10, ea_font=BODY_FONT, color=(0x70, 0x70, 0x70))
 
 
@@ -884,7 +884,9 @@ def ch_csharp():
         ("h1", "5. C++ ↔ C# 인터롭 + HelixToolkit 뷰어"),
         ("p", "엔진은 C++ 로 두고 가시화를 C#(WPF + HelixToolkit)로 구현한다. C++ 코어를 의존성 없는 "
               "단일 DLL(C ABI)로 노출하고, C# 가 P/Invoke 로 호출해 라우팅 결과를 3D 로 그린다. "
-              "단계 P0(DLL) → P1(뷰어) → P2(인터랙티브) → P3a(뷰어 기능) → P3b(대형장면) → P3c(검증)."),
+              "단계 P0(DLL) → P1(뷰어) → P2(인터랙티브) → P3a(뷰어 기능) → P3b(대형장면 corridor) → "
+              "P3c(scene.txt CLI/--selftest) → P3d(SpaceAI 다크 UI·검색·필터·전체보기) → "
+              "P3e(3D 신규 레이어 3종: 복셀 전체맵/점유맵/방문맵) → P3f(PostgreSQL 자동 로드)."),
         ("h2", "5.1 C ABI 네이티브 DLL (routing3d_capi)"),
         ("h3", "개요 / 설계"),
         ("p", "C++ 코어만 링크한 외부 의존성 0 의 단일 DLL(약 261KB). 경계는 순수 C ABI(extern \"C\", cdecl): "
@@ -904,12 +906,14 @@ def ch_csharp():
                 ["r3d_route_scene_text", "Level 1: scene.txt 문자열을 받아 라우팅한 scene.txt 반환."],
                 ["r3d_route_multi / route_task", "전체 다중 / 단일 작업 라우팅(핸들)."],
                 ["r3d_route_corridor", "대형 장면 계층 corridor(Sparse, 배열 미할당)."],
-                ["r3d_route_ripup", "rip-up & reroute(Step 3.8)."],
+                ["r3d_route_ripup", "rip-up & reroute(Step 3.8) — blocker 뜯고 재배치, 무손실 +1."],
+                ["r3d_set_collect_visited", "방문맵 가시화용 visited 셀 수집 on/off(기본 on)."],
                 ["r3d_get_result / r3d_copy_path", "결과 지표 / 경로 셀 복사."],
+                ["r3d_copy_visited / r3d_copy_blocked", "방문(확장) 셀 / 점유 셀 복사 — 뷰어 방문맵·점유맵 가시화."],
             ],
         )),
         ("p", "검증: ctest capi 가 DLL 경유 골든03(5/5·28050mm) + 문자열 왕복 + 2000²×8 Sparse corridor 라우팅. "
-              "ctest 8/8 통과."),
+              "rip-up 합성(1/2→2/2)도 별도 ctest. **ctest 9/9 통과**."),
         ("h2", "5.2 C# WPF + HelixToolkit 뷰어 (Routing3D.Viewer)"),
         ("h3", "개요 / 구성"),
         ("p", ".NET 9(net9.0-windows, x64 고정) WPF. P/Invoke + SafeHandle + 관리형 Engine 래퍼로 DLL 을 호출하고 "
@@ -929,8 +933,25 @@ def ch_csharp():
                 ["P3a 뷰어 기능", "충돌 셀 시각화, 표시 토글(장애물/경로/충돌), 3D 클릭 종단점 지정(셀 스냅)."],
                 ["P3b 대형장면", "corridor 라우팅 버튼(Sparse, OpenVDB 불필요 → DLL 코어 전용 유지)."],
                 ["P3c 검증", "명령행 인자 scene.txt 로드 + --selftest 헤드리스(창 없이 전체 파이프라인) 검증."],
+                ["P3d UI 리스타일", "SpaceAI 다크 팔레트 3-컬럼 + 🔍 라우팅 경로 검색 + 유틸리티 체크박스 필터(↔ 3D 동시 반영) + ↺ 전체보기."],
+                ["P3e 3D 신규 레이어", "복셀 전체맵(격자 BBOX) · 점유맵(voxelize된 블록 셀, ≥50k 자동 다운샘플) · 방문맵(A* 확장 셀, 유틸리티 색)."],
+                ["P3f DB 자동 로드", "실행 시 AUTOROUTINGV7 자동 접속 → 프로젝트 콤보 → 장애물·PoC 페어 → 라우팅 → 전체보기."],
             ],
         )),
+        ("h3", "P3e 가시화 레이어 데이터 흐름"),
+        ("p", "엔진은 라우팅 중 collect_visited=on 으로 각 작업의 확장 셀을 dedupe(셀 단위 visited_seen 비트맵)해 "
+              "AStarResult.visited 에 채운다. capi 가 R3dResult.visited_len 로 길이를 전달하고 "
+              "r3d_copy_visited 로 (i,j,k) 배열을 콜러 버퍼에 복사. C# SceneViewModel 은 유틸리티 라벨별로 "
+              "큐브를 머지(유틸당 12k 셀 상한 균등 다운샘플)하고 해당 배관의 유틸리티 색·alpha≈31% 로 그린다. "
+              "점유맵은 r3d_copy_blocked 로 현재 doc 의 voxelize 된 블록 셀 인덱스를 받아 옅은 청회색 큐브로."),
+        ("h3", "P3f DB 자동 로드 흐름"),
+        ("b", [
+            "Npgsql 8.0.4. 기본 localhost:5432/AUTOROUTINGV7/postgres/dinno. PGHOST 등 env 우선.",
+            "ListProjects: SELECT project_id, source_file, process, equipment_code FROM space_project_map.",
+            "LoadScene(project_id, cellMm): project_id→source_file → TB_BIM_OBSTACLES AABB + TB_BIM_EQUIPMENT(IS_MAIN)의 POC_LIST jsonb (System.Text.Json) → start/end PoC 페어. 격자=장애물 BBOX → ceil((hi-lo)/cell).",
+            "SceneViewModel.SelectedProject set 이 자동으로 LoadFromDb → 엔진 적재 → RouteMulti → SceneRebuilt → ZoomExtents.",
+            "scene.txt 인자 없으면 LoadProjects → 자동 선택. DB 실패 시 LoadDemo 폴백.",
+        ]),
         ("h2", "5.3 실데이터 교차검증 (PostgreSQL → Python · C++ · C#)"),
         ("p", "기존 플랜트 DB(AUTOROUTINGV7 / TB_BIM_OBSTACLES)의 실제 장애물로 project6 씬을 만들고 "
               "세 구현이 같은 파일에서 같은 결과를 내는지 검증했다."),
@@ -943,7 +964,8 @@ def ch_csharp():
             ],
         )),
         ("p", "→ Python 원형 → C++ 엔진 → C# 뷰어까지 완전 동일 결과. cell=200 동일 파일에서도 셋 다 "
-              "77/208·1,532,800mm 로 일치(격자 해상도에 따라 성공 수가 달라지므로 같은 파일끼리 비교)."),
+              "77/208·1,532,800mm 로 일치(격자 해상도에 따라 성공 수가 달라지므로 같은 파일끼리 비교). "
+              "cell=200 에서는 rip-up 이 77→80(+3) 으로 실데이터 개선도 실측됨(회귀 리포트 §4)."),
         ("h3", "실행명령어"),
         ("code",
          "# DLL 빌드 → 뷰어 빌드/실행\n"
@@ -966,8 +988,10 @@ def ch_conclusion():
         ("b", [
             "Phase 1: Python 알고리즘(점유맵·A*·비용·다중배관·scene.txt·시각화·회귀 골든셋) 완료, pytest 203 통과.",
             "Phase 2: 알고리즘/포맷/골든셋/성능목표 명세 동결, 계약(불변식) 확정.",
-            "Phase 3: C++ 엔진(코어 + OpenVDB + 계층 corridor + FCL + rip-up + pybind11 + CLI) 구현, ctest 8/8 통과.",
-            "C# 인터롭: C ABI DLL + HelixToolkit 뷰어(P0~P3c). 실 DB 데이터로 Python=C++=C# 결과 일치 교차검증.",
+            "Phase 3: C++ 엔진(코어 + OpenVDB + 계층 corridor + FCL + rip-up + pybind11 + CLI) 구현, ctest 9/9 통과.",
+            "Step 3.12 회귀 리포트: 표준 벤치(골든 3종 + rip-up 합성 + project6 실데이터) 자동 측정·기대치 비교 → 골든 3/3 PASS, rip-up 합성 1/2→2/2, project6 cell=200에서 rip-up 77→80(+3) 실데이터 개선 실증.",
+            "C# 인터롭: C ABI DLL + HelixToolkit 뷰어 P0~P3f. SpaceAI 다크 UI/검색/필터/전체보기, 3D 신규 레이어 3종(복셀 전체맵·점유맵·방문맵), 실행 시 PostgreSQL 자동 로드.",
+            "실데이터 교차검증: project6 cell=100 동일 파일에서 Python·C++·C# 모두 194/208·총 3,400,800mm 완전 일치.",
             "교차검증: 골든 01/02/03 을 expanded_nodes 까지 Python 과 정확 일치(세 백엔드 동일).",
         ]),
         ("h2", "6.2 성능 목표 대비 현황"),
@@ -984,14 +1008,14 @@ def ch_conclusion():
         ("table", (
             ["항목", "내용"],
             [
-                ["3.8 rip-up & reroute", "구현·교차검증 완료(합성 +1 실증). 잔여: 접근불가(매장 PoC)는 PoC 전처리/스냅 확장, "
-                 "혼잡은 비용기반 negotiated-congestion/CBS 로 추가 개선."],
+                ["3.8 rip-up & reroute", "구현·교차검증 완료. 잔여: 접근불가(매장 PoC) PoC 전처리/스냅 확장, "
+                 "혼잡은 비용기반 negotiated-congestion/CBS 로 추가 개선 여지."],
                 ["3.11 벤치 · 최적화", "corridor 폭/해상도 튜닝, 클리어런스 로컬화, 라우팅에 FCL 통합, 독립 배관 병렬화."],
-                ["3.12 회귀 리포트", "표준 벤치 셋(골든 3종 + project6 + 8,000m 합성)의 성능·정확도 리포트."],
+                ["3.12 회귀 리포트", "구현 완료 — docs/routing3d_regression_report.{docx,pdf} 생성기로 재생성."],
                 ["P3b' OpenVDB capi(선택)", "VDB 백엔드를 C ABI 로 노출 + 런타임 DLL 동봉 — Sparse 로 충족돼 보류."],
             ],
         )),
-        ("p", "본 보고서는 2026-05-29 시점의 구현을 기준으로 한다. 최신 상태는 코드와 git 이력이 정답이다."),
+        ("p", "본 보고서는 2026-05-30 시점의 구현을 기준으로 한다. 최신 상태는 코드와 git 이력이 정답이다."),
     ]
 
 
