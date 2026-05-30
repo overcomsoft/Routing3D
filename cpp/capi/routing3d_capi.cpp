@@ -33,6 +33,7 @@ using namespace routing3d;
 // 불투명 핸들의 실제 정의: 씬 문서 하나(격자/파라미터/장애물/작업/결과)를 보유.
 struct R3dEngine {
     SceneDoc doc;
+    bool collect_visited = true;  // 기본 on — 뷰어 '방문맵' 즉시 사용. set_collect_visited 로 끔.
 };
 
 namespace {
@@ -51,7 +52,8 @@ std::optional<std::string> opt_str(const char* s) {
     return std::string(s);
 }
 
-// AStarResult → SceneResult(엔진 결과 저장 단위). 성공 시 경로 포함.
+// AStarResult → SceneResult(엔진 결과 저장 단위). 성공 시 경로 포함. visited 가 비어있지
+// 않으면 함께 복사(가시화 '방문맵' / scene.txt [visited] 섹션).
 SceneResult to_scene_result(const AStarResult& r) {
     SceneResult s;
     s.success = r.success;
@@ -61,6 +63,7 @@ SceneResult to_scene_result(const AStarResult& r) {
     s.expanded_nodes = r.expanded_nodes;
     s.elapsed_ms = r.elapsed_ms;
     if (r.success) s.path = r.path;
+    if (!r.visited.empty()) s.visited = r.visited;
     return s;
 }
 
@@ -75,12 +78,13 @@ void fill_result(R3dResult& o, const std::optional<SceneResult>& r) {
     o.expanded_nodes = r->expanded_nodes;
     o.elapsed_ms = r->elapsed_ms;
     o.path_len = r->path ? static_cast<int32_t>(r->path->size()) : 0;
+    o.visited_len = r->visited ? static_cast<int32_t>(r->visited->size()) : 0;
 }
 
 // 다중 배관 순차 라우팅을 '원본 작업 인덱스' 기준으로 doc.results 에 채운다.
 // route_sequential 과 동일한 빌딩블록(order/snap/astar_weighted/mark_pipe)을 쓰되,
 // 결과를 원래 인덱스에 저장해 핸들 API(get_result(task))의 매핑을 보존한다.
-void route_multi_into_doc(SceneDoc& doc, const std::string& priority) {
+void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited) {
     DenseOccupancy occ = occupancy_from_doc(doc);
     DenseOccupancy work = occ.copy();  // 원본 점유 불변.
 
@@ -114,7 +118,7 @@ void route_multi_into_doc(SceneDoc& doc, const std::string& priority) {
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), 2);
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), 2);
-        AStarResult res = astar_weighted(work, s, g, doc.params, -1);
+        AStarResult res = astar_weighted(work, s, g, doc.params, -1, collect_visited);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
@@ -146,17 +150,18 @@ extern "C" R3dStatus r3d_route_scene_text(const char* scene_text, const char* mo
     }
     try {
         const std::string m = mode ? mode : "multi";
+        // Level 1(문자열) API 는 핸들 없이 호출되므로 visited 수집 기본 on.
         if (m == "single") {
             DenseOccupancy occ = occupancy_from_doc(doc);
             doc.results.assign(doc.tasks.size(), std::nullopt);
             for (size_t i = 0; i < doc.tasks.size(); ++i) {
                 const RouteTask& t = doc.tasks[i];
                 AStarResult r = astar_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
-                                               doc.params, -1);
+                                               doc.params, -1, true);
                 doc.results[i] = to_scene_result(r);
             }
         } else {
-            route_multi_into_doc(doc, priority ? priority : "longest");
+            route_multi_into_doc(doc, priority ? priority : "longest", true);
         }
         char* p = dup_string(dumps_scene(doc));
         if (!p) return R3D_ERR_RUNTIME;
@@ -253,11 +258,17 @@ extern "C" R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task, double s
 extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     if (!e) return R3D_ERR_ARG;
     try {
-        route_multi_into_doc(e->doc, priority ? priority : "longest");
+        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
     }
+}
+
+extern "C" R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled) {
+    if (!e) return R3D_ERR_ARG;
+    e->collect_visited = (enabled != 0);
+    return R3D_OK;
 }
 
 // rip-up & reroute(Step 3.8): 헤더 route_ripup 을 호출하되, 결과를 '원본 작업 인덱스'로
@@ -272,7 +283,8 @@ extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t
         DenseOccupancy occ = occupancy_from_doc(doc);
         std::vector<int> order = order_indices(occ, doc.tasks, prio);
         auto mr = route_ripup(occ, doc.tasks, doc.params, prio, 0, 2, -1,
-                              max_rounds > 0 ? max_rounds : 10, max_ripup > 0 ? max_ripup : 4);
+                              max_rounds > 0 ? max_rounds : 10, max_ripup > 0 ? max_ripup : 4,
+                              e->collect_visited);
         doc.results.assign(doc.tasks.size(), std::nullopt);
         for (size_t pos = 0; pos < mr.pipes.size(); ++pos)
             doc.results[static_cast<size_t>(order[pos])] = to_scene_result(mr.pipes[pos].result);
@@ -326,7 +338,7 @@ extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) 
         DenseOccupancy occ = occupancy_from_doc(e->doc);
         const RouteTask& t = e->doc.tasks[static_cast<size_t>(task)];
         AStarResult r = astar_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
-                                       e->doc.params, -1);
+                                       e->doc.params, -1, e->collect_visited);
         if (e->doc.results.size() != e->doc.tasks.size())
             e->doc.results.resize(e->doc.tasks.size());
         e->doc.results[static_cast<size_t>(task)] = to_scene_result(r);
@@ -362,6 +374,50 @@ extern "C" int32_t r3d_copy_path(const R3dEngine* e, int32_t task, int32_t* buf,
         buf[3 * i + 2] = path[static_cast<size_t>(i)].k;
     }
     return n;
+}
+
+// 방문(확장) 셀 복사 — 가시화 '방문맵' 용. copy_path 와 동일 형식.
+extern "C" int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells) {
+    if (!e || !buf || buf_cells <= 0) return 0;
+    if (task < 0 || task >= static_cast<int32_t>(e->doc.results.size())) return 0;
+    const std::optional<SceneResult>& r = e->doc.results[static_cast<size_t>(task)];
+    if (!r || !r->visited) return 0;
+    const std::vector<Cell>& vs = *r->visited;
+    int32_t n = std::min<int32_t>(buf_cells, static_cast<int32_t>(vs.size()));
+    for (int32_t i = 0; i < n; ++i) {
+        buf[3 * i + 0] = vs[static_cast<size_t>(i)].i;
+        buf[3 * i + 1] = vs[static_cast<size_t>(i)].j;
+        buf[3 * i + 2] = vs[static_cast<size_t>(i)].k;
+    }
+    return n;
+}
+
+// 점유맵(블록된 셀) 인덱스 복사 — 가시화 '점유맵' 용. 현재 doc 의 obstacles 로 즉석 voxelize.
+// buf=NULL, buf_cells=0 이면 총 셀 수만 반환(사이즈 조회). 부분 복사 시 처음 buf_cells 개.
+extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t buf_cells) {
+    if (!e) return 0;
+    try {
+        DenseOccupancy occ = occupancy_from_doc(e->doc);
+        const Cell& shape = e->doc.shape;
+        // 사이즈 조회 모드: buf 미지정.
+        bool size_only = (buf == nullptr || buf_cells <= 0);
+        int32_t written = 0;
+        for (int i = 0; i < shape.i && (size_only || written < buf_cells); ++i)
+            for (int j = 0; j < shape.j && (size_only || written < buf_cells); ++j)
+                for (int k = 0; k < shape.k && (size_only || written < buf_cells); ++k) {
+                    Cell c{i, j, k};
+                    if (!occ.is_blocked(c)) continue;
+                    if (!size_only) {
+                        buf[3 * written + 0] = i;
+                        buf[3 * written + 1] = j;
+                        buf[3 * written + 2] = k;
+                    }
+                    ++written;
+                }
+        return written;  // size_only=true 면 전체 카운트, false 면 실제 복사한 셀 수.
+    } catch (...) {
+        return 0;
+    }
 }
 
 extern "C" R3dStatus r3d_dump_scene_text(const R3dEngine* e, char** out_text) {

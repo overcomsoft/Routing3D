@@ -83,6 +83,7 @@ typedef struct {
     int64_t expanded_nodes;
     double elapsed_ms;
     int32_t path_len;       // 경로 셀 수(r3d_copy_path 버퍼 크기 산출용)
+    int32_t visited_len;    // 방문(확장) 셀 수(r3d_copy_visited 버퍼 크기 산출용). 비활성 시 0.
 } R3dResult;
 
 R3D_API R3dEngine* r3d_create(void);
@@ -123,6 +124,17 @@ R3D_API R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radiu
 R3D_API R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out);
 // 경로 셀을 buf(int32_t[3*buf_cells], (i,j,k) 연속)에 복사. 반환=실제 복사한 셀 수.
 R3D_API int32_t r3d_copy_path(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells);
+// 방문(확장) 셀을 buf 에 복사(가시화 '방문맵'). 반환=실제 복사한 셀 수. 비활성/미집계면 0.
+R3D_API int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells);
+
+// 방문 셀 수집 on/off (기본 on=1). off 면 라우팅 후 visited_len=0, copy_visited=0.
+// 대형 장면에서 메모리 절약이 필요할 때 미리 0 으로 설정 후 라우팅한다.
+R3D_API R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled);
+
+// 점유맵(블록된 셀) 인덱스를 buf 에 복사(가시화 '점유맵'). 현재 doc 의 obstacles 로 즉석 voxelize.
+// 반환=실제 복사한 셀 수. buf_cells 가 부족하면 처음 buf_cells 개만 복사하고 그만큼 반환.
+// 총 블록 셀 수를 미리 알려면 buf=NULL, buf_cells=0 으로 호출(총 셀 수 반환).
+R3D_API int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t buf_cells);
 
 // 현재 상태를 scene.txt(UTF-8)로 덤프(저장/디버그/교차검증). out_text 는 해제 필요.
 R3D_API R3dStatus r3d_dump_scene_text(const R3dEngine* e, char** out_text);

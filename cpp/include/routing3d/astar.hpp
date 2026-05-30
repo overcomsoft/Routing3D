@@ -33,6 +33,9 @@ struct AStarResult {
     long long expanded_nodes = 0;  // 확장한 노드(상태) 수
     double cost_mm = 0.0;          // 페널티 포함 총 비용(균일이면 length 와 동일)
     double elapsed_ms = 0.0;
+    // 방문(확장) 셀 목록 — collect_visited=true 일 때만 채워진다(셀 단위 중복 제거).
+    // 가시화(방문맵 레이어, scene.txt [visited] 섹션) 용도. 길이 = 고유 expanded 셀 수.
+    std::vector<Cell> visited;
 };
 
 // 경로의 방향 전환 횟수(백엔드 무관). 헤더 인라인.
@@ -76,7 +79,7 @@ struct PQCmp {
 // step_cost < 0 이면 occ.cell_mm() 사용. max_expansions < 0 이면 무제한.
 template <class Occ>
 AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0,
-                  long long max_expansions = -1) {
+                  long long max_expansions = -1, bool collect_visited = false) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double sc = (step_cost < 0.0) ? occ.cell_mm() : step_cost;
@@ -106,6 +109,7 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
         if (closed[static_cast<size_t>(cl)]) continue;
         closed[static_cast<size_t>(cl)] = 1;
         ++expanded;
+        if (collect_visited) R.visited.push_back(cur.cell);
 
         if (cur.cell == goal) {
             std::vector<Cell> path{goal};
@@ -152,7 +156,7 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 // 상태 = (셀, 진입방향 dir). dir ∈ [-1,5] → state = lin*7 + (dir+1).
 template <class Occ>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
-                           long long max_expansions = -1) {
+                           long long max_expansions = -1, bool collect_visited = false) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
@@ -172,6 +176,10 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     std::unordered_map<long long, double> g;
     std::unordered_map<long long, long long> came;  // state → 직전 state
     std::vector<uint8_t> closed(static_cast<size_t>(occ.size()) * 7, 0);
+    // 셀 단위 방문 표시(collect_visited 일 때만 사용). 같은 셀이 여러 진입방향으로 expand 돼도
+    // 시각화는 한 번만. 가중 A* 라 state ≠ cell — 별도 셀 비트맵으로 dedupe.
+    std::vector<uint8_t> visited_seen;
+    if (collect_visited) visited_seen.assign(static_cast<size_t>(occ.size()), 0);
 
     long long counter = 0;
     long long s0 = state_of(occ.lin(start), -1);
@@ -186,6 +194,13 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         if (closed[static_cast<size_t>(st)]) continue;
         closed[static_cast<size_t>(st)] = 1;
         ++expanded;
+        if (collect_visited) {
+            int cl = occ.lin(cur.cell);
+            if (!visited_seen[static_cast<size_t>(cl)]) {
+                visited_seen[static_cast<size_t>(cl)] = 1;
+                R.visited.push_back(cur.cell);
+            }
+        }
 
         if (cur.cell == goal) {
             std::vector<Cell> path;

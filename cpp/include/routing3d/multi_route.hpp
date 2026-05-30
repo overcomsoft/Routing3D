@@ -165,7 +165,8 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
                                        const RouteParams& params,
                                        const std::string& priority = "longest",
                                        int pipe_radius = 0, int snap_to_free = 2,
-                                       long long max_expansions = -1) {
+                                       long long max_expansions = -1,
+                                       bool collect_visited = false) {
     Occ work = occ.copy();  // 원본 불변(계약 M2).
     std::vector<RouteTask> ordered = order_tasks(occ, tasks, priority);
 
@@ -175,7 +176,7 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
         const RouteTask& task = ordered[static_cast<size_t>(idx)];
         Cell s = snap_to_free_cell(work, work.to_cell(task.start_mm), snap_to_free);
         Cell g = snap_to_free_cell(work, work.to_cell(task.end_mm), snap_to_free);
-        AStarResult res = astar_weighted(work, s, g, params, max_expansions);
+        AStarResult res = astar_weighted(work, s, g, params, max_expansions, collect_visited);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;  // mark_pipe 용(res 는 이동).
         pipes.push_back(PipeResult{task, std::move(res), idx});
@@ -199,7 +200,7 @@ MultiRouteResult<Occ> route_ripup(const Occ& occ, const std::vector<RouteTask>& 
                                   const std::string& priority = "longest",
                                   int pipe_radius = 0, int snap_to_free = 2,
                                   long long max_expansions = -1, int max_rounds = 10,
-                                  int max_ripup = 4) {
+                                  int max_ripup = 4, bool collect_visited = false) {
     std::vector<RouteTask> ordered = order_tasks(occ, tasks, priority);
     const int n = static_cast<int>(ordered.size());
     Occ static_occ = occ.copy();  // 장애물만(불변 기준).
@@ -211,7 +212,7 @@ MultiRouteResult<Occ> route_ripup(const Occ& occ, const std::vector<RouteTask>& 
     auto route_on = [&](const Occ& w, const RouteTask& t) -> AStarResult {
         Cell s = snap_to_free_cell(w, w.to_cell(t.start_mm), snap_to_free);
         Cell g = snap_to_free_cell(w, w.to_cell(t.end_mm), snap_to_free);
-        return astar_weighted(w, s, g, params, max_expansions);
+        return astar_weighted(w, s, g, params, max_expansions, collect_visited);
     };
     auto build_work = [&](const std::map<int, std::vector<Cell>>& paths) -> Occ {
         Occ w = static_occ.copy();

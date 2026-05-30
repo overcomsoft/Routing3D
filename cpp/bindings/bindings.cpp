@@ -122,15 +122,18 @@ PYBIND11_MODULE(routing3d_cpp, m) {
         .def_readonly("turns", &AStarResult::turns)
         .def_readonly("expanded_nodes", &AStarResult::expanded_nodes)
         .def_readonly("cost_mm", &AStarResult::cost_mm)
-        .def_readonly("elapsed_ms", &AStarResult::elapsed_ms);
+        .def_readonly("elapsed_ms", &AStarResult::elapsed_ms)
+        .def_readonly("visited", &AStarResult::visited);
 
     m.def("manhattan", &manhattan, py::arg("a"), py::arg("b"), "두 셀의 맨해튼 거리(셀 수).");
     m.def("count_turns", &count_turns, py::arg("path"), "경로의 방향 전환 횟수.");
     m.def("astar", &astar<DenseOccupancy>, py::arg("occ"), py::arg("start"), py::arg("goal"),
           py::arg("step_cost") = -1.0, py::arg("max_expansions") = -1,
-          "균일 비용 직교 A*. step_cost<0 이면 cell_mm 사용.");
+          py::arg("collect_visited") = false,
+          "균일 비용 직교 A*. step_cost<0 이면 cell_mm 사용. collect_visited=True 면 R.visited 채움.");
     m.def("astar_weighted", &astar_weighted<DenseOccupancy>, py::arg("occ"), py::arg("start"),
           py::arg("goal"), py::arg("params"), py::arg("max_expansions") = -1,
+          py::arg("collect_visited") = false,
           "비용함수 A*(turn penalty/클리어런스/단 분리). 상태=(셀,진입방향).");
 
     // ---------------------------------------------------------------- 작업/다중 라우팅
@@ -182,6 +185,7 @@ PYBIND11_MODULE(routing3d_cpp, m) {
     m.def("route_sequential", &route_sequential<DenseOccupancy>, py::arg("occ"), py::arg("tasks"),
           py::arg("params"), py::arg("priority") = "longest", py::arg("pipe_radius") = 0,
           py::arg("snap_to_free") = 2, py::arg("max_expansions") = -1,
+          py::arg("collect_visited") = false,
           "배관들을 충돌 없이 순차 라우팅(원본 점유맵 불변).");
 
     // ---------------------------------------------------------------- scene.txt I/O
