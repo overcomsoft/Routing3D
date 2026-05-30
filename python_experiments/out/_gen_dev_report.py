@@ -886,7 +886,9 @@ def ch_csharp():
               "단일 DLL(C ABI)로 노출하고, C# 가 P/Invoke 로 호출해 라우팅 결과를 3D 로 그린다. "
               "단계 P0(DLL) → P1(뷰어) → P2(인터랙티브) → P3a(뷰어 기능) → P3b(대형장면 corridor) → "
               "P3c(scene.txt CLI/--selftest) → P3d(SpaceAI 다크 UI·검색·필터·전체보기) → "
-              "P3e(3D 신규 레이어 3종: 복셀 전체맵/점유맵/방문맵) → P3f(PostgreSQL 자동 로드)."),
+              "P3e(3D 신규 레이어 3종: 복셀 전체맵/점유맵/방문맵) → P3f(PostgreSQL 자동 로드) → "
+              "P3g(워크플로 재설계: 비동기 로드·장애물 우선·탐색범위 선택·드릴다운) → "
+              "P3h(DB 레이어 확장: 장비·레터럴/덕트·공간영역) → P3i(단계별 A* 탐색 시각화)."),
         ("h2", "5.1 C ABI 네이티브 DLL (routing3d_capi)"),
         ("h3", "개요 / 설계"),
         ("p", "C++ 코어만 링크한 외부 의존성 0 의 단일 DLL(약 261KB). 경계는 순수 C ABI(extern \"C\", cdecl): "
@@ -936,6 +938,9 @@ def ch_csharp():
                 ["P3d UI 리스타일", "SpaceAI 다크 팔레트 3-컬럼 + 🔍 라우팅 경로 검색 + 유틸리티 체크박스 필터(↔ 3D 동시 반영) + ↺ 전체보기."],
                 ["P3e 3D 신규 레이어", "복셀 전체맵(격자 BBOX) · 점유맵(voxelize된 블록 셀, ≥50k 자동 다운샘플) · 방문맵(A* 확장 셀, 유틸리티 색)."],
                 ["P3f DB 자동 로드", "실행 시 AUTOROUTINGV7 자동 접속 → 프로젝트 콤보 → 장애물·PoC 페어 → 라우팅 → 전체보기."],
+                ["P3g 워크플로 재설계", "창 즉시 표시 + DB 비동기 로드(UI 비차단). 프로젝트 선택 시 장애물만 표시(자동 라우팅 제거) → 탐색 범위(모두/유틸리티그룹별/유틸리티별) 선택 실행. 좌측 드릴다운(그룹→유틸→개별 PoC, PoC 선택 3D 강조)."],
+                ["P3h DB 레이어 확장", "장비(TB_BIM_EQUIPMENT, 메인/서브 색) · 레터럴/덕트(TB_DUCT_LATERAL, CATEGORY별 토글) · 공간영역(TB_BIM_SPACE_INFO.LEVEL_NAME=CR/A/F/CSF, 와이어+텍스트 라벨). PoC 이름 로드. 점유맵 빈틈없는 큐브+원본/샘플 토글. 바닥격자 씬 정렬로 객체 중앙 정렬."],
+                ["P3i 탐색 시각화", "선택 배관 단계별 A* 애니메이션(방문셀 확장순서로 점진 표시→경로 회피 과정). 경로 방향전환(꺾임) 마젠타 마커 + 우측 구간 단계 리스트(방향·길이, 클릭 시 카메라 이동)."],
             ],
         )),
         ("h3", "P3e 가시화 레이어 데이터 흐름"),
@@ -952,6 +957,32 @@ def ch_csharp():
             "SceneViewModel.SelectedProject set 이 자동으로 LoadFromDb → 엔진 적재 → RouteMulti → SceneRebuilt → ZoomExtents.",
             "scene.txt 인자 없으면 LoadProjects → 자동 선택. DB 실패 시 LoadDemo 폴백.",
         ]),
+        ("h3", "P3g 워크플로 재설계 (UX)"),
+        ("b", [
+            "비동기 로드: MainWindow.ContentRendered 후 RunStartupLoadAsync 가 DB 목록/로드를 수행하고 무거운 "
+            "RouteMulti 는 Task.Run(백그라운드) → 창이 즉시 뜨고 UI 가 멈추지 않음(이전엔 첫 라우팅이 끝나야 창 표시).",
+            "프로젝트 선택 시 장애물·격자만 로드해 전체화면 표시(자동 라우팅 제거). 상단 '탐색 범위' 콤보(모두/"
+            "유틸리티그룹별/유틸리티별)와 대상 콤보로 부분집합을 골라 '경로 탐색 실행'. 부분집합은 엔진을 해당 작업만으로 "
+            "재구성해 route_multi → 결과 경로를 행에 캐시(렌더는 엔진 상태와 분리).",
+            "좌측 패널 드릴다운: 유틸리티 그룹 → 유틸리티 → 개별 PoC(POC_LIST.name/endName). PoC 선택 시 시작/끝점을 "
+            "3D 마커로 강조. 드릴다운 선택이 상단 탐색 범위/대상을 자동 설정.",
+        ]),
+        ("h3", "P3h DB 레이어 확장 / 점유맵 충실도 / 중앙 정렬"),
+        ("b", [
+            "장비: TB_BIM_EQUIPMENT(SOURCE_FILE 조건 전체) MIN~MAX → 메인(IS_MAIN, 진한 주황)/서브(옅은 주황) 큐브.",
+            "레터럴/덕트: TB_DUCT_LATERAL 한 테이블에 CATEGORY(LATERAL|DUCT)·UTILITY 보유 → 레터럴=초록·덕트=청색, "
+            "각각 별도 토글. 두께 0(굽힘) 박스는 렌더 시 최소 40mm 클램프.",
+            "공간 영역: TB_BIM_SPACE_INFO.LEVEL_NAME(CR/A/F/CSF)·MIN~MAX → 영역별 색 와이어프레임 + BillboardText "
+            "라벨(영역 바깥, 작은 글씨). 프로젝트마다 3층이 Z로 적층.",
+            "점유맵: 셀 크기 큐브로 맞닿게 그려 빈틈 제거 + 원본/샘플(상한 15만) 해상도 토글. "
+            "바닥격자(GridLinesVisual3D)를 씬 좌표(origin/extent)에 맞춰 ZoomExtents 오정렬을 바로잡아 객체를 중앙에 표시.",
+        ]),
+        ("h3", "P3i 단계별 A* 탐색 시각화"),
+        ("p", "엔진이 방문 셀을 A* 확장 순서대로(AStarResult.visited push 순서) 저장하는 점을 이용해, 선택 배관의 "
+              "탐색 과정을 재생한다. r3d_copy_visited 로 받은 방문 셀을 DispatcherTimer 로 확장 순서대로 점진 표시"
+              "(점유맵을 켜 회피 대상을 함께 보임)하고, 종료 후 최종 경로를 드러낸다. 또한 경로를 직선 구간으로 나눠 "
+              "방향이 바뀌는 꺾임점을 마젠타 마커로 찍고, 우측 패널에 구간(단계) 리스트(방향 수직/수평·길이)를 표시해 "
+              "항목 클릭 시 그 위치로 카메라를 이동한다."),
         ("h2", "5.3 실데이터 교차검증 (PostgreSQL → Python · C++ · C#)"),
         ("p", "기존 플랜트 DB(AUTOROUTINGV7 / TB_BIM_OBSTACLES)의 실제 장애물로 project6 씬을 만들고 "
               "세 구현이 같은 파일에서 같은 결과를 내는지 검증했다."),
@@ -990,7 +1021,7 @@ def ch_conclusion():
             "Phase 2: 알고리즘/포맷/골든셋/성능목표 명세 동결, 계약(불변식) 확정.",
             "Phase 3: C++ 엔진(코어 + OpenVDB + 계층 corridor + FCL + rip-up + pybind11 + CLI) 구현, ctest 9/9 통과.",
             "Step 3.12 회귀 리포트: 표준 벤치(골든 3종 + rip-up 합성 + project6 실데이터) 자동 측정·기대치 비교 → 골든 3/3 PASS, rip-up 합성 1/2→2/2, project6 cell=200에서 rip-up 77→80(+3) 실데이터 개선 실증.",
-            "C# 인터롭: C ABI DLL + HelixToolkit 뷰어 P0~P3f. SpaceAI 다크 UI/검색/필터/전체보기, 3D 신규 레이어 3종(복셀 전체맵·점유맵·방문맵), 실행 시 PostgreSQL 자동 로드.",
+            "C# 인터롭: C ABI DLL + HelixToolkit 뷰어 P0~P3i. SpaceAI 다크 UI/검색/필터/전체보기, 3D 레이어(복셀 전체맵·점유맵·방문맵·장비·레터럴/덕트·공간영역), PostgreSQL 자동 로드, 비동기 로드+장애물 우선 표시+탐색범위/드릴다운 워크플로, 선택 배관 단계별 A* 탐색 애니메이션·꺾임 구간 리스트.",
             "실데이터 교차검증: project6 cell=100 동일 파일에서 Python·C++·C# 모두 194/208·총 3,400,800mm 완전 일치.",
             "교차검증: 골든 01/02/03 을 expanded_nodes 까지 Python 과 정확 일치(세 백엔드 동일).",
         ]),
