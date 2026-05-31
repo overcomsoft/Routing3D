@@ -189,6 +189,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
+        private bool _includeFacilities = true;     // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로.
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
@@ -310,6 +311,14 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowLaterals { get => _showLaterals; set { if (Set(ref _showLaterals, value)) RebuildIfReady(); } }
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
+
+        /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 제외)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
+        /// 배관의 경로를 장애물로 추가해 충돌을 피한다. 토글은 '다음 라우팅'부터 적용(즉시 재라우팅 안 함).</summary>
+        public bool IncludeFacilities
+        {
+            get => _includeFacilities;
+            set { if (Set(ref _includeFacilities, value)) Status = value ? "충돌확장 ON — 다음 라우팅부터 설비·덕트·레터럴·기설계 배관을 회피합니다." : "충돌확장 OFF — 원본 장애물만 회피합니다."; }
+        }
 
         /// <summary>점유맵 해상도. true=원본(전체 셀 표시, 느릴 수 있음), false=다운샘플(상한까지만).</summary>
         public bool OccupancyFullRes
@@ -864,6 +873,8 @@ namespace Routing3D.Viewer.ViewModels
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 else
                     _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로 추가(자기 자신 제외).
+            AddFacilityObstacles(_engine, new HashSet<int>(rowPositions));
             var added = new List<int>(rowPositions.Count);
             foreach (var pos in rowPositions)
             {
@@ -872,6 +883,69 @@ namespace Routing3D.Viewer.ViewModels
                 added.Add(pos);
             }
             return added;
+        }
+
+        // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
+        //   · 설비(TB_BIM_EQUIPMENT, 단 IS_MAIN 메인 장비는 시작 PoC 소스이므로 제외)
+        //   · 덕트/레터럴(TB_DUCT_LATERAL)
+        //   · 이미 우리 알고리즘으로 설계된(라우팅 성공) 다른 배관의 경로(currentRows 의 자기 자신은 제외)
+        // 시작/끝 PoC 가 이들 표면에 닿아 막히면 엔진의 snap_to_free_cell(반경 2) 이 인접 빈 셀로 옮긴다.
+        private void AddFacilityObstacles(Engine engine, HashSet<int> currentRows)
+        {
+            if (!_includeFacilities || _scene == null) return;
+            var s = _scene;
+            double cell = s.Grid.CellMm;
+            double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
+
+            foreach (var e in s.Equipment)
+            {
+                if (e.IsMain) continue;   // 메인 장비 = 라우팅 시작 PoC 소스 → 막으면 시작점 갇힘.
+                AddBoxObstacle(engine, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ, minT);
+            }
+            foreach (var d in s.DuctsLaterals)
+                AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
+
+            // 이미 설계된(라우팅 성공) 다른 배관의 경로를 점유로 추가 — 새 배관이 이를 피하도록.
+            double r = cell * 0.6;   // 경로 셀 폴리라인을 약 1셀 두께 튜브로 점유.
+            for (int i = 0; i < Tasks.Count; i++)
+            {
+                if (currentRows.Contains(i)) continue;          // 지금 라우팅하는(=자기) 배관은 제외.
+                var row = Tasks[i];
+                if (!row.Success || row.Path.Length < 2) continue;
+                AddPathObstacle(engine, row.Path, s.Grid, r);
+            }
+        }
+
+        // AABB 장애물 추가 — 두께 0 축은 minT 로 팽창해 반드시 셀을 점유하게 한다.
+        private static void AddBoxObstacle(Engine engine, double mnx, double mny, double mnz,
+                                           double mxx, double mxy, double mxz, double minT)
+        {
+            if (mxx - mnx < minT) { double c = (mnx + mxx) / 2; mnx = c - minT / 2; mxx = c + minT / 2; }
+            if (mxy - mny < minT) { double c = (mny + mxy) / 2; mny = c - minT / 2; mxy = c + minT / 2; }
+            if (mxz - mnz < minT) { double c = (mnz + mxz) / 2; mnz = c - minT / 2; mxz = c + minT / 2; }
+            engine.AddObstacle(mnx, mny, mnz, mxx, mxy, mxz);
+        }
+
+        // 경로(셀 폴리라인)를 직선 구간별 AABB(반경 r 팽창) 로 장애물에 추가(호출 수 절감).
+        private static void AddPathObstacle(Engine engine, PathCell[] path, GridMeta g, double r)
+        {
+            (int dx, int dy, int dz) Dir(PathCell a, PathCell b) =>
+                (Math.Sign(b.I - a.I), Math.Sign(b.J - a.J), Math.Sign(b.K - a.K));
+            int n = path.Length, seg = 0;
+            var cur = Dir(path[0], path[1]);
+            for (int i = 2; i <= n; i++)
+            {
+                var d = (i < n) ? Dir(path[i - 1], path[i]) : (int.MinValue, 0, 0);
+                if (d != cur)
+                {
+                    var pa = CellToWorld(g, path[seg]); var pb = CellToWorld(g, path[i - 1]);
+                    engine.AddObstacle(
+                        Math.Min(pa.X, pb.X) - r, Math.Min(pa.Y, pb.Y) - r, Math.Min(pa.Z, pb.Z) - r,
+                        Math.Max(pa.X, pb.X) + r, Math.Max(pa.Y, pb.Y) + r, Math.Max(pa.Z, pb.Z) + r);
+                    seg = i - 1;
+                    if (i < n) cur = Dir(path[i - 1], path[i]);
+                }
+            }
         }
 
         // 엔진 결과(엔진 인덱스 e ↔ added[e] 행)를 행 캐시에 기록. 부분집합 라우팅 후 호출.
