@@ -67,9 +67,19 @@ class RouteParams:
         clearance_radius       : 페널티를 적용할 최대 근접 거리(셀). 이보다 멀면 페널티 0.
         clearance_connectivity : 클리어런스 거리 측정 이웃(6 또는 26). 기본 6.
         w_tier                 : 단 분리 가중치 {z셀인덱스: 가산 mm}. 기본 없음(전부 0).
+        w_corridor             : 회랑(corridor) 밖 셀 통과 시 1셀당 가산(mm). >0 이면 배관이
+                                 공용 회랑(이미 깔린 배관 곁 + rack_levels)으로 모인다 →
+                                 기존 설계처럼 길고 굴곡 많은 '랙 따라가기'가 나온다. 0=비활성.
+        rack_levels            : 선호 단(Z 셀 인덱스) 집합. 이 레벨 셀은 회랑으로 간주되어
+                                 w_corridor 페널티 면제(주 배관랙 높이로 유도).
 
     검증:
         값이 음수면 ValueError(보너스/감산은 admissibility 보호 위해 금지).
+
+    [회랑 인력의 admissibility — 왜 페널티인가]
+        '회랑을 싸게'를 보너스로 주면 한 칸 비용 < cell_mm 이 되어 휴리스틱이 과대평가
+        → A* 최적성 붕괴. 그래서 동일 효과를 '회랑 밖 가산'으로 구현한다(모든 항 ≥0,
+        한 칸 ≥ cell_mm 보장 → 맨해튼×cell_mm 휴리스틱 admissible & consistent 유지).
     """
 
     cell_mm: float = 50.0
@@ -78,12 +88,16 @@ class RouteParams:
     clearance_radius: int = 2
     clearance_connectivity: int = 6
     w_tier: dict[int, float] = field(default_factory=dict)
+    w_corridor: float = 0.0
+    rack_levels: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.cell_mm <= 0:
             raise ValueError(f"cell_mm must be positive, got {self.cell_mm}")
         if self.w_turn < 0 or self.w_clear < 0:
             raise ValueError("w_turn/w_clear must be >= 0 (penalties, not bonuses)")
+        if self.w_corridor < 0:
+            raise ValueError("w_corridor must be >= 0 (penalty, not bonus)")
         if self.clearance_radius < 0:
             raise ValueError("clearance_radius must be >= 0")
         if self.clearance_connectivity not in (6, 26):
@@ -140,11 +154,16 @@ class CostModel:
         occ      : 대상 점유맵.
         p        : RouteParams.
         clearance: 클리어런스 거리 배열(없으면 None).
+        corridor : 회랑 셀 집합(set[Cell]) 또는 None. 여기 속하면 w_corridor 페널티 면제.
+                   다중배관에서 '이미 깔린 배관 곁'을 회랑으로 넘겨 배관을 뭉치게 한다.
     """
 
-    def __init__(self, occ: OccupancyMap, params: RouteParams) -> None:
+    def __init__(self, occ: OccupancyMap, params: RouteParams,
+                 corridor: set[Cell] | None = None) -> None:
         self.occ = occ
         self.p = params
+        self.corridor = corridor
+        self._rack = frozenset(params.rack_levels)
         self.clearance: np.ndarray | None = None
         if params.w_clear > 0 and params.clearance_radius > 0:
             self.clearance = clearance_map(
@@ -152,7 +171,7 @@ class CostModel:
             )
 
     def cell_penalty(self, cell: Cell) -> float:
-        """목적지 셀에 대한 가산 페널티(클리어런스 근접 + 단 분리)."""
+        """목적지 셀에 대한 가산 페널티(클리어런스 근접 + 단 분리 + 회랑 밖)."""
         pen = 0.0
         if self.clearance is not None:
             d = int(self.clearance[cell])  # 가장 가까운 장애물까지 거리(셀)
@@ -161,6 +180,12 @@ class CostModel:
                 pen += self.p.w_clear * (self.p.clearance_radius - d)
         if self.p.w_tier:
             pen += self.p.w_tier.get(cell[2], 0.0)
+        if self.p.w_corridor > 0:
+            # 회랑(이미 깔린 배관 곁) 또는 선호 단(rack)에 속하면 면제, 아니면 가산.
+            on_corridor = (cell[2] in self._rack) or \
+                (self.corridor is not None and cell in self.corridor)
+            if not on_corridor:
+                pen += self.p.w_corridor
         return pen
 
     def move_cost(self, to_cell: Cell, prev_off: Cell | None, move_off: Cell) -> float:

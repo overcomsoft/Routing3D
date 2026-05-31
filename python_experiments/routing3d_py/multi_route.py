@@ -157,6 +157,8 @@ def route_sequential(
     max_expansions: int | None = None,
     size_aware_radius: bool = False,
     clearance_mm: float = 0.0,
+    corridor_radius: int = 1,
+    seed_corridor: "set[Cell] | None" = None,
 ) -> MultiRouteResult:
     """배관들을 순차적으로(충돌 없이) 라우팅한다.
 
@@ -182,16 +184,20 @@ def route_sequential(
     params = params or RouteParams(cell_mm=occ.cell_mm)
     work = occ.copy()
     ordered = order_tasks(occ, tasks, priority)
+    corridor = _init_corridor(params, seed_corridor)
 
     pipes: list[PipeResult] = []
     for idx, task in enumerate(ordered):
         s = _snap(work, work.to_cell(task.start_mm), snap_to_free)
         g = _snap(work, work.to_cell(task.end_mm), snap_to_free)
-        res = astar_weighted(work, s, g, params, max_expansions=max_expansions)
+        res = astar_weighted(work, s, g, params, max_expansions=max_expansions,
+                             corridor=corridor)
         pipes.append(PipeResult(task=task, result=res, order_index=idx))
         if res.success and res.path:
             r = _task_radius(task, occ.cell_mm, pipe_radius, size_aware_radius, clearance_mm)
             _mark_pipe(work, res.path, r)
+            if corridor is not None:
+                _add_corridor(work, corridor, res.path, corridor_radius)
 
     return MultiRouteResult(pipes=pipes, occupancy=work, priority=priority)
 
@@ -211,6 +217,8 @@ def route_ripup(
     max_ripup: int = 4,
     size_aware_radius: bool = False,
     clearance_mm: float = 0.0,
+    corridor_radius: int = 1,
+    seed_corridor: "set[Cell] | None" = None,
 ) -> MultiRouteResult:
     """순차 라우팅 후 **rip-up & reroute** 로 실패 배관을 해소한다(Phase 3 Step 3.8).
 
@@ -255,11 +263,12 @@ def route_ripup(
 
     placed: dict[int, list[Cell]] = {}
     results: dict[int, AStarResult] = {}
+    corridor = _init_corridor(params, seed_corridor)
 
-    def _route(w: OccupancyMap, task: RouteTask) -> AStarResult:
+    def _route(w: OccupancyMap, task: RouteTask, corr: "set | None" = None) -> AStarResult:
         s = _snap(w, w.to_cell(task.start_mm), snap_to_free)
         g = _snap(w, w.to_cell(task.end_mm), snap_to_free)
-        return astar_weighted(w, s, g, params, max_expansions=max_expansions)
+        return astar_weighted(w, s, g, params, max_expansions=max_expansions, corridor=corr)
 
     def _build_work(paths: dict[int, list[Cell]]) -> OccupancyMap:
         w = static.copy()
@@ -267,14 +276,16 @@ def route_ripup(
             _mark_pipe(w, p, radii[idx])
         return w
 
-    # 1) 베이스라인 순차 라우팅(route_sequential 과 동일).
+    # 1) 베이스라인 순차 라우팅(route_sequential 과 동일, 회랑 점진 성장).
     work = static.copy()
     for idx, task in enumerate(ordered):
-        res = _route(work, task)
+        res = _route(work, task, corridor)
         results[idx] = res
         if res.success and res.path:
             placed[idx] = res.path
             _mark_pipe(work, res.path, radii[idx])
+            if corridor is not None:
+                _add_corridor(work, corridor, res.path, corridor_radius)
 
     # 2) rip-up 라운드.
     for _round in range(max_rounds):
@@ -284,7 +295,9 @@ def route_ripup(
         changed = False
         for f in failed:
             task_f = ordered[f]
-            ideal = _route(static, task_f)  # 장애물만의 이상 경로.
+            # 현재 깔린 배관으로 회랑 재구성(rip-up 시 최신 상태 반영).
+            cur_corr = _build_corridor(static, params, seed_corridor, placed, corridor_radius)
+            ideal = _route(static, task_f, cur_corr)  # 장애물만의 이상 경로.
             if not (ideal.success and ideal.path):
                 continue  # 장애물만으로도 불가 → 영구 실패.
             cellset = set(ideal.path)
@@ -297,7 +310,7 @@ def route_ripup(
                 del trial[b]
             wt = _build_work(trial)
 
-            rf = _route(wt, task_f)  # 뜯어낸 자리에 f 배치.
+            rf = _route(wt, task_f, cur_corr)  # 뜯어낸 자리에 f 배치.
             if not (rf.success and rf.path):
                 continue
             trial[f] = rf.path
@@ -306,7 +319,7 @@ def route_ripup(
             reres: dict[int, AStarResult] = {}
             all_ok = True
             for b in blockers:  # 뜯어낸 배관 재라우팅(결정적 순서).
-                rb = _route(wt, ordered[b])
+                rb = _route(wt, ordered[b], cur_corr)
                 reres[b] = rb
                 if rb.success and rb.path:
                     trial[b] = rb.path
@@ -325,6 +338,46 @@ def route_ripup(
 
     pipes = [PipeResult(task=ordered[idx], result=results[idx], order_index=idx) for idx in range(n)]
     return MultiRouteResult(pipes=pipes, occupancy=_build_work(placed), priority=priority)
+
+
+def _init_corridor(params: RouteParams, seed: "set[Cell] | None") -> "set[Cell] | None":
+    """회랑 집합 초기화. w_corridor<=0 이면 None(비활성). seed(기존 설계 등) 있으면 그 사본."""
+    if params.w_corridor <= 0:
+        return None
+    return set(seed) if seed else set()
+
+
+def _add_corridor(occ: OccupancyMap, corridor: set, path: list[Cell], radius: int) -> None:
+    """깔린 배관 path 의 셀 + radius 이웃(격자 내)을 회랑에 추가한다.
+
+    이후 배관이 이 곁을 '싸게'(off 페널티 면제) 지나가도록 유도 → 공용 회랑으로 뭉침.
+    radius=1 이면 배관 바로 옆 한 칸까지 회랑. 점유 여부 무관(자유 이웃 셀만 실제로 탐색됨).
+    """
+    frontier = set(path)
+    corridor.update(frontier)
+    for _ in range(max(0, radius)):
+        nxt: set[Cell] = set()
+        for (i, j, k) in frontier:
+            for di, dj, dk in NEIGHBORS_6:
+                c = (i + di, j + dj, k + dk)
+                if occ.in_bounds(c) and c not in corridor:
+                    corridor.add(c)
+                    nxt.add(c)
+        frontier = nxt
+
+
+def _build_corridor(occ: OccupancyMap, params: RouteParams, seed: "set[Cell] | None",
+                    paths: "dict[int, list[Cell]]", radius: int) -> "set[Cell] | None":
+    """현재 깔린 배관들(paths)로부터 회랑을 처음부터 재구성한다(rip-up 용).
+
+    w_corridor<=0 이면 None. seed(기존 설계 회랑) + 모든 paths 의 radius 이웃.
+    """
+    if params.w_corridor <= 0:
+        return None
+    c = set(seed) if seed else set()
+    for p in paths.values():
+        _add_corridor(occ, c, p, radius)
+    return c
 
 
 def _task_radius(

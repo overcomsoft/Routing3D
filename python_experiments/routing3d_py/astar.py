@@ -237,6 +237,7 @@ def astar_weighted(
     *,
     collect_visited: bool = False,
     max_expansions: int | None = None,
+    corridor: "set | None" = None,
 ) -> AStarResult:
     """비용함수(turn penalty/클리어런스/단 분리)를 적용한 직교 A* (Step 1.3).
 
@@ -280,7 +281,7 @@ def astar_weighted(
         return AStarResult(True, [start], 0.0, 0, 1, visited,
                            (time.perf_counter() - t0) * 1000.0, cost_mm=0.0)
 
-    model = CostModel(occ, params)
+    model = CostModel(occ, params, corridor=corridor)
     cell_mm = params.cell_mm
 
     counter = itertools.count()
