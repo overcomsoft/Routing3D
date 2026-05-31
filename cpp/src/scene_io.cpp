@@ -404,4 +404,17 @@ DenseOccupancy occupancy_from_doc(const SceneDoc& doc) {
     return occ;
 }
 
+// 통과 객체(doc.passthrough)만으로 Dense 점유맵 생성 — 가시화 전용.
+DenseOccupancy occupancy_from_passthrough(const SceneDoc& doc) {
+    DenseOccupancy occ(doc.shape, doc.origin, doc.cell_mm);
+    for (const Obstacle& o : doc.passthrough) {
+        try {
+            occ.add_box(AABB(o.min_xyz, o.max_xyz));
+        } catch (const std::invalid_argument&) {
+            continue;  // 두께 0(퇴화) 박스는 건너뛴다.
+        }
+    }
+    return occ;
+}
+
 }  // namespace routing3d

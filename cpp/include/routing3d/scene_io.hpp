@@ -63,6 +63,9 @@ struct SceneDoc {
     Cell shape{1, 1, 1};
     RouteParams params;
     std::vector<Obstacle> obstacles;
+    // 통과(pass-through) 객체: 점유맵 가시화에는 쓰되 A* 충돌 대상은 아님.
+    // occupancy_from_doc / corridor 점유맵에는 넣지 않는다(별도 r3d_copy_passthrough 로만 노출).
+    std::vector<Obstacle> passthrough;
     std::vector<RouteTask> tasks;
     std::vector<std::optional<SceneResult>> results;  // tasks 와 같은 길이(또는 비어 있음).
 };
@@ -79,6 +82,9 @@ SceneDoc read_scene(const std::string& path);          // 파일에서 읽기.
 // SceneDoc 의 grid 메타 + obstacles 로 Dense 점유맵을 재구성(점유 레이어 복원).
 // 퇴화(두께 0) 박스는 건너뛴다.
 DenseOccupancy occupancy_from_doc(const SceneDoc& doc);
+
+// 통과(pass-through) 객체만으로 Dense 점유맵 생성 — 가시화 전용(A* 충돌엔 미사용).
+DenseOccupancy occupancy_from_passthrough(const SceneDoc& doc);
 
 // ---- 실수 표기(테스트 노출) ----
 // Python repr(float) 와 동일한 최단 왕복 표기를 만든다(F4). 예: 50.0→"50.0", 1e-5→"1e-05".

@@ -232,6 +232,9 @@
                                     Command="{Binding ToggleOccupancyResCommand}"
                                     Margin="0,0,12,0" Padding="8,1" MinWidth="0"
                                     ToolTip="점유맵 해상도 전환: 원본(전체 셀, 정확하지만 느릴 수 있음) ↔ 다운샘플(상한 15만, 빠름)"/>
+                            <CheckBox Content="통과맵"
+                                      IsChecked="{Binding ShowPassthroughVoxels}" Margin="0,0,12,0"
+                                      ToolTip="통과 객체(바닥/천장/격자보)가 점유는 하되 경로탐색은 통과하는 셀을 청록 큐브로 표시"/>
                             <CheckBox Content="방문맵"
                                       IsChecked="{Binding ShowVisitedMap}" Margin="0,0,12,0"
                                       ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>

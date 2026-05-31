@@ -53,6 +53,10 @@ namespace Routing3D.Viewer.Interop
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
 
+        // 통과(pass-through) 객체 추가 — 경로탐색 충돌 제외, '통과 점유맵' 가시화용.
+        public void AddPassthrough(double minx, double miny, double minz, double maxx, double maxy, double maxz)
+            => Check(Native.r3d_add_passthrough(H, minx, miny, minz, maxx, maxy, maxz), "add_passthrough");
+
         public int AddTask(double sx, double sy, double sz, double gx, double gy, double gz,
                            string? utility, string? utilityGroup)
         {
@@ -118,6 +122,18 @@ namespace Routing3D.Viewer.Interop
             if (total <= 0) return Array.Empty<PathCell>();
             var buf = new int[total * 3];
             int n = Native.r3d_copy_blocked(H, buf, total);
+            var cells = new PathCell[n];
+            for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+            return cells;
+        }
+
+        /// <summary>'통과 점유맵' 가시화 — doc.passthrough 의 voxelize 된 셀 전체 반환.</summary>
+        public PathCell[] CopyPassthrough()
+        {
+            int total = Native.r3d_copy_passthrough(H, null!, 0);
+            if (total <= 0) return Array.Empty<PathCell>();
+            var buf = new int[total * 3];
+            int n = Native.r3d_copy_passthrough(H, buf, total);
             var cells = new PathCell[n];
             for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
             return cells;

@@ -94,6 +94,9 @@ R3D_API R3dStatus r3d_set_grid(R3dEngine* e, const R3dGrid* g);
 R3D_API R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p);
 R3D_API R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, double minz,
                                    double maxx, double maxy, double maxz);
+// 통과(pass-through) 객체 추가: 점유맵 가시화용, 경로탐색 충돌 대상 아님.
+R3D_API R3dStatus r3d_add_passthrough(R3dEngine* e, double minx, double miny, double minz,
+                                      double maxx, double maxy, double maxz);
 // 작업 추가 → task index(>=0) 반환, 실패 시 음수. utility/utility_group 은 색 분류용(널 허용).
 R3D_API int32_t r3d_add_task(R3dEngine* e, double sx, double sy, double sz,
                              double gx, double gy, double gz,
@@ -135,6 +138,9 @@ R3D_API R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled);
 // 반환=실제 복사한 셀 수. buf_cells 가 부족하면 처음 buf_cells 개만 복사하고 그만큼 반환.
 // 총 블록 셀 수를 미리 알려면 buf=NULL, buf_cells=0 으로 호출(총 셀 수 반환).
 R3D_API int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t buf_cells);
+
+// 통과 객체 점유 셀 인덱스를 buf 에 복사(가시화 '통과 점유맵'). r3d_copy_blocked 와 동일 규약.
+R3D_API int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_t buf_cells);
 
 // 현재 상태를 scene.txt(UTF-8)로 덤프(저장/디버그/교차검증). out_text 는 해제 필요.
 R3D_API R3dStatus r3d_dump_scene_text(const R3dEngine* e, char** out_text);

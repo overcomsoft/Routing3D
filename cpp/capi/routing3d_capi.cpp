@@ -228,6 +228,21 @@ extern "C" R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, do
     }
 }
 
+// 통과(pass-through) 객체 추가 — 점유맵 가시화용, 경로탐색 충돌 대상 아님(doc.passthrough).
+extern "C" R3dStatus r3d_add_passthrough(R3dEngine* e, double minx, double miny, double minz,
+                                         double maxx, double maxy, double maxz) {
+    if (!e) return R3D_ERR_ARG;
+    try {
+        Obstacle o;
+        o.min_xyz = Vec3{minx, miny, minz};
+        o.max_xyz = Vec3{maxx, maxy, maxz};
+        e->doc.passthrough.push_back(std::move(o));
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
 extern "C" int32_t r3d_add_task(R3dEngine* e, double sx, double sy, double sz, double gx, double gy,
                                 double gz, const char* utility, const char* utility_group) {
     if (!e) return -1;
@@ -398,6 +413,33 @@ extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t bu
     if (!e) return 0;
     try {
         DenseOccupancy occ = occupancy_from_doc(e->doc);
+        const Cell& shape = e->doc.shape;
+        // 사이즈 조회 모드: buf 미지정.
+        bool size_only = (buf == nullptr || buf_cells <= 0);
+        int32_t written = 0;
+        for (int i = 0; i < shape.i && (size_only || written < buf_cells); ++i)
+            for (int j = 0; j < shape.j && (size_only || written < buf_cells); ++j)
+                for (int k = 0; k < shape.k && (size_only || written < buf_cells); ++k) {
+                    Cell c{i, j, k};
+                    if (!occ.is_blocked(c)) continue;
+                    if (!size_only) {
+                        buf[3 * written + 0] = i;
+                        buf[3 * written + 1] = j;
+                        buf[3 * written + 2] = k;
+                    }
+                    ++written;
+                }
+        return written;  // size_only=true 면 전체 카운트, false 면 실제 복사한 셀 수.
+    } catch (...) {
+        return 0;
+    }
+}
+
+// 통과 객체 점유 셀 인덱스 복사 — 가시화 '통과 점유맵'. r3d_copy_blocked 와 동일 규약.
+extern "C" int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_t buf_cells) {
+    if (!e) return 0;
+    try {
+        DenseOccupancy occ = occupancy_from_passthrough(e->doc);
         const Cell& shape = e->doc.shape;
         // 사이즈 조회 모드: buf 미지정.
         bool size_only = (buf == nullptr || buf_cells <= 0);

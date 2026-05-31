@@ -68,6 +68,9 @@ namespace Routing3D.Viewer.Interop
         public static extern int r3d_add_obstacle(IntPtr e, double minx, double miny, double minz,
                                                  double maxx, double maxy, double maxz);
         [DllImport(Dll, CallingConvention = Cdecl)]
+        public static extern int r3d_add_passthrough(IntPtr e, double minx, double miny, double minz,
+                                                    double maxx, double maxy, double maxz);
+        [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_add_task(IntPtr e, double sx, double sy, double sz,
                                              double gx, double gy, double gz,
                                              byte[] utilityUtf8, byte[] utilityGroupUtf8);
@@ -82,6 +85,7 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_passthrough(IntPtr e, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_collect_visited(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 

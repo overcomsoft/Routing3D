@@ -637,7 +637,9 @@ namespace Routing3D.Viewer.ViewModels
                 _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
                 _engine.SetParams(g.CellMm, 500, 10, 2, 6);   // 기본 비용함수 파라미터.
                 foreach (var o in sd.Obstacles)
-                    if (!o.IsPassThrough)   // 통과 객체(바닥/천장/격자보)는 경로탐색 충돌에서 제외.
+                    if (o.IsPassThrough)   // 통과 객체(바닥/천장/격자보): 점유맵엔 넣되 A* 충돌엔 제외.
+                        _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                    else
                         _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 // 작업도 적재하되(점유맵/단일 라우팅 일관성) 자동 라우팅은 하지 않는다.
                 foreach (var t in sd.Tasks)
@@ -812,7 +814,9 @@ namespace Routing3D.Viewer.ViewModels
             _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
             _engine.SetParams(g.CellMm, 500, 10, 2, 6);
             foreach (var o in scene.Obstacles)
-                if (!o.IsPassThrough)   // 통과 객체(바닥/천장/격자보)는 경로탐색 충돌에서 제외.
+                if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
+                    _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                else
                     _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
             var added = new List<int>(rowPositions.Count);
             foreach (var pos in rowPositions)
