@@ -193,6 +193,7 @@
                     <ModelVisual3D Content="{Binding SceneModel}"/>
                     <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
+                    <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
 
                 <!-- 레이어 표시: SpaceAI 와 같이 viewport 하단 가로형 WrapPanel -->

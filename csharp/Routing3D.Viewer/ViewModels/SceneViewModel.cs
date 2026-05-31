@@ -86,6 +86,7 @@ namespace Routing3D.Viewer.ViewModels
             if (s is null) { SelectedObjectInfo = null; return; }
 
             string? best = null; double bestVol = double.MaxValue;
+            Point3D blo = default, bhi = default;
             void Consider(string text, double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
             {
                 const double eps = 1.0;
@@ -93,7 +94,7 @@ namespace Routing3D.Viewer.ViewModels
                 if (p.Y < mny - eps || p.Y > mxy + eps) return;
                 if (p.Z < mnz - eps || p.Z > mxz + eps) return;
                 double vol = Math.Max(1, mxx - mnx) * Math.Max(1, mxy - mny) * Math.Max(1, mxz - mnz);
-                if (vol < bestVol) { bestVol = vol; best = text; }
+                if (vol < bestVol) { bestVol = vol; best = text; blo = new Point3D(mnx, mny, mnz); bhi = new Point3D(mxx, mxy, mxz); }
             }
 
             if (ShowEquipment)
@@ -118,7 +119,22 @@ namespace Routing3D.Viewer.ViewModels
                     Consider(DescribeSpace(sp), sp.MinX, sp.MinY, sp.MinZ, sp.MaxX, sp.MaxY, sp.MaxZ);
 
             SelectedObjectInfo = best;
-            Status = best is null ? "선택된 객체 없음(빈 공간 클릭)" : "객체 속성을 표시했습니다.";
+            if (best is null) { HighlightModel = null; Status = "선택된 객체 없음(빈 공간 클릭)"; }
+            else { ShowHighlight(blo, bhi); Status = "객체를 선택했습니다."; }
+        }
+
+        // 선택한 객체 AABB 를 밝은 노란 와이어프레임 + 반투명 박스로 강조한다.
+        private void ShowHighlight(Point3D lo, Point3D hi)
+        {
+            var grp = new Model3DGroup();
+            double dx = hi.X - lo.X, dy = hi.Y - lo.Y, dz = hi.Z - lo.Z;
+            double diag = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            double r = Math.Max(20.0, diag * 0.012);
+            AddBoxFrame(grp, lo, hi, Colors.Yellow, r, 255);
+            var fill = new MeshBuilder(false, false);
+            fill.AddBox(new Point3D((lo.X + hi.X) / 2, (lo.Y + hi.Y) / 2, (lo.Z + hi.Z) / 2), dx, dy, dz);
+            grp.Children.Add(Geometry(fill, Colors.Yellow, 55));
+            HighlightModel = grp;
         }
 
         private static string F(double v) => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
@@ -184,6 +200,7 @@ namespace Routing3D.Viewer.ViewModels
         private string? _selectedUtility;
         private Model3D? _selectionModel;   // 선택 PoC 강조(시작/끝 마커) 오버레이.
         private Model3D? _searchModel;      // A* 단계별 탐색(방문 셀 점진 표시) 오버레이.
+        private Model3D? _highlightModel;   // 3D 클릭으로 선택한 객체 강조(노란 박스) 오버레이.
         private bool _hidePathsForAnim;     // 단계별 탐색 중 최종 경로를 숨겼다가 끝에 드러내기.
         private bool _animating;            // 단계별 탐색 진행 중(중복 실행 방지).
 
@@ -349,6 +366,7 @@ namespace Routing3D.Viewer.ViewModels
 
         /// <summary>선택 PoC 강조 오버레이(시작/끝 마커). 라우팅과 무관 — '선택은 강조표시만'.</summary>
         public Model3D? SelectionModel { get => _selectionModel; private set => Set(ref _selectionModel, value); }
+        public Model3D? HighlightModel { get => _highlightModel; private set => Set(ref _highlightModel, value); }
 
         /// <summary>A* 단계별 탐색 오버레이(방문 셀을 확장 순서대로 점진 표시).</summary>
         public Model3D? SearchModel { get => _searchModel; private set => Set(ref _searchModel, value); }

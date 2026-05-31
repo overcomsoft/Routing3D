@@ -22,6 +22,8 @@ namespace Routing3D.Viewer.Model
     /// <summary>장애물 AABB(mm).</summary>
     public sealed class ObstacleBox
     {
+        public string Name { get; set; } = string.Empty;        // NAME (DB 로드 시에만, scene.txt 엔 없음).
+        public string DdworksType { get; set; } = string.Empty; // DDWORKS_TYPE (DB 로드 시에만).
         public double MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
     }
 
