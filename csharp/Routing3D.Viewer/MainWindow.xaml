@@ -173,6 +173,7 @@
                     <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
                     <ModelVisual3D Content="{Binding StepHighlightModel}"/> <!-- 선택 경로 구간 강조(흰색) -->
+                    <ModelVisual3D Content="{Binding CompareModel}"/>     <!-- 기존설계 비교(주황=기존/시안=개발) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
 
@@ -337,12 +338,35 @@
                             <Button Content="▶ 선택 배관 재라우팅 (단일)"
                                     Command="{Binding RerouteSelectedCommand}"
                                     Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"/>
+                            <Button Content="🔬 기존설계 비교 (선택 배관)"
+                                    Command="{Binding CompareSelectedCommand}"
+                                    Margin="0,4,0,0" Background="#7a4e2a" FontWeight="SemiBold"
+                                    ToolTip="선택 배관을 개발 경로로 라우팅하고, 해당 시작/끝 PoC의 기존 설계경로(주황)와 나란히 그려 비교합니다. 나머지 기존배관은 숨겨집니다. 결과는 아래 '기존설계 비교 분석'에 표시됩니다."/>
                             <Button Content="🔎 단계별 탐색 (선택 배관)"
                                     Command="{Binding AnimateSelectedCommand}"
                                     Margin="0,4,0,0" Background="#3a4e7a" FontWeight="SemiBold"
                                     ToolTip="점유맵을 켜고, A* 가 시작 PoC 부터 점유를 회피해 종단 PoC 로 탐색하는 과정(방문 셀)을 순서대로 애니메이션으로 보여준 뒤 최종 경로를 드러냅니다."/>
                             <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. '단계별 탐색'은 A* 진행 과정을 재생."
                                        TextWrapping="Wrap" Foreground="#9aa3b8" FontSize="11" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 기존설계 비교 분석 — 선택 배관의 기존 경로 vs 개발 경로 정량 비교 -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="기존설계 비교 분석" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Rectangle Width="14" Height="14" Fill="#FF9030" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="━ 기존 설계경로 (TB_ROUTE_PATH)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1,0,4">
+                                <Rectangle Width="14" Height="14" Fill="#30D0FF" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="━ 개발 경로 (A* 엔진)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding ComparisonReport, TargetNullValue='배관(PoC)을 선택하면 매칭된 기존 설계경로(주황)를 표시합니다. ‘🔬 기존설계 비교’ 를 누르면 개발 경로(시안)와 나란히 비교합니다.'}"
+                                       Foreground="#cdd6f4" TextWrapping="Wrap"
+                                       FontFamily="Consolas" FontSize="11"/>
                         </StackPanel>
                     </Border>
 

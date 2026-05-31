@@ -208,6 +208,13 @@ namespace Routing3D.Viewer.ViewModels
         private Model3D? _selectionModel;   // 선택 PoC 강조(시작/끝 마커) 오버레이.
         private Model3D? _searchModel;      // A* 단계별 탐색(방문 셀 점진 표시) 오버레이.
         private Model3D? _highlightModel;   // 3D 클릭으로 선택한 객체 강조(노란 박스) 오버레이.
+
+        // ── 기존설계 비교(선택 배관) ────────────────────────────────────
+        // 선택 배관에 매칭된 기존 설계경로(주황)와 개발 경로(시안)를 동시에 그려 정량 비교한다.
+        private Model3D? _compareModel;        // 비교 오버레이(기존=주황 / 개발=시안 굵은 튜브).
+        private string? _comparisonReport;     // 우측 '기존설계 비교 분석' 패널 텍스트.
+        private bool _compareMode;             // 비교 포커스: true 면 나머지 기존배관 레이어 숨김.
+        private ExistingPipe? _comparePipe;    // 현재 선택에 매칭된 기존 경로(없으면 null).
         private bool _hidePathsForAnim;     // 단계별 탐색 중 최종 경로를 숨겼다가 끝에 드러내기.
         private bool _animating;            // 단계별 탐색 진행 중(중복 실행 방지).
 
@@ -222,6 +229,9 @@ namespace Routing3D.Viewer.ViewModels
             RerouteSelectedCommand = new RelayCommand(
                 () => { if (_selectedTask != null) _ = RouteRowsAsync(new List<int> { _selectedTask.Index }, $"선택 #{_selectedTask.Index}", corridor: false); },
                 () => _selectedTask != null);
+            CompareSelectedCommand = new RelayCommand(
+                () => _ = CompareSelectedAsync(),
+                () => _selectedTask != null && _scene != null);
             AnimateSelectedCommand = new RelayCommand(
                 () => _ = AnimateSelectedAsync(),
                 () => _selectedTask != null && _scene != null && !_animating);
@@ -278,7 +288,14 @@ namespace Routing3D.Viewer.ViewModels
         public TaskRowVM? SelectedTask
         {
             get => _selectedTask;
-            set { if (Set(ref _selectedTask, value)) UpdateSelectionHighlight(); }
+            set
+            {
+                if (!Set(ref _selectedTask, value)) return;
+                bool wasCompare = _compareMode;
+                _compareMode = false;            // 새 배관 선택 → 비교 포커스 해제(숨겼던 기존배관 복원).
+                UpdateSelectionHighlight();      // → UpdateComparison(): 새 배관 매칭 오버레이/분석.
+                if (wasCompare && _scene != null && _engine != null) BuildModel();
+            }
         }
         public PickMode PickMode { get => _pickMode; private set => Set(ref _pickMode, value); }
 
@@ -382,6 +399,12 @@ namespace Routing3D.Viewer.ViewModels
         private Model3D? _stepHighlightModel;
         /// <summary>선택한 경로 단계(구간) 강조 오버레이 — 카메라 이동 없이 해당 구간만 흰색으로.</summary>
         public Model3D? StepHighlightModel { get => _stepHighlightModel; private set => Set(ref _stepHighlightModel, value); }
+
+        /// <summary>기존설계 비교 오버레이(기존 경로=주황 / 개발 경로=시안 굵은 튜브 + 시작/끝 마커).</summary>
+        public Model3D? CompareModel { get => _compareModel; private set => Set(ref _compareModel, value); }
+
+        /// <summary>우측 '기존설계 비교 분석' 패널 텍스트(매칭 상태 + 길이/꺾임/종단점/간섭 지표). null=비활성.</summary>
+        public string? ComparisonReport { get => _comparisonReport; private set => Set(ref _comparisonReport, value); }
 
         /// <summary>선택 경로의 직선 구간(단계) 목록. 방향이 바뀌는 지점마다 한 항목.</summary>
         public ObservableCollection<PathStep> PathSteps { get; } = new();
@@ -500,6 +523,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand RunRouteCommand { get; }
         public RelayCommand RerouteCorridorCommand { get; }
         public RelayCommand RerouteSelectedCommand { get; }
+        public RelayCommand CompareSelectedCommand { get; }
         public RelayCommand PickStartCommand { get; }
         public RelayCommand PickEndCommand { get; }
         public RelayCommand FitViewCommand { get; }
@@ -1224,7 +1248,8 @@ namespace Routing3D.Viewer.ViewModels
 
             // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
             //   각 배관은 DB 의 실제 관경(SOURCE_SIZE→DiameterMm)으로 그린다(겹침 방지). 유틸 필터도 동일 적용.
-            if (ShowExistingPipes && scene.ExistingPipes.Count > 0)
+            // 비교 포커스(_compareMode)에서는 나머지 기존배관을 숨긴다(선택 배관의 기존 경로만 CompareModel 로 강조).
+            if (ShowExistingPipes && !_compareMode && scene.ExistingPipes.Count > 0)
             {
                 double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
@@ -1313,7 +1338,12 @@ namespace Routing3D.Viewer.ViewModels
             _suppressStepNav = false;
             StepHighlightModel = null;   // 새 배관 선택 → 이전 구간 강조 제거.
             var t = _selectedTask;
-            if (t == null || _scene == null) { SelectionModel = null; return; }
+            if (t == null || _scene == null)
+            {
+                SelectionModel = null;
+                CompareModel = null; ComparisonReport = null; _comparePipe = null;
+                return;
+            }
             var g = _scene.Grid;
             double r = Math.Max(g.CellMm * 1.6, 80);
             var grp = new Model3DGroup();
@@ -1328,6 +1358,289 @@ namespace Routing3D.Viewer.ViewModels
             BuildPathSteps(g, t.Path, grp);
 
             SelectionModel = grp;
+            UpdateComparison();   // 선택 배관 ↔ 기존 설계경로 매칭 오버레이 + 비교 분석 갱신.
+        }
+
+        // ---- 기존설계 비교(선택 배관) ----
+        /// <summary>'🔬 기존설계 비교' — 선택 배관을 단일 라우팅(개발 경로)하고 비교 포커스 모드로 진입한다.
+        /// 비교 포커스에서는 나머지 기존 설계배관 레이어를 숨겨(선택 1개만) 두 경로를 또렷이 대조한다.</summary>
+        private async Task CompareSelectedAsync()
+        {
+            if (_selectedTask == null || _scene == null) return;
+            int idx = _selectedTask.Index;
+            _compareMode = true;   // BuildModel 가드 → 나머지 기존배관 숨김.
+            // RouteRowsAsync 가 단일 충돌회피 라우팅 후 BuildModel→UpdateComparison 까지 수행
+            // (개발 경로 포함 전체 분석: 길이·꺾임·종단점·장애물 간섭/여유).
+            await RouteRowsAsync(new List<int> { idx }, $"기존설계 비교 #{idx}", corridor: false);
+            if (!_selectedTask.Success)
+                Status = $"#{idx}: 라우팅 실패 — 개발 경로 없이 기존 경로만 비교합니다.";
+        }
+
+        // 선택 배관에 매칭되는 기존 설계경로를 찾아 오버레이/분석을 갱신한다.
+        // (UpdateSelectionHighlight 끝과 CompareSelectedAsync→BuildModel 끝에서 호출됨.)
+        private void UpdateComparison()
+        {
+            var t = _selectedTask;
+            if (t == null || _scene == null || _scene.ExistingPipes.Count == 0)
+            {
+                _comparePipe = null;
+                CompareModel = null;
+                ComparisonReport = _scene == null ? null
+                    : "기존 설계배관 데이터가 없습니다(scene.txt 로드 또는 TB_ROUTE_PATH 부재).";
+                return;
+            }
+            _comparePipe = FindMatchingExistingPipe(t);
+            BuildComparison(t, _comparePipe);
+        }
+
+        // 선택 배관(시작/끝 PoC 좌표)과 가장 잘 맞는 기존 설계경로를 찾는다.
+        //   점수 = 양방향 중 작은 (시작↔SOURCE_POS 거리 + 끝↔TARGET_POS 거리). SourcePos/TargetPos 가
+        //   없는 행은 폴리라인 양 끝점으로 폴백. 종단점 합산 거리가 임계 초과면 매칭 없음(null).
+        private ExistingPipe? FindMatchingExistingPipe(TaskRowVM t)
+        {
+            var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return null;
+            var ts = new Pt3(t.Sx, t.Sy, t.Sz);
+            var te = new Pt3(t.Gx, t.Gy, t.Gz);
+            double tol = Math.Max(3 * s.Grid.CellMm, 1500.0);   // 종단점당 허용 거리(mm).
+            ExistingPipe? best = null; double bestScore = double.MaxValue;
+            foreach (var p in s.ExistingPipes)
+            {
+                if (p.Points.Count < 2) continue;
+                Pt3 ps = p.SourcePos ?? p.Points[0];
+                Pt3 pe = p.TargetPos ?? p.Points[p.Points.Count - 1];
+                double score = Math.Min(Dist(ts, ps) + Dist(te, pe), Dist(ts, pe) + Dist(te, ps));
+                if (score < bestScore) { bestScore = score; best = p; }
+            }
+            return (best != null && bestScore <= tol * 2) ? best : null;   // 시작+끝 합산이므로 *2.
+        }
+
+        // 매칭된 기존 경로(ex)와 선택 배관(t)의 개발 경로를 정량 비교해 ComparisonReport + CompareModel 갱신.
+        private void BuildComparison(TaskRowVM t, ExistingPipe? ex)
+        {
+            var s = _scene!; var g = s.Grid;
+            var devPts = t.Path.Length >= 2 ? t.Path.Select(c => CellToWorld(g, c)).ToList() : new List<Point3D>();
+            bool devRouted = t.Success && devPts.Count >= 2;
+
+            if (ex == null)
+            {
+                ComparisonReport =
+                    "매칭되는 기존 설계경로 없음.\n(이 PoC에 해당하는 TB_ROUTE_PATH 가 없거나 종단점이 너무 멉니다.)"
+                    + (devRouted ? $"\n\n개발 경로: {t.LengthMm:0} mm · 꺾임 {CountBends(t.Path).Text}" : "");
+                CompareModel = BuildCompareOverlay(null, devRouted ? devPts : null);
+                return;
+            }
+
+            var exPts = ex.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
+            double exLen = PolylineLength(exPts);
+            BendStats exBends = CountBends(exPts);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"매칭: {ex.Label}");
+            sb.AppendLine($"관경: {(ex.DiameterMm > 0 ? ex.DiameterMm.ToString("0") + " mm" : "미상")}");
+
+            // 종단점 정합 — 양방향 중 가까운 쪽으로 매칭(역방향이면 표기).
+            var ts = new Pt3(t.Sx, t.Sy, t.Sz); var te = new Pt3(t.Gx, t.Gy, t.Gz);
+            Pt3 ps = ex.SourcePos ?? new Pt3(exPts[0].X, exPts[0].Y, exPts[0].Z);
+            Pt3 pe = ex.TargetPos ?? new Pt3(exPts[exPts.Count - 1].X, exPts[exPts.Count - 1].Y, exPts[exPts.Count - 1].Z);
+            bool rev = (Dist(ts, pe) + Dist(te, ps)) < (Dist(ts, ps) + Dist(te, pe));
+            double sg = rev ? Dist(ts, pe) : Dist(ts, ps);
+            double eg = rev ? Dist(te, ps) : Dist(te, pe);
+            sb.AppendLine($"종단점 정합: 시작 {sg:0}mm · 끝 {eg:0}mm{(rev ? " (역방향)" : "")}");
+            sb.AppendLine();
+
+            sb.AppendLine("─ 경로 길이 ─");
+            if (devRouted)
+            {
+                double diff = t.LengthMm - exLen;
+                double pct = exLen > 1 ? diff / exLen * 100 : 0;
+                sb.AppendLine($"  기존 {exLen:0} / 개발 {t.LengthMm:0} mm");
+                sb.AppendLine($"  차이 {(diff >= 0 ? "+" : "")}{diff:0} mm ({(pct >= 0 ? "+" : "")}{pct:0.0}%) — 개발 {(diff < 0 ? "짧음" : "긺")}");
+            }
+            else sb.AppendLine($"  기존 {exLen:0} mm / 개발 (미라우팅)");
+
+            sb.AppendLine();
+            sb.AppendLine("─ 꺾임(엘보) 수 ─");
+            sb.AppendLine($"  기존 {exBends.Text}");
+            if (devRouted)
+            {
+                var devBends = CountBends(t.Path);
+                sb.AppendLine($"  개발 {devBends.Text}");
+            }
+            else sb.AppendLine("  개발 —");
+
+            sb.AppendLine();
+            sb.AppendLine("─ 장애물 간섭 / 여유 ─");
+            int exHit = CountObstacleHits(exPts, out double exClr, out int exSamples);
+            sb.AppendLine($"  기존: 간섭 {exHit}/{exSamples}점 · 최소여유 {exClr:0} mm");
+            if (devRouted)
+            {
+                int devHit = CountObstacleHits(devPts, out double devClr, out int devSamples);
+                sb.AppendLine($"  개발: 간섭 {devHit}/{devSamples}점 · 최소여유 {devClr:0} mm");
+                if (exHit > 0 && devHit == 0)
+                    sb.AppendLine("  → 개발 경로가 기존의 장애물 간섭을 해소");
+            }
+            else sb.AppendLine("  개발: (미라우팅 — '🔬 기존설계 비교' 실행)");
+
+            ComparisonReport = sb.ToString().TrimEnd();
+            CompareModel = BuildCompareOverlay(exPts, devRouted ? devPts : null);
+        }
+
+        // 비교 오버레이: 기존 경로(주황) + 개발 경로(시안) 굵은 튜브 + 시작/끝 구 마커.
+        private Model3D? BuildCompareOverlay(List<Point3D>? exPts, List<Point3D>? devPts)
+        {
+            if (_scene == null) return null;
+            bool hasEx = exPts != null && exPts.Count >= 2;
+            bool hasDev = devPts != null && devPts.Count >= 2;
+            if (!hasEx && !hasDev) return null;
+            double cell = _scene.Grid.CellMm;
+            double dia = Math.Max(cell * 0.9, 60);   // 일반 경로보다 굵게(눈에 띄게).
+            double mr = Math.Max(cell * 1.1, 70);
+            var grp = new Model3DGroup();
+            if (hasEx)
+            {
+                var mb = new MeshBuilder(false, false);
+                mb.AddTube(exPts, dia, 12, false);
+                mb.AddSphere(exPts![0], mr); mb.AddSphere(exPts[exPts.Count - 1], mr);
+                grp.Children.Add(Geometry(mb, Color.FromRgb(255, 144, 48), 245));   // 기존 = 주황.
+            }
+            if (hasDev)
+            {
+                var mb = new MeshBuilder(false, false);
+                mb.AddTube(devPts, dia, 12, false);
+                mb.AddSphere(devPts![0], mr); mb.AddSphere(devPts[devPts.Count - 1], mr);
+                grp.Children.Add(Geometry(mb, Color.FromRgb(48, 208, 255), 245));   // 개발 = 시안.
+            }
+            return grp;
+        }
+
+        // 폴리라인을 step 간격으로 샘플해 비통과 장애물 AABB 와의 간섭(내부 점 수)과 최소 여유(mm)를 잰다.
+        //   간섭 = 장애물 내부에 든 샘플 점 수. 여유 = 외부 점에서 가장 가까운 장애물 표면까지 최소 거리.
+        private int CountObstacleHits(List<Point3D> pts, out double minClearance, out int sampleCount)
+        {
+            minClearance = double.MaxValue; sampleCount = 0;
+            var s = _scene;
+            if (s == null || pts.Count < 2) { minClearance = 0; return 0; }
+            double step = Math.Max(s.Grid.CellMm * 0.5, 25);
+            int hits = 0;
+            var samples = SamplePolyline(pts, step);
+            sampleCount = samples.Count;
+            foreach (var pt in samples)
+            {
+                double nearest = double.MaxValue; bool inside = false;
+                foreach (var o in s.Obstacles)
+                {
+                    if (o.IsPassThrough) continue;
+                    double d = DistToAabb(pt, o, out bool ins);
+                    if (ins) { inside = true; break; }
+                    if (d < nearest) nearest = d;
+                }
+                if (inside) hits++;
+                else if (nearest < minClearance) minClearance = nearest;
+            }
+            if (minClearance == double.MaxValue) minClearance = 0;
+            return hits;
+        }
+
+        // 점에서 AABB 까지의 외부(유클리드) 거리. 점이 박스 내부면 0 이고 inside=true.
+        private static double DistToAabb(Point3D p, ObstacleBox o, out bool inside)
+        {
+            double dx = Math.Max(Math.Max(o.MinX - p.X, p.X - o.MaxX), 0);
+            double dy = Math.Max(Math.Max(o.MinY - p.Y, p.Y - o.MaxY), 0);
+            double dz = Math.Max(Math.Max(o.MinZ - p.Z, p.Z - o.MaxZ), 0);
+            inside = dx == 0 && dy == 0 && dz == 0;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 폴리라인을 step(mm) 간격 점열로 균등 샘플(각 구간 시작점 포함, 끝점 포함).
+        private static List<Point3D> SamplePolyline(List<Point3D> pts, double step)
+        {
+            var outp = new List<Point3D>();
+            if (pts.Count == 0) return outp;
+            outp.Add(pts[0]);
+            for (int i = 1; i < pts.Count; i++)
+            {
+                Point3D a = pts[i - 1], b = pts[i];
+                double len = (b - a).Length;
+                int n = Math.Max(1, (int)(len / step));
+                for (int k = 1; k <= n; k++)
+                {
+                    double f = (double)k / n;
+                    outp.Add(new Point3D(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f, a.Z + (b.Z - a.Z) * f));
+                }
+            }
+            return outp;
+        }
+
+        private static double PolylineLength(List<Point3D> pts)
+        {
+            double L = 0;
+            for (int i = 1; i < pts.Count; i++) L += (pts[i] - pts[i - 1]).Length;
+            return L;
+        }
+
+        private static double Dist(Pt3 a, Pt3 b)
+        {
+            double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        /// <summary>꺾임(엘보) 통계 — 전체 수와 수평/수직 분류. 수직 = 인접 구간 중 하나라도 Z(상하)
+        /// 방향인 꺾임(층 전환 엘보), 수평 = XY 평면 내 방향 전환.</summary>
+        private readonly struct BendStats
+        {
+            public readonly int Total, Horiz, Vert;
+            public BendStats(int total, int horiz, int vert) { Total = total; Horiz = horiz; Vert = vert; }
+            /// <summary>"N회 (수평 H · 수직 V)" 표기.</summary>
+            public string Text => $"{Total}회 (수평 {Horiz} · 수직 {Vert})";
+        }
+
+        // 격자 경로(셀)의 방향 전환(꺾임) 통계 — BuildPathSteps 의 Dir 부호 비교 규약과 동일.
+        //   꺾임 직전/직후 구간 중 하나라도 Z 성분(dz≠0)이면 수직 꺾임, 아니면 수평 꺾임으로 센다.
+        private static BendStats CountBends(PathCell[] path)
+        {
+            if (path.Length < 3) return new BendStats(0, 0, 0);
+            (int dx, int dy, int dz) Dir(PathCell a, PathCell b) =>
+                (Math.Sign(b.I - a.I), Math.Sign(b.J - a.J), Math.Sign(b.K - a.K));
+            int total = 0, horiz = 0, vert = 0;
+            var cur = Dir(path[0], path[1]);
+            for (int i = 2; i < path.Length; i++)
+            {
+                var d = Dir(path[i - 1], path[i]);
+                if (d != cur)
+                {
+                    total++;
+                    if (cur.dz != 0 || d.dz != 0) vert++; else horiz++;
+                    cur = d;
+                }
+            }
+            return new BendStats(total, horiz, vert);
+        }
+
+        // 월드 폴리라인의 방향 전환(꺾임) 통계 — 인접 구간 단위벡터 내적이 ~1 미만이면 한 번 꺾인 것으로.
+        //   꺾임 직전/직후 구간 중 하나라도 |Z| 성분이 지배적(>0.7≈45°↑)이면 수직 꺾임, 아니면 수평 꺾임.
+        private static BendStats CountBends(List<Point3D> pts)
+        {
+            if (pts.Count < 3) return new BendStats(0, 0, 0);
+            int total = 0, horiz = 0, vert = 0;
+            Vector3D? prev = null;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                Vector3D d = pts[i] - pts[i - 1];
+                if (d.Length < 1e-6) continue;
+                d.Normalize();
+                if (prev.HasValue)
+                {
+                    var p = prev.Value;
+                    double dot = p.X * d.X + p.Y * d.Y + p.Z * d.Z;
+                    if (dot < 0.999)   // ~2.6° 이상 차이 → 꺾임.
+                    {
+                        total++;
+                        if (Math.Abs(p.Z) > 0.7 || Math.Abs(d.Z) > 0.7) vert++; else horiz++;
+                    }
+                }
+                prev = d;
+            }
+            return new BendStats(total, horiz, vert);
         }
 
         // 경로 단계(구간) 강조 — 카메라는 그대로 두고(현재 화면 유지), 선택 구간만 흰색 굵은 튜브로 덧그린다.

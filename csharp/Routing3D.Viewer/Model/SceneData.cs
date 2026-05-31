@@ -97,6 +97,12 @@ namespace Routing3D.Viewer.Model
         public string? Group { get; set; }            // TB_ROUTE_PATH.UTILITY_GROUP.
         public double DiameterMm { get; set; }        // 대표 관경(mm). 0 이면 미상 → 렌더에서 기본값.
 
+        // 종단 PoC 좌표(월드 mm) — TB_ROUTE_PATH.SOURCE_POS / TARGET_POS. 선택 배관(Task)의 시작/끝
+        // PoC 좌표와 기하학적으로 짝지어 '이 배관에 해당하는 기존 설계경로'를 찾는 매칭 키로 쓴다.
+        // 로더가 폴리라인 절단(TrimToBoundary)에 쓰던 curStart/curEnd 와 동일 값. null 이면 폴백(폴리라인 끝점).
+        public Pt3? SourcePos { get; set; }
+        public Pt3? TargetPos { get; set; }
+
         /// <summary>유틸리티 라벨 "[그룹] 유틸" — TaskInfo.UtilityLabel 과 동일 규약(색 일치용).</summary>
         public string Label =>
             $"[{(string.IsNullOrEmpty(Group) ? "?" : Group)}] {(string.IsNullOrEmpty(Utility) ? "?" : Utility)}";
