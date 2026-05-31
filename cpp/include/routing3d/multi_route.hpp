@@ -156,6 +156,27 @@ void mark_pipe(Occ& occ, const std::vector<Cell>& path, int radius) {
     }
 }
 
+// ---- 보조: 회랑 성장 ----
+// 경로 셀 + radius 6-이웃(격자 내)을 회랑(occ.lin 인덱스) 집합에 추가한다(Python _add_corridor 와 1:1).
+// 이후 배관이 이 곁을 '싸게'(w_corridor 면제) 지나가 공용 랙으로 뭉친다 → 기존 설계 유사.
+template <class Occ>
+void add_corridor_cells(const Occ& occ, std::unordered_set<int>& corridor,
+                        const std::vector<Cell>& path, int radius) {
+    std::vector<Cell> frontier;
+    for (const Cell& c : path) {
+        if (occ.in_bounds(c)) { corridor.insert(occ.lin(c)); frontier.push_back(c); }
+    }
+    for (int r = 0; r < (radius > 0 ? radius : 0); ++r) {
+        std::vector<Cell> next;
+        for (const Cell& c : frontier)
+            for (const Cell& d : NEIGHBORS_6) {
+                Cell nb{c.i + d.i, c.j + d.j, c.k + d.k};
+                if (occ.in_bounds(nb) && corridor.insert(occ.lin(nb)).second) next.push_back(nb);
+            }
+        frontier = std::move(next);
+    }
+}
+
 // ---- 순차 라우팅 ----
 // 배관들을 순차적으로(충돌 없이) 라우팅한다. occ 는 변경하지 않는다(내부 사본 사용).
 //   pipe_radius  : 깔린 배관을 점유로 추가할 때 팽창 반경(셀). 0=경로 셀만.
@@ -166,9 +187,14 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
                                        const std::string& priority = "longest",
                                        int pipe_radius = 0, int snap_to_free = 2,
                                        long long max_expansions = -1,
-                                       bool collect_visited = false) {
+                                       bool collect_visited = false,
+                                       int corridor_radius = 1) {
     Occ work = occ.copy();  // 원본 불변(계약 M2).
     std::vector<RouteTask> ordered = order_tasks(occ, tasks, priority);
+
+    // 회랑 인력(w_corridor>0)이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다.
+    std::unordered_set<int> corridor;
+    const bool use_corridor = params.w_corridor > 0.0;
 
     std::vector<PipeResult> pipes;
     pipes.reserve(ordered.size());
@@ -176,11 +202,15 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
         const RouteTask& task = ordered[static_cast<size_t>(idx)];
         Cell s = snap_to_free_cell(work, work.to_cell(task.start_mm), snap_to_free);
         Cell g = snap_to_free_cell(work, work.to_cell(task.end_mm), snap_to_free);
-        AStarResult res = astar_weighted(work, s, g, params, max_expansions, collect_visited);
+        AStarResult res = astar_weighted(work, s, g, params, max_expansions, collect_visited,
+                                         use_corridor ? &corridor : nullptr);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;  // mark_pipe 용(res 는 이동).
         pipes.push_back(PipeResult{task, std::move(res), idx});
-        if (ok) mark_pipe(work, path, pipe_radius);  // 깔린 경로를 점유로 추가.
+        if (ok) {
+            mark_pipe(work, path, pipe_radius);  // 깔린 경로를 점유로 추가.
+            if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
+        }
     }
 
     return MultiRouteResult<Occ>{std::move(pipes), std::move(work), priority};

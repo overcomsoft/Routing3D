@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "routing3d/cost.hpp"
@@ -156,7 +157,8 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 // 상태 = (셀, 진입방향 dir). dir ∈ [-1,5] → state = lin*7 + (dir+1).
 template <class Occ>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
-                           long long max_expansions = -1, bool collect_visited = false) {
+                           long long max_expansions = -1, bool collect_visited = false,
+                           const std::unordered_set<int>* corridor = nullptr) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
@@ -167,7 +169,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         return R;
     }
 
-    CostModel<Occ> model(occ, params);
+    CostModel<Occ> model(occ, params, corridor);
     auto state_of = [&](int lin, int dir) -> long long {
         return static_cast<long long>(lin) * 7 + (dir + 1);
     };

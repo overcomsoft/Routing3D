@@ -113,16 +113,25 @@ void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool colle
         throw std::invalid_argument("unknown priority: " + priority);
     }
 
+    // 회랑 인력(params.w_corridor>0)이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다
+    // → 기존 설계처럼 공용 랙으로 뭉치고 굴곡/길이가 늘어난다. 0이면 기존 동작과 동일.
     doc.results.assign(static_cast<size_t>(n), std::nullopt);
+    std::unordered_set<int> corridor;
+    const bool use_corridor = doc.params.w_corridor > 0.0;
+    const int corridor_radius = doc.params.corridor_radius > 0 ? doc.params.corridor_radius : 1;
     for (int oi : order) {
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), 2);
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), 2);
-        AStarResult res = astar_weighted(work, s, g, doc.params, -1, collect_visited);
+        AStarResult res = astar_weighted(work, s, g, doc.params, -1, collect_visited,
+                                         use_corridor ? &corridor : nullptr);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
-        if (ok) mark_pipe(work, path, 0);  // 깔린 경로를 점유로 추가(다음 배관 회피).
+        if (ok) {
+            mark_pipe(work, path, 0);  // 깔린 경로를 점유로 추가(다음 배관 회피).
+            if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
+        }
     }
 }
 
@@ -211,6 +220,15 @@ extern "C" R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p) {
     e->doc.params.w_clear = p->w_clear;
     e->doc.params.clearance_radius = p->clearance_radius;
     e->doc.params.clearance_connectivity = p->clearance_connectivity;
+    e->doc.params.w_corridor = p->w_corridor;
+    e->doc.params.corridor_radius = p->corridor_radius > 0 ? p->corridor_radius : 1;
+    e->doc.params.rack_levels.clear();
+    {
+        int rc = p->rack_level_count;
+        if (rc < 0) rc = 0;
+        if (rc > 8) rc = 8;
+        for (int i = 0; i < rc; ++i) e->doc.params.rack_levels.push_back(p->rack_levels[i]);
+    }
     return R3D_OK;
 }
 

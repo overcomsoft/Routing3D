@@ -36,7 +36,7 @@ int main() {
     R3dGrid grid{50.0, 0.0, 0.0, 0.0, 120, 120, 60};
     check(r3d_set_grid(e, &grid) == R3D_OK, "r3d_set_grid");
 
-    R3dParams params{50.0, 500.0, 10.0, 2, 6};  // baseline
+    R3dParams params{50.0, 500.0, 10.0, 0.0, 2, 6};  // baseline (w_corridor=0=off, 나머지 0 기본)
     check(r3d_set_params(e, &params) == R3D_OK, "r3d_set_params");
 
     // 바닥 슬래브.
@@ -105,7 +105,7 @@ int main() {
         const double sc = 50.0;
         R3dGrid bg{sc, 0, 0, 0, 2000, 2000, 8};
         check(r3d_set_grid(be, &bg) == R3D_OK, "corridor set_grid");
-        R3dParams bp{sc, 500.0, 10.0, 2, 6};
+        R3dParams bp{sc, 500.0, 10.0, 0.0, 2, 6};  // w_corridor=0=off
         check(r3d_set_params(be, &bp) == R3D_OK, "corridor set_params");
 
         const int si = 10, sj = 10, sk = 4, gi = 1990, gj = 1990, gk = 4;

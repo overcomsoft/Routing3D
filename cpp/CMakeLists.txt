@@ -73,6 +73,10 @@ add_executable(test_ripup tests/test_ripup.cpp)
 target_link_libraries(test_ripup PRIVATE routing3d_core)
 add_test(NAME ripup COMMAND test_ripup)
 
+add_executable(test_attract tests/test_attract.cpp)
+target_link_libraries(test_attract PRIVATE routing3d_core)
+add_test(NAME attract COMMAND test_attract)
+
 # C ABI 스모크 테스트: DLL 경유 골든03 재현(5/5·28050mm) + 문자열 ABI 왕복.
 add_executable(test_capi tests/test_capi.cpp)
 target_link_libraries(test_capi PRIVATE routing3d_capi)

@@ -14,6 +14,7 @@
 #include <deque>
 #include <map>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 
 #include "routing3d/geometry.hpp"
@@ -28,6 +29,9 @@ struct RouteParams {
     int clearance_radius = 2;
     int clearance_connectivity = 6;  // 6 또는 26
     std::map<int, double> w_tier;     // z셀 → 가산 mm
+    double w_corridor = 0.0;          // 회랑 밖 셀 1개당 가산 mm. >0 이면 배관 번들링(기존설계 유사). 0=비활성.
+    int corridor_radius = 1;          // 회랑 성장 반경(셀). 깔린 배관에서 이만큼 옆까지 회랑.
+    std::vector<int> rack_levels;     // 선호 단(z셀 인덱스). 이 레벨은 회랑으로 간주 → w_corridor 면제(주 배관랙 높이 유도).
 };
 
 // 26-연결 이웃(면+모서리+꼭짓점, 중심 제외). 고정 순서.
@@ -93,11 +97,15 @@ std::vector<int> clearance_map(const Occ& occ, int max_radius, int connectivity 
 template <class Occ>
 class CostModel {
 public:
-    CostModel(const Occ& occ, RouteParams params) : occ_(occ), p_(std::move(params)) {
+    // corridor: 회랑 셀(occ.lin 인덱스) 집합. nullptr 이면 회랑 미사용(rack_levels 만 면제).
+    CostModel(const Occ& occ, RouteParams params,
+              const std::unordered_set<int>* corridor = nullptr)
+        : occ_(occ), p_(std::move(params)), corridor_(corridor) {
         if (p_.w_clear > 0.0 && p_.clearance_radius > 0) {
             clearance_ = clearance_map(occ_, p_.clearance_radius, p_.clearance_connectivity);
             has_clear_ = true;
         }
+        rack_ = std::unordered_set<int>(p_.rack_levels.begin(), p_.rack_levels.end());
     }
 
     // 클리어런스 근접 + 단(z) 분리 가산 페널티.
@@ -110,6 +118,13 @@ public:
         if (!p_.w_tier.empty()) {
             auto it = p_.w_tier.find(c.k);
             if (it != p_.w_tier.end()) pen += it->second;
+        }
+        if (p_.w_corridor > 0.0) {
+            // 회랑(이미 깔린 배관 곁) 또는 선호 단(rack)에 속하면 면제, 아니면 가산.
+            // Python cost.py cell_penalty 와 1:1. 보너스가 아닌 '회랑 밖 가산'이라 admissibility 보존.
+            bool on_corridor = (rack_.find(c.k) != rack_.end()) ||
+                (corridor_ != nullptr && corridor_->find(occ_.lin(c)) != corridor_->end());
+            if (!on_corridor) pen += p_.w_corridor;
         }
         return pen;
     }
@@ -131,6 +146,8 @@ private:
     RouteParams p_;
     std::vector<int> clearance_;  // 비어 있으면 클리어런스 비활성
     bool has_clear_ = false;
+    const std::unordered_set<int>* corridor_ = nullptr;  // 회랑 셀(lin) 집합. nullptr=미사용.
+    std::unordered_set<int> rack_;                       // 선호 단 캐시(Python frozenset 대응).
 };
 
 }  // namespace routing3d
