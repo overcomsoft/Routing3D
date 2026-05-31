@@ -267,6 +267,17 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- 객체 속성 (3D 클릭) -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="객체 속성 (3D 클릭)" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding SelectedObjectInfo, TargetNullValue='3D 뷰에서 장애물·장비·덕트·공간을 클릭하면 속성이 표시됩니다. (종단점 지정 모드가 아닐 때)'}"
+                                       Foreground="#cdd6f4" TextWrapping="Wrap"
+                                       FontFamily="Consolas" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- 선택 작업 정보 + 종단점 편집 -->
                     <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
                             BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">

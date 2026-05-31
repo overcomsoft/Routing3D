@@ -90,9 +90,16 @@ namespace Routing3D.Viewer
 
         private void View_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_vm.PickMode == PickMode.None) return;
             var screen = e.GetPosition(View);
             var hit = View.FindNearestPoint(screen);  // 지오메트리 위의 최근접 3D 점.
+
+            // 종단점 지정 모드가 아니면: 클릭 지점의 객체 속성을 우측 패널에 표시(회전은 그대로).
+            if (_vm.PickMode == PickMode.None)
+            {
+                if (hit.HasValue) _vm.SelectObjectAt(hit.Value);
+                return;
+            }
+
             if (hit.HasValue)
             {
                 _vm.ApplyPick(hit.Value);

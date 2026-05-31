@@ -69,6 +69,88 @@ namespace Routing3D.Viewer.ViewModels
         private SceneData? _scene;
         private readonly string _priority = "longest";
 
+        // ── 3D 객체 클릭 → 속성 정보 표시 ───────────────────────────────
+        // 씬은 원본 mm 좌표로 렌더되므로(ApplyPick 이 픽 점을 그대로 mm 로 사용),
+        // 클릭 지점을 포함하는 객체를 AABB 포함 검사로 찾는다. 표시 중(레이어 켜짐)인
+        // 객체만 후보로 삼고, 겹치면 부피가 가장 작은(가장 구체적인) 객체를 고른다.
+        private string? _selectedObjectInfo;
+        public string? SelectedObjectInfo
+        {
+            get => _selectedObjectInfo;
+            private set => Set(ref _selectedObjectInfo, value);
+        }
+
+        public void SelectObjectAt(Point3D p)
+        {
+            var s = _scene;
+            if (s is null) { SelectedObjectInfo = null; return; }
+
+            string? best = null; double bestVol = double.MaxValue;
+            void Consider(string text, double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                const double eps = 1.0;
+                if (p.X < mnx - eps || p.X > mxx + eps) return;
+                if (p.Y < mny - eps || p.Y > mxy + eps) return;
+                if (p.Z < mnz - eps || p.Z > mxz + eps) return;
+                double vol = Math.Max(1, mxx - mnx) * Math.Max(1, mxy - mny) * Math.Max(1, mxz - mnz);
+                if (vol < bestVol) { bestVol = vol; best = text; }
+            }
+
+            if (ShowEquipment)
+                foreach (var e in s.Equipment)
+                    Consider(DescribeEquipment(e), e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+
+            foreach (var d in s.DuctsLaterals)
+            {
+                if (d.IsLateral ? !ShowLaterals : !ShowDucts) continue;
+                Consider(DescribeDuct(d), d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+            }
+
+            if (ShowObstacles)
+                for (int i = 0; i < s.Obstacles.Count; i++)
+                {
+                    var o = s.Obstacles[i];
+                    Consider(DescribeObstacle(i, o), o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                }
+
+            if (ShowSpaces)
+                foreach (var sp in s.Spaces)
+                    Consider(DescribeSpace(sp), sp.MinX, sp.MinY, sp.MinZ, sp.MaxX, sp.MaxY, sp.MaxZ);
+
+            SelectedObjectInfo = best;
+            Status = best is null ? "선택된 객체 없음(빈 공간 클릭)" : "객체 속성을 표시했습니다.";
+        }
+
+        private static string F(double v) => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+
+        private static string Dims(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            => $"크기(mm): {F(mxx - mnx)} × {F(mxy - mny)} × {F(mxz - mnz)}\n"
+             + $"중심(mm): ({F((mnx + mxx) / 2)}, {F((mny + mxy) / 2)}, {F((mnz + mxz) / 2)})";
+
+        private static string DescribeEquipment(EquipmentBox e)
+            => "[장비]\n"
+             + $"이름: {(string.IsNullOrEmpty(e.Name) ? "(이름없음)" : e.Name)}\n"
+             + $"메인 장비: {(e.IsMain ? "예" : "아니오")}\n"
+             + Dims(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+
+        private static string DescribeDuct(DuctLateral d)
+            => $"[{(d.IsLateral ? "레터럴" : "덕트")}]\n"
+             + $"이름: {(string.IsNullOrEmpty(d.Name) ? "(이름없음)" : d.Name)}\n"
+             + $"CATEGORY: {d.Category}\n"
+             + $"UTILITY: {(string.IsNullOrEmpty(d.Utility) ? "N/A" : d.Utility)}\n"
+             + Dims(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+
+        private static string DescribeObstacle(int i, ObstacleBox o)
+            => $"[장애물 #{i}]\n"
+             + Dims(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ) + "\n"
+             + $"AABB(mm): ({F(o.MinX)}, {F(o.MinY)}, {F(o.MinZ)})\n"
+             + $"        ~ ({F(o.MaxX)}, {F(o.MaxY)}, {F(o.MaxZ)})";
+
+        private static string DescribeSpace(SpaceArea sp)
+            => "[공간영역]\n"
+             + $"이름: {sp.Name}\n"
+             + Dims(sp.MinX, sp.MinY, sp.MinZ, sp.MaxX, sp.MaxY, sp.MaxZ);
+
         private Model3D? _sceneModel;
         private string _status = string.Empty;
         private TaskRowVM? _selectedTask;
