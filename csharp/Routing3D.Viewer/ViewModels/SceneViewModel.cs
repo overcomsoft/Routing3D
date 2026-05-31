@@ -161,6 +161,7 @@ namespace Routing3D.Viewer.ViewModels
              + $"이름: {(string.IsNullOrEmpty(o.Name) ? "(이름없음)" : o.Name)}\n"
              + $"OST_TYPE: {(string.IsNullOrEmpty(o.OstType) ? "N/A" : o.OstType)}\n"
              + $"DDWORKS_TYPE: {(string.IsNullOrEmpty(o.DdworksType) ? "N/A" : o.DdworksType)}\n"
+             + $"통과 객체: {(o.IsPassThrough ? "예 (경로탐색 통과)" : "아니오")}\n"
              + Dims(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ) + "\n"
              + $"AABB(mm): ({F(o.MinX)}, {F(o.MinY)}, {F(o.MinZ)})\n"
              + $"        ~ ({F(o.MaxX)}, {F(o.MaxY)}, {F(o.MaxZ)})";
@@ -636,7 +637,8 @@ namespace Routing3D.Viewer.ViewModels
                 _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
                 _engine.SetParams(g.CellMm, 500, 10, 2, 6);   // 기본 비용함수 파라미터.
                 foreach (var o in sd.Obstacles)
-                    _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                    if (!o.IsPassThrough)   // 통과 객체(바닥/천장/격자보)는 경로탐색 충돌에서 제외.
+                        _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 // 작업도 적재하되(점유맵/단일 라우팅 일관성) 자동 라우팅은 하지 않는다.
                 foreach (var t in sd.Tasks)
                     _engine.AddTask(t.Sx, t.Sy, t.Sz, t.Gx, t.Gy, t.Gz, t.Utility, t.Group);
@@ -810,7 +812,8 @@ namespace Routing3D.Viewer.ViewModels
             _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
             _engine.SetParams(g.CellMm, 500, 10, 2, 6);
             foreach (var o in scene.Obstacles)
-                _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                if (!o.IsPassThrough)   // 통과 객체(바닥/천장/격자보)는 경로탐색 충돌에서 제외.
+                    _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
             var added = new List<int>(rowPositions.Count);
             foreach (var pos in rowPositions)
             {
@@ -1002,17 +1005,29 @@ namespace Routing3D.Viewer.ViewModels
                 });
             }
 
-            // ① 장애물(토글) — 하나의 메시로 머지(반투명 회색).
+            // ① 장애물(토글) — 일반 장애물(회색)과 통과 객체(청록)를 구분해 머지.
+            //    통과 객체(바닥/천장/격자보)는 경로탐색 충돌에서 제외되므로 색으로 구분 표시한다.
             if (ShowObstacles && scene.Obstacles.Count > 0)
             {
-                var mb = new MeshBuilder(false, false);
+                var mb = new MeshBuilder(false, false);       // 일반 장애물(충돌).
+                var mbPass = new MeshBuilder(false, false);   // 통과 객체(비충돌).
+                int nObs = 0, nPass = 0;
                 foreach (var o in scene.Obstacles)
                 {
                     var center = new Point3D((o.MinX + o.MaxX) / 2, (o.MinY + o.MaxY) / 2, (o.MinZ + o.MaxZ) / 2);
-                    mb.AddBox(center, o.MaxX - o.MinX, o.MaxY - o.MinY, o.MaxZ - o.MinZ);
+                    if (o.IsPassThrough) { mbPass.AddBox(center, o.MaxX - o.MinX, o.MaxY - o.MinY, o.MaxZ - o.MinZ); nPass++; }
+                    else                 { mb.AddBox(center, o.MaxX - o.MinX, o.MaxY - o.MinY, o.MaxZ - o.MinZ); nObs++; }
                 }
-                group.Children.Add(Geometry(mb, Color.FromRgb(150, 150, 150), 60));
-                Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromArgb(160, 150, 150, 150)), Label = "장애물(obstacles)" });
+                if (nObs > 0)
+                {
+                    group.Children.Add(Geometry(mb, Color.FromRgb(150, 150, 150), 60));
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromArgb(160, 150, 150, 150)), Label = $"장애물(obstacles) {nObs}" });
+                }
+                if (nPass > 0)
+                {
+                    group.Children.Add(Geometry(mbPass, Color.FromRgb(90, 200, 160), 55));
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromArgb(160, 90, 200, 160)), Label = $"통과 객체(pass-through) {nPass}" });
+                }
             }
 
             // ①-E 장비(토글) — TB_BIM_EQUIPMENT 의 AABB 를 주황 큐브 박스로(메인은 더 진하게).

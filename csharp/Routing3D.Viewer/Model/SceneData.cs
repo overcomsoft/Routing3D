@@ -26,6 +26,24 @@ namespace Routing3D.Viewer.Model
         public string DdworksType { get; set; } = string.Empty; // DDWORKS_TYPE (DB 로드 시에만).
         public string OstType { get; set; } = string.Empty;     // OST_TYPE (DB 로드 시에만).
         public double MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
+
+        // 통과(pass-through) 객체 — 공간은 차지하나 경로탐색 시 충돌로 보지 않고 배관이 통과한다.
+        //   · OST_Floors / OST_Ceilings (바닥·천장 슬래브)
+        //   · OST_StructuralFraming 이면서 DDWORKS_TYPE=BEAM_STRUCTURE (격자보)
+        // 비교는 대소문자 무시. 통과 객체는 엔진에 장애물로 넣지 않는다(BuildModel/AddObstacle 참고).
+        public bool IsPassThrough
+        {
+            get
+            {
+                var ost = (OstType ?? string.Empty).Trim();
+                if (string.Equals(ost, "OST_Floors", System.StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(ost, "OST_Ceilings", System.StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(ost, "OST_StructuralFraming", System.StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals((DdworksType ?? string.Empty).Trim(), "BEAM_STRUCTURE", System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return false;
+            }
+        }
     }
 
     /// <summary>라우팅 작업(start→end, 유틸리티 메타).</summary>
