@@ -186,6 +186,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showEquipment = true;         // 장비(TB_BIM_EQUIPMENT) 큐브 박스.
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
+        private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
@@ -289,6 +290,7 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowEquipment { get => _showEquipment; set { if (Set(ref _showEquipment, value)) RebuildIfReady(); } }
         public bool ShowLaterals { get => _showLaterals; set { if (Set(ref _showLaterals, value)) RebuildIfReady(); } }
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
+        public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
 
         /// <summary>점유맵 해상도. true=원본(전체 셀 표시, 느릴 수 있음), false=다운샘플(상한까지만).</summary>
         public bool OccupancyFullRes
@@ -1108,7 +1110,10 @@ namespace Routing3D.Viewer.ViewModels
             // ② 경로 — 유틸리티별 색 튜브 + 시작/끝 구. (충돌 계산용으로 경로는 항상 수집)
             // 단계별 탐색 애니메이션 중에는 최종 경로를 숨겨 탐색 과정만 보이게 한다(_hidePathsForAnim).
             bool drawPaths = ShowPaths && !_hidePathsForAnim;
-            var colorMap = UtilityColors.Assign(scene.Tasks.Select(t => t.UtilityLabel));
+            // 색 배정은 작업 + 기존배관 라벨을 합쳐 한 번에 한다(같은 유틸=같은 색, 라우팅 경로와 기존배관 색 일치).
+            var colorMap = UtilityColors.Assign(
+                scene.Tasks.Select(t => t.UtilityLabel)
+                    .Concat(scene.ExistingPipes.Select(p => p.Label)));
             var perUtil = new Dictionary<string, MeshBuilder>();
             var perUtilVisited = new Dictionary<string, MeshBuilder>();   // 방문맵 — 유틸리티별 머지 메시.
             var perUtilVisitedCount = new Dictionary<string, int>();      // 표시 셀 카운트(다운샘플 후).
@@ -1185,6 +1190,43 @@ namespace Routing3D.Viewer.ViewModels
                     group.Children.Add(Geometry(kv.Value, color, 255));
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(color), Label = kv.Key });
                 }
+            }
+
+            // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
+            //   라우팅 경로보다 가늘게 그려 구분하고, 유틸 필터(체크박스)도 동일 적용한다.
+            if (ShowExistingPipes && scene.ExistingPipes.Count > 0)
+            {
+                double exDia = grid.CellMm * 0.45;   // 기존배관 튜브 지름(라우팅 경로 0.7 보다 가늘게).
+                var perUtilEx = new Dictionary<string, MeshBuilder>();
+                int drawn = 0;
+                foreach (var pipe in scene.ExistingPipes)
+                {
+                    string label = pipe.Label;
+                    var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
+                    if (uf != null && !uf.IsVisible) continue;   // 유틸 체크박스 필터 적용.
+                    if (pipe.Points.Count < 2) continue;
+                    if (!perUtilEx.TryGetValue(label, out var mb))
+                    {
+                        mb = new MeshBuilder(false, false);
+                        perUtilEx[label] = mb;
+                    }
+                    var pts = pipe.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
+                    mb.AddTube(pts, exDia, 8, false);
+                    drawn++;
+                }
+                int totalEx = 0;
+                foreach (var kv in perUtilEx)
+                {
+                    var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
+                    group.Children.Add(Geometry(kv.Value, color, 235));
+                    totalEx++;
+                }
+                if (drawn > 0)
+                    Legend.Add(new LegendItem
+                    {
+                        Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
+                        Label = $"기존 설계배관 {drawn}"
+                    });
             }
 
             // 방문맵 — 유틸리티별 색의 반투명 큐브 집합. 경로와 같은 색 규약.

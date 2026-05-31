@@ -89,6 +89,25 @@ namespace Routing3D.Viewer.Model
         public bool IsLateral => string.Equals(Category, "LATERAL", System.StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>기존 설계배관 한 줄(TB_ROUTE_PATH 폴리라인) — DB 로드 시에만. 좌표는 월드 mm.</summary>
+    public sealed class ExistingPipe
+    {
+        public List<Pt3> Points { get; } = new();   // PoC→종단 폴리라인(월드 mm, 순서대로).
+        public string? Utility { get; set; }          // TB_ROUTE_PATH.SOURCE_UTILITY.
+        public string? Group { get; set; }            // TB_ROUTE_PATH.UTILITY_GROUP.
+
+        /// <summary>유틸리티 라벨 "[그룹] 유틸" — TaskInfo.UtilityLabel 과 동일 규약(색 일치용).</summary>
+        public string Label =>
+            $"[{(string.IsNullOrEmpty(Group) ? "?" : Group)}] {(string.IsNullOrEmpty(Utility) ? "?" : Utility)}";
+    }
+
+    /// <summary>3D 점(월드 mm) — Model 레이어가 WPF 의존 없이 좌표를 담는 경량 구조체.</summary>
+    public struct Pt3
+    {
+        public double X, Y, Z;
+        public Pt3(double x, double y, double z) { X = x; Y = y; Z = z; }
+    }
+
     /// <summary>scene.txt 한 개의 렌더 입력(격자/장애물/작업 + 원문).</summary>
     public sealed class SceneData
     {
@@ -98,6 +117,7 @@ namespace Routing3D.Viewer.Model
         public List<SpaceArea> Spaces { get; } = new();   // 공간 영역(시각화용). DB 로드 시에만 채워짐.
         public List<EquipmentBox> Equipment { get; } = new();   // 장비 박스(시각화용). DB 로드 시에만.
         public List<DuctLateral> DuctsLaterals { get; } = new();   // 덕트/레터럴 박스(시각화용). DB 로드 시에만.
+        public List<ExistingPipe> ExistingPipes { get; } = new();   // 기존 설계배관 폴리라인(시각화용). DB 로드 시에만.
         public string RawText { get; set; } = string.Empty;
     }
 }

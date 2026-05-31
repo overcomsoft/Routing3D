@@ -219,6 +219,9 @@
                             <CheckBox Content="경로"
                                       IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"
                                       ToolTip="라우팅 경로 (유틸리티별 색 튜브)"/>
+                            <CheckBox Content="기존배관"
+                                      IsChecked="{Binding ShowExistingPipes}" Margin="0,0,12,0"
+                                      ToolTip="기존 설계배관 — TB_ROUTE_PATH(메인 장비 PoC→종단)을 유틸리티 색의 가는 튜브로 표시"/>
                             <CheckBox Content="충돌"
                                       IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"
                                       ToolTip="충돌 셀 (≥2 배관이 공유하는 셀, 빨간 큐브)"/>

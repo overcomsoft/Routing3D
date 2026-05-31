@@ -214,9 +214,72 @@ namespace Routing3D.Viewer.Model
                 }
             }
 
+            // ── 4.5) 기존 설계배관(TB_ROUTE_PATH) — PoC→종단 폴리라인(SpaceAI 참조) ──
+            //   TB_ROUTE_SEGMENT_DETAIL(FROM/TO XYZ) → SEGMENT → PATH 조인. 메인 장비 PoC 가
+            //   소유한 경로만(SOURCE_OWNER_NAME=장비명 + PoC 가 장비 BBOX 안). 유틸리티는 PATH 에서.
+            //   라우트 테이블이 없는 DB 도 있으므로 실패해도 로드를 막지 않는다(try/catch).
+            try
+            {
+                LoadExistingPipes(conn, sourceFile, data.ExistingPipes);
+            }
+            catch { /* 라우트 테이블 부재/스키마 차이 → 기존배관 생략(다른 레이어는 정상 로드). */ }
+
             // ── 5) 격자 메타 산출 ─────────────────────────────────────────────────
             data.Grid = ComputeGrid(data.Obstacles, cellMm);
             return data;
+        }
+
+        // 기존 설계배관 로드(SpaceAI Space3DRepository.GetExistingPaths 참조).
+        //   ROUTE_PATH_GUID 별로 SEGMENT.ORDER → SEGMENT_DETAIL.ORDER 로 FROM/TO 좌표를 이어
+        //   폴리라인 1개를 만든다(연속 중복점은 1mm² 이내면 생략). 유틸리티/그룹은 PATH 행에서.
+        private static void LoadExistingPipes(NpgsqlConnection conn, string sourceFile, List<ExistingPipe> outPipes)
+        {
+            using var cmd = new NpgsqlCommand(
+                @"SELECT s.""ROUTE_PATH_GUID"", rp.""UTILITY_GROUP"", rp.""SOURCE_UTILITY"",
+                         sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
+                         sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ""
+                    FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
+                    JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
+                    JOIN ""TB_ROUTE_PATH"" rp    ON rp.""ROUTE_PATH_GUID"" = s.""ROUTE_PATH_GUID""
+                    JOIN ""TB_BIM_EQUIPMENT"" eq
+                      ON eq.""NAME"" = rp.""SOURCE_OWNER_NAME""
+                     AND eq.""IS_MAIN"" = true
+                     AND eq.""SOURCE_FILE"" = @sf
+                     AND rp.""SOURCE_OWNER_POSX"" BETWEEN eq.""MIN_X"" AND eq.""MAX_X""
+                     AND rp.""SOURCE_OWNER_POSY"" BETWEEN eq.""MIN_Y"" AND eq.""MAX_Y""
+                     AND rp.""SOURCE_OWNER_POSZ"" BETWEEN eq.""MIN_Z"" AND eq.""MAX_Z""
+                   ORDER BY s.""ROUTE_PATH_GUID"", s.""ORDER"", sd.""ORDER""", conn);
+            cmd.Parameters.AddWithValue("@sf", sourceFile);
+
+            using var r = cmd.ExecuteReader();
+            string? curGuid = null;
+            ExistingPipe? cur = null;
+            while (r.Read())
+            {
+                string g = r.GetString(0);
+                if (!string.Equals(curGuid, g, StringComparison.Ordinal))
+                {
+                    if (cur != null && cur.Points.Count >= 2) outPipes.Add(cur);
+                    curGuid = g;
+                    cur = new ExistingPipe
+                    {
+                        Group = r.IsDBNull(1) ? null : r.GetString(1),
+                        Utility = r.IsDBNull(2) ? null : r.GetString(2),
+                    };
+                }
+                var from = new Pt3(r.GetDouble(3), r.GetDouble(4), r.GetDouble(5));
+                var to = new Pt3(r.GetDouble(6), r.GetDouble(7), r.GetDouble(8));
+                if (cur!.Points.Count == 0) cur.Points.Add(from);
+                else if (Dist2(cur.Points[cur.Points.Count - 1], from) > 1.0) cur.Points.Add(from);
+                cur.Points.Add(to);
+            }
+            if (cur != null && cur.Points.Count >= 2) outPipes.Add(cur);
+        }
+
+        private static double Dist2(Pt3 a, Pt3 b)
+        {
+            double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+            return dx * dx + dy * dy + dz * dz;
         }
 
         // POC_LIST(jsonb 문자열) → 작업(start_mm → end_mm) 다수. 각 PoC 의 endPocs 각각이 작업 1건.
