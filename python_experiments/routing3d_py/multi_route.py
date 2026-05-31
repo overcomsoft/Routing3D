@@ -137,6 +137,10 @@ def order_tasks(occ: OccupancyMap, tasks: list[RouteTask], priority: str) -> lis
     if priority == "utility":
         # 유틸리티 라벨로 그룹(이름 순), 그룹 내 긴 것 먼저.
         return sorted(tasks, key=lambda t: (t.utility_label, -dist(t)))
+    if priority == "diameter":
+        # 관경 큰 것 먼저(메인 랙 공간 선점), 같은 관경이면 긴 것 먼저.
+        #   실제 설계 관행: 굵은 배관이 주 경로를 먼저 차지하고 가는 배관이 분기.
+        return sorted(tasks, key=lambda t: (-getattr(t, "diameter_mm", 0.0), -dist(t)))
     raise ValueError(f"unknown priority: {priority!r}")
 
 
@@ -151,18 +155,23 @@ def route_sequential(
     pipe_radius: int = 0,
     snap_to_free: int = 2,
     max_expansions: int | None = None,
+    size_aware_radius: bool = False,
+    clearance_mm: float = 0.0,
 ) -> MultiRouteResult:
     """배관들을 순차적으로(충돌 없이) 라우팅한다.
 
     매개변수:
-        occ            : 장애물 점유맵(원본). 내부에서 사본을 만들어 사용(원본 불변).
-        tasks          : 라우팅 작업 리스트.
-        params         : RouteParams. None 이면 기본(cell_mm=occ.cell_mm).
-        priority       : 우선순위 규칙(order_tasks 참조).
-        pipe_radius    : 깔린 배관을 점유로 추가할 때 팽창 반경(셀). 0=경로 셀만.
-                         >0 이면 배관 굵기/이격을 흉내내 더 넓게 막는다.
-        snap_to_free   : start/end 가 점유면 빈 셀 탐색 반경(셀).
-        max_expansions : 배관당 A* 확장 상한(폭주 방지).
+        occ              : 장애물 점유맵(원본). 내부에서 사본을 만들어 사용(원본 불변).
+        tasks            : 라우팅 작업 리스트.
+        params           : RouteParams. None 이면 기본(cell_mm=occ.cell_mm).
+        priority         : 우선순위 규칙(order_tasks 참조. "diameter"=굵은 것 먼저).
+        pipe_radius      : 깔린 배관을 점유로 추가할 때 팽창 반경(셀). 0=경로 셀만.
+                           >0 이면 배관 굵기/이격을 흉내내 더 넓게 막는다.
+        snap_to_free     : start/end 가 점유면 빈 셀 탐색 반경(셀).
+        max_expansions   : 배관당 A* 확장 상한(폭주 방지).
+        size_aware_radius: True 면 배관 관경(diameter_mm) 비례 반경으로 막는다
+                           (굵은 배관=넓게). 관경 미상이면 pipe_radius.
+        clearance_mm     : size_aware 시 반경에 더할 이격(mm).
     반환값:
         MultiRouteResult.
 
@@ -181,7 +190,8 @@ def route_sequential(
         res = astar_weighted(work, s, g, params, max_expansions=max_expansions)
         pipes.append(PipeResult(task=task, result=res, order_index=idx))
         if res.success and res.path:
-            _mark_pipe(work, res.path, pipe_radius)
+            r = _task_radius(task, occ.cell_mm, pipe_radius, size_aware_radius, clearance_mm)
+            _mark_pipe(work, res.path, r)
 
     return MultiRouteResult(pipes=pipes, occupancy=work, priority=priority)
 
@@ -199,6 +209,8 @@ def route_ripup(
     max_expansions: int | None = None,
     max_rounds: int = 10,
     max_ripup: int = 4,
+    size_aware_radius: bool = False,
+    clearance_mm: float = 0.0,
 ) -> MultiRouteResult:
     """순차 라우팅 후 **rip-up & reroute** 로 실패 배관을 해소한다(Phase 3 Step 3.8).
 
@@ -235,6 +247,12 @@ def route_ripup(
     n = len(ordered)
     static = occ.copy()  # 장애물만(불변 기준).
 
+    # 정렬 인덱스별 점유 반경(관경 인지 시 배관마다 다름). _build_work·인라인 마킹이 공유.
+    radii = {
+        idx: _task_radius(ordered[idx], occ.cell_mm, pipe_radius, size_aware_radius, clearance_mm)
+        for idx in range(n)
+    }
+
     placed: dict[int, list[Cell]] = {}
     results: dict[int, AStarResult] = {}
 
@@ -245,8 +263,8 @@ def route_ripup(
 
     def _build_work(paths: dict[int, list[Cell]]) -> OccupancyMap:
         w = static.copy()
-        for p in paths.values():
-            _mark_pipe(w, p, pipe_radius)
+        for idx, p in paths.items():
+            _mark_pipe(w, p, radii[idx])
         return w
 
     # 1) 베이스라인 순차 라우팅(route_sequential 과 동일).
@@ -256,7 +274,7 @@ def route_ripup(
         results[idx] = res
         if res.success and res.path:
             placed[idx] = res.path
-            _mark_pipe(work, res.path, pipe_radius)
+            _mark_pipe(work, res.path, radii[idx])
 
     # 2) rip-up 라운드.
     for _round in range(max_rounds):
@@ -283,7 +301,7 @@ def route_ripup(
             if not (rf.success and rf.path):
                 continue
             trial[f] = rf.path
-            _mark_pipe(wt, rf.path, pipe_radius)
+            _mark_pipe(wt, rf.path, radii[f])
 
             reres: dict[int, AStarResult] = {}
             all_ok = True
@@ -292,7 +310,7 @@ def route_ripup(
                 reres[b] = rb
                 if rb.success and rb.path:
                     trial[b] = rb.path
-                    _mark_pipe(wt, rb.path, pipe_radius)
+                    _mark_pipe(wt, rb.path, radii[b])
                 else:
                     all_ok = False
 
@@ -307,6 +325,23 @@ def route_ripup(
 
     pipes = [PipeResult(task=ordered[idx], result=results[idx], order_index=idx) for idx in range(n)]
     return MultiRouteResult(pipes=pipes, occupancy=_build_work(placed), priority=priority)
+
+
+def _task_radius(
+    task: RouteTask, cell_mm: float, base_radius: int,
+    size_aware: bool, clearance_mm: float,
+) -> int:
+    """배관 1개를 점유로 표시할 팽창 반경(셀)을 정한다.
+
+    size_aware=False 거나 관경 미상 → base_radius(고정) 그대로.
+    size_aware=True → 관경 비례: ceil((반경 + 이격) / cell), base_radius 와 max.
+      굵은 배관일수록 더 넓게 막아 실제 이격을 흉내(가는 배관은 좁게).
+    """
+    if not size_aware or getattr(task, "diameter_mm", 0.0) <= 0:
+        return base_radius
+    import math
+    cells = math.ceil((task.diameter_mm / 2.0 + clearance_mm) / cell_mm)
+    return max(base_radius, cells)
 
 
 def _mark_pipe(occ: OccupancyMap, path: list[Cell], radius: int) -> None:

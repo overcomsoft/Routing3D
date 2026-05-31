@@ -134,10 +134,68 @@ class RouteTask:
     start_name: str | None
     end_name: str | None
     end_instance_guid: str | None
+    size: str | None = None        # 호칭경 원문(예 '40A','1/2B'). POC_LIST[i].size.
+    diameter_mm: float = 0.0       # size → mm 파싱 외경 근사(0=미상). parse_pipe_size_mm.
 
     @property
     def utility_label(self) -> str:
         return utility_label(self.utility_group, self.utility)
+
+
+def parse_pipe_size_mm(size: str | None) -> float:
+    """배관 호칭경 문자열 → 외경 근사(mm). C# ObstacleDbLoader.ParsePipeSizeMm 와 동일 규약.
+
+    규칙:
+        '40A','150A'  → A 호칭 = DN(mm) 그대로(40, 150).
+        '1/2B','1B'   → B 호칭 = 인치 × 25.4 ('1/2'→12.7, '1'→25.4).
+        '1-1/4B'      → 혼합수 인치(1.25 × 25.4).
+        '1/4BX1/2B'   → 레듀서는 시작측(첫 토큰) 사용.
+        '65','32'     → 단위 문자 없는 숫자는 DN(mm) 로 간주.
+        빈값/파싱실패 → 0.0.
+    """
+    if not size:
+        return 0.0
+    tok = size.strip().split("X")[0].split("x")[0].strip()
+    if not tok:
+        return 0.0
+    unit = tok[-1].upper()
+    if unit == "A":
+        try:
+            return float(tok[:-1].strip())
+        except ValueError:
+            return 0.0
+    if unit == "B":
+        inch = _parse_inch(tok[:-1].strip())
+        return inch * 25.4 if inch > 0 else 0.0
+    try:
+        return float(tok)
+    except ValueError:
+        return 0.0
+
+
+def _parse_inch(s: str) -> float:
+    """'1/2','3/8','1','1-1/4','1 1/4' 같은 인치 표기를 double 인치로."""
+    s = s.strip().replace("-", " ")
+    if not s:
+        return 0.0
+    total, any_ = 0.0, False
+    for part in s.split():
+        if "/" in part:
+            a, _, b = part.partition("/")
+            try:
+                na, nb = float(a), float(b)
+                if nb != 0:
+                    total += na / nb
+                    any_ = True
+            except ValueError:
+                pass
+        else:
+            try:
+                total += float(part)
+                any_ = True
+            except ValueError:
+                pass
+    return total if any_ else 0.0
 
 
 @dataclass(frozen=True)
@@ -345,6 +403,8 @@ def load_scene(
                 start = tuple(p.get("pocPosition") or (0.0, 0.0, 0.0))
                 util = p.get("utility")
                 grp = p.get("utilityGroup")
+                size = p.get("size")
+                dia = parse_pipe_size_mm(size)
                 connected = bool(p.get("isConnected"))
                 ends: list[EndPoc] = []
                 for e in (p.get("endPocs") or []):
@@ -360,6 +420,7 @@ def load_scene(
                             utility=util, utility_group=grp,
                             start_name=p.get("name"), end_name=ep.name,
                             end_instance_guid=ep.instance_guid,
+                            size=size, diameter_mm=dia,
                         ))
                 pocs.append(StartPoc(
                     poc_id=p.get("id"), name=p.get("name"), position=start,
