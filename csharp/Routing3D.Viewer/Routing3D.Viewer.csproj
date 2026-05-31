@@ -24,6 +24,11 @@
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- 이 PC(VS Community)는 cpp/build_comm 에 빌드한다(Professional용 cpp/build 부재 시). -->
+    <None Include="..\..\cpp\build_comm\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build_comm\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

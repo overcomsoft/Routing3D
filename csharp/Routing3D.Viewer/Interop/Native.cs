@@ -26,12 +26,17 @@ namespace Routing3D.Viewer.Interop
             public int nx, ny, nz;
         }
 
-        // R3dParams (blittable).
+        // R3dParams (blittable, C 헤더와 1:1).
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dParams
         {
             public double cell_mm, w_turn, w_clear;
+            public double w_corridor;            // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작).
             public int clearance_radius, clearance_connectivity;
+            public int corridor_radius;          // 회랑 성장 반경(셀).
+            public int rack_level_count;         // rack_levels 사용 개수(0~8).
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+            public int[] rack_levels;            // 선호 단(z셀 인덱스), 최대 8.
         }
 
         // R3dResult (blittable).

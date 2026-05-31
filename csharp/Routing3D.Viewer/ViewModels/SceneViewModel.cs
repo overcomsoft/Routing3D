@@ -217,7 +217,7 @@ namespace Routing3D.Viewer.ViewModels
             DemoCommand = new RelayCommand(LoadDemo);
             RunRouteCommand = new RelayCommand(() => _ = RunRouteAsync(), () => _scene != null);
             RerouteCorridorCommand = new RelayCommand(
-                () => _ = RouteRowsAsync(AllRows(), "corridor 전체", corridor: true),
+                () => _ = RouteRowsAsync(AllRows(), "기존설계 유사(회랑+랙)", corridor: true),
                 () => _scene != null);
             RerouteSelectedCommand = new RelayCommand(
                 () => { if (_selectedTask != null) _ = RouteRowsAsync(new List<int> { _selectedTask.Index }, $"선택 #{_selectedTask.Index}", corridor: false); },
@@ -813,6 +813,19 @@ namespace Routing3D.Viewer.ViewModels
             return list;
         }
 
+        // '기존설계 유사' 랙 레벨 — 작업 종단점 z 의 셀 레벨 분포에서 가장 흔한 레벨(최대 3개)을
+        // 선호 단으로 삼아 배관을 공용 높이로 모은다(빈 배열이면 회랑 인력만으로도 번들링됨).
+        private int[] ComputeRackLevels()
+        {
+            if (_scene == null) return System.Array.Empty<int>();
+            double oz = _scene.Grid.Oz, cell = _scene.Grid.CellMm;
+            if (cell <= 0) return System.Array.Empty<int>();
+            var counts = new Dictionary<int, int>();
+            void Bump(double z) { int k = (int)Math.Floor((z - oz) / cell); counts[k] = counts.TryGetValue(k, out var v) ? v + 1 : 1; }
+            foreach (var t in Tasks) { Bump(t.Sz); Bump(t.Gz); }
+            return counts.OrderByDescending(kv => kv.Value).Take(3).Select(kv => kv.Key).ToArray();
+        }
+
         // 엔진을 [장애물 전체 + 지정 행들의 작업]만으로 재구성한다(부분집합 충돌회피 라우팅용).
         // 반환: 적재한 행 위치 목록(순서 = 엔진 작업 인덱스). 종단점은 행에서 직접 읽는다(편집 반영).
         private List<int> BuildEngineForRows(IReadOnlyList<int> rowPositions)
@@ -880,7 +893,17 @@ namespace Routing3D.Viewer.ViewModels
                 Status = $"경로 탐색 중… {label} (작업 {added.Count})";
                 var engine = _engine!;
                 bool cor = corridor;
-                await Task.Run(() => { if (cor) engine.RouteCorridor(16, 2); else engine.RouteMulti(_priority); });
+                // '기존설계 유사'(corridor=true): 회랑 인력(w_corridor) + 랙 레벨로 배관을 공용 랙에 뭉치게.
+                // route_multi 가 w_corridor>0 이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다.
+                double cellMm = _scene.Grid.CellMm;
+                double wCorridor = cor ? cellMm * 2.0 : 0.0;
+                int[] rackLevels = cor ? ComputeRackLevels() : System.Array.Empty<int>();
+                string priority = _priority;
+                await Task.Run(() =>
+                {
+                    if (cor) engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
+                    engine.RouteMulti(priority);
+                });
                 CacheResults(added);
                 BuildModel();
             }

@@ -70,7 +70,8 @@
                 <Button  Content="↻ 다시 로드" Command="{Binding LoadProjectsCommand}"
                          ToolTip="DB 접속 정보 변경 후 프로젝트 목록을 다시 가져온다"/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
-                <Button Content="🌐 corridor (대형)"  Command="{Binding RerouteCorridorCommand}"
+                <Button Content="🌐 기존설계 유사 (회랑+랙)"  Command="{Binding RerouteCorridorCommand}"
+                        ToolTip="회랑(corridor) 인력 + 랙 레벨로 배관을 공용 랙에 뭉쳐 기존 설계처럼 라우팅(전체)"
                         Background="#3a4e7a" MinWidth="110"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
