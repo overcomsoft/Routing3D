@@ -24,6 +24,7 @@ namespace Routing3D.Viewer.Model
     {
         public string Name { get; set; } = string.Empty;        // NAME (DB 로드 시에만, scene.txt 엔 없음).
         public string DdworksType { get; set; } = string.Empty; // DDWORKS_TYPE (DB 로드 시에만).
+        public string OstType { get; set; } = string.Empty;     // OST_TYPE (DB 로드 시에만).
         public double MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
     }
 

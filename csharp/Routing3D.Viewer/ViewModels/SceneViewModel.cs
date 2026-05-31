@@ -157,9 +157,18 @@ namespace Routing3D.Viewer.ViewModels
              + Dims(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
 
         private static string DescribeObstacle(int i, ObstacleBox o)
-            => $"[장애물 #{i}]\n"
-             + Dims(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ) + "\n"
-             + $"AABB(mm): ({F(o.MinX)}, {F(o.MinY)}, {F(o.MinZ)})\n"
+            => $"[장애물 #{i}]
+"
+             + $"이름: {(string.IsNullOrEmpty(o.Name) ? "(이름없음)" : o.Name)}
+"
+             + $"OST_TYPE: {(string.IsNullOrEmpty(o.OstType) ? "N/A" : o.OstType)}
+"
+             + $"DDWORKS_TYPE: {(string.IsNullOrEmpty(o.DdworksType) ? "N/A" : o.DdworksType)}
+"
+             + Dims(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ) + "
+"
+             + $"AABB(mm): ({F(o.MinX)}, {F(o.MinY)}, {F(o.MinZ)})
+"
              + $"        ~ ({F(o.MaxX)}, {F(o.MaxY)}, {F(o.MaxZ)})";
 
         private static string DescribeSpace(SpaceArea sp)

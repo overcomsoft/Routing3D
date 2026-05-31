@@ -116,7 +116,7 @@ namespace Routing3D.Viewer.Model
 
             // ── 2) 장애물 로드 ────────────────────────────────────────────────────
             using (var cmd = new NpgsqlCommand(
-                @"SELECT ""MIN_X"",""MIN_Y"",""MIN_Z"",""MAX_X"",""MAX_Y"",""MAX_Z""
+                @"SELECT ""MIN_X"",""MIN_Y"",""MIN_Z"",""MAX_X"",""MAX_Y"",""MAX_Z"",""NAME"",""OST_TYPE"",""DDWORKS_TYPE""
                   FROM ""TB_BIM_OBSTACLES"" WHERE ""SOURCE_FILE""=@sf", conn))
             {
                 cmd.Parameters.AddWithValue("@sf", sourceFile);
@@ -131,6 +131,9 @@ namespace Routing3D.Viewer.Model
                     {
                         MinX = mnx, MinY = mny, MinZ = mnz,
                         MaxX = mxx, MaxY = mxy, MaxZ = mxz,
+                        Name = r.IsDBNull(6) ? string.Empty : r.GetString(6),
+                        OstType = r.IsDBNull(7) ? string.Empty : r.GetString(7),
+                        DdworksType = r.IsDBNull(8) ? string.Empty : r.GetString(8),
                     });
                 }
             }
