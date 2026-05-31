@@ -129,7 +129,7 @@ namespace Routing3D.Viewer.ViewModels
             var grp = new Model3DGroup();
             double dx = hi.X - lo.X, dy = hi.Y - lo.Y, dz = hi.Z - lo.Z;
             double diag = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-            double r = Math.Max(20.0, diag * 0.012);
+            double r = Math.Max(6.0, diag * 0.004);   // 선택선 굵기(얇게).
             AddBoxFrame(grp, lo, hi, Colors.Yellow, r, 255);
             var fill = new MeshBuilder(false, false);
             fill.AddBox(new Point3D((lo.X + hi.X) / 2, (lo.Y + hi.Y) / 2, (lo.Z + hi.Z) / 2), dx, dy, dz);
