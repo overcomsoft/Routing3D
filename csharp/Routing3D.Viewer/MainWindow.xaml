@@ -171,6 +171,7 @@
                     <ModelVisual3D Content="{Binding SceneModel}"/>
                     <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
+                    <ModelVisual3D Content="{Binding StepHighlightModel}"/> <!-- 선택 경로 구간 강조(흰색) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
 
@@ -249,6 +250,40 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 마커 안내 (선택 배관 강조 마커 색상) -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="마커 안내 (선택 배관)" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Ellipse Width="14" Height="14" Fill="#50FF78" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="● 시작점 (시작 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Ellipse Width="14" Height="14" Fill="#FFE13C" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="● 끝점 (종단 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Ellipse Width="14" Height="14" Fill="#FF50DC" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="● 꺾임 (방향 전환 지점)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Rectangle Width="14" Height="14" Fill="White" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="■ 선택 구간 강조 (단계 클릭)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Rectangle Width="14" Height="14" Fill="#FFCD46" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="■ A* 탐색 셀 (단계별 탐색)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Rectangle Width="14" Height="14" Fill="Red" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="■ 충돌 셀 (≥2 배관 공유)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="경로·장애물·장비·레터럴·덕트 등 레이어 색은 위 '범례'를 참고하세요."
+                                       Foreground="#9aa3b8" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
 

@@ -60,6 +60,8 @@ namespace Routing3D.Viewer.ViewModels
     {
         public string Label { get; init; } = string.Empty;
         public Point3D Position { get; init; }
+        public Point3D A { get; init; }   // 직선 구간 시작 월드좌표(구간 강조용).
+        public Point3D B { get; init; }   // 직선 구간 끝 월드좌표.
         public override string ToString() => Label;
     }
 
@@ -377,6 +379,10 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>A* 단계별 탐색 오버레이(방문 셀을 확장 순서대로 점진 표시).</summary>
         public Model3D? SearchModel { get => _searchModel; private set => Set(ref _searchModel, value); }
 
+        private Model3D? _stepHighlightModel;
+        /// <summary>선택한 경로 단계(구간) 강조 오버레이 — 카메라 이동 없이 해당 구간만 흰색으로.</summary>
+        public Model3D? StepHighlightModel { get => _stepHighlightModel; private set => Set(ref _stepHighlightModel, value); }
+
         /// <summary>선택 경로의 직선 구간(단계) 목록. 방향이 바뀌는 지점마다 한 항목.</summary>
         public ObservableCollection<PathStep> PathSteps { get; } = new();
 
@@ -386,7 +392,8 @@ namespace Routing3D.Viewer.ViewModels
         public PathStep? SelectedStep
         {
             get => _selectedStep;
-            set { if (Set(ref _selectedStep, value) && value != null && !_suppressStepNav) NavigateToRequested?.Invoke(value.Position); }
+            // 단계를 고르면 카메라는 그대로 두고(현재 화면 유지) 해당 구간만 강조 표시한다.
+            set { if (Set(ref _selectedStep, value) && !_suppressStepNav) HighlightStep(value); }
         }
 
         /// <summary>단계 클릭 시 해당 월드좌표로 카메라 이동 요청(코드비하인드가 처리).</summary>
@@ -1281,6 +1288,7 @@ namespace Routing3D.Viewer.ViewModels
             _suppressStepNav = true;
             PathSteps.Clear();
             _suppressStepNav = false;
+            StepHighlightModel = null;   // 새 배관 선택 → 이전 구간 강조 제거.
             var t = _selectedTask;
             if (t == null || _scene == null) { SelectionModel = null; return; }
             var g = _scene.Grid;
@@ -1297,6 +1305,20 @@ namespace Routing3D.Viewer.ViewModels
             BuildPathSteps(g, t.Path, grp);
 
             SelectionModel = grp;
+        }
+
+        // 경로 단계(구간) 강조 — 카메라는 그대로 두고(현재 화면 유지), 선택 구간만 흰색 굵은 튜브로 덧그린다.
+        private void HighlightStep(PathStep? step)
+        {
+            if (step == null || _scene == null) { StepHighlightModel = null; return; }
+            var g = _scene.Grid;
+            var mb = new MeshBuilder(false, false);
+            double dia = Math.Max(g.CellMm * 1.3, 70);
+            if (step.A != step.B) mb.AddCylinder(step.A, step.B, dia, 12);
+            double r = Math.Max(g.CellMm * 0.9, 50);
+            mb.AddSphere(step.A, r);
+            mb.AddSphere(step.B, r);
+            StepHighlightModel = Geometry(mb, Color.FromRgb(255, 255, 255), 245);   // 선택 구간 = 흰색 강조.
         }
 
         // 경로 셀을 직선 구간(같은 축으로 진행)별로 나눠, 방향이 바뀌는 꺾임점을 마커로 찍고
@@ -1327,6 +1349,8 @@ namespace Routing3D.Viewer.ViewModels
                     {
                         Label = $"{stepNo,2}. {DirText(curDir)}  {len:0} mm",
                         Position = pStart,
+                        A = pStart,
+                        B = pEnd,
                     });
                     stepNo++;
                     // 꺾임점(구간 끝 = 다음 구간 시작) 마커. 마지막(끝점)은 제외.
