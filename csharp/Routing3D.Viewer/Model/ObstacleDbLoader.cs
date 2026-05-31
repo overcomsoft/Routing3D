@@ -215,12 +215,12 @@ namespace Routing3D.Viewer.Model
             }
 
             // ── 4.5) 기존 설계배관(TB_ROUTE_PATH) — PoC→종단 폴리라인(SpaceAI 참조) ──
-            //   TB_ROUTE_SEGMENT_DETAIL(FROM/TO XYZ) → SEGMENT → PATH 조인. 메인 장비 PoC 가
-            //   소유한 경로만(SOURCE_OWNER_NAME=장비명 + PoC 가 장비 BBOX 안). 유틸리티는 PATH 에서.
+            //   TB_ROUTE_SEGMENT_DETAIL(FROM/TO XYZ) → SEGMENT → PATH 조인. 메인 장비 NAME 매칭 +
+            //   PoC(SOURCE_OWNER_POS)가 이 프로젝트 장애물 공간 bbox 안인 경로만(같은 공정 다른 tool 제외).
             //   라우트 테이블이 없는 DB 도 있으므로 실패해도 로드를 막지 않는다(try/catch).
             try
             {
-                LoadExistingPipes(conn, sourceFile, data.ExistingPipes);
+                LoadExistingPipes(conn, sourceFile, data.Obstacles, data.ExistingPipes);
             }
             catch { /* 라우트 테이블 부재/스키마 차이 → 기존배관 생략(다른 레이어는 정상 로드). */ }
 
@@ -232,8 +232,37 @@ namespace Routing3D.Viewer.Model
         // 기존 설계배관 로드(SpaceAI Space3DRepository.GetExistingPaths 참조).
         //   ROUTE_PATH_GUID 별로 SEGMENT.ORDER → SEGMENT_DETAIL.ORDER 로 FROM/TO 좌표를 이어
         //   폴리라인 1개를 만든다(연속 중복점은 1mm² 이내면 생략). 유틸리티/그룹은 PATH 행에서.
-        private static void LoadExistingPipes(NpgsqlConnection conn, string sourceFile, List<ExistingPipe> outPipes)
+        private static void LoadExistingPipes(NpgsqlConnection conn, string sourceFile,
+                                              List<ObstacleBox> obstacles, List<ExistingPipe> outPipes)
         {
+            // 프로젝트 공간 bbox(장애물 전체 XY) — 같은 공정의 다른 tool 라우트를 거르기 위함.
+            //   장비 NAME(예 'kscta01')이 같은 공정 모든 tool 에서 동일해 NAME 매칭만으론 tool 구분 불가
+            //   (CMP 한 프로젝트 선택 시 CMP 10개 tool 배관이 전부 표시되던 문제). 각 tool 은 평면상
+            //   떨어져 있어 PoC(SOURCE_OWNER_POS)가 자기 tool 의 장애물 bbox 안에 든다 → bbox 로 필터.
+            bool hasBox = obstacles.Count > 0;
+            double minx = 0, maxx = 0, miny = 0, maxy = 0;
+            if (hasBox)
+            {
+                minx = miny = double.MaxValue;
+                maxx = maxy = double.MinValue;
+                foreach (var o in obstacles)
+                {
+                    if (o.MinX < minx) minx = o.MinX;
+                    if (o.MaxX > maxx) maxx = o.MaxX;
+                    if (o.MinY < miny) miny = o.MinY;
+                    if (o.MaxY > maxy) maxy = o.MaxY;
+                }
+                const double margin = 1000.0;   // tool 간 갭(>4000mm)보다 작은 마진(경계 PoC 포용).
+                minx -= margin; maxx += margin; miny -= margin; maxy += margin;
+            }
+
+            // PoC bbox 필터(장애물이 있을 때만). owner=장비 위치이므로 SOURCE_OWNER_POS 로 tool 식별.
+            string bboxFilter = hasBox
+                ? @"                     AND rp.""SOURCE_OWNER_POSX"" BETWEEN @minx AND @maxx
+                     AND rp.""SOURCE_OWNER_POSY"" BETWEEN @miny AND @maxy
+"
+                : "";
+
             using var cmd = new NpgsqlCommand(
                 @"SELECT s.""ROUTE_PATH_GUID"", rp.""UTILITY_GROUP"", rp.""SOURCE_UTILITY"",
                          sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
@@ -248,11 +277,16 @@ namespace Routing3D.Viewer.Model
                       ON eq.""NAME"" = rp.""SOURCE_OWNER_NAME""
                      AND eq.""IS_MAIN"" = true
                      AND eq.""SOURCE_FILE"" = @sf
-                   ORDER BY s.""ROUTE_PATH_GUID"", s.""ORDER"", sd.""ORDER""", conn);
-            // 주의: 예전엔 PoC(SOURCE_OWNER_POS)가 장비 BBOX 안에 있어야 한다는 조건을 걸었으나(SpaceAI 유래),
-            //   CMP/DIFF 등 일부 공정은 PoC 가 장비 BBOX 밖이라 라우트가 전부 탈락해 기존배관이 안 보였다.
-            //   장비 NAME(IS_MAIN, 해당 SOURCE_FILE)은 source_file 당 유일하므로 NAME 매칭만으로 충분·안전하다.
+" + bboxFilter +
+                @"                   ORDER BY s.""ROUTE_PATH_GUID"", s.""ORDER"", sd.""ORDER""", conn);
             cmd.Parameters.AddWithValue("@sf", sourceFile);
+            if (hasBox)
+            {
+                cmd.Parameters.AddWithValue("@minx", minx);
+                cmd.Parameters.AddWithValue("@maxx", maxx);
+                cmd.Parameters.AddWithValue("@miny", miny);
+                cmd.Parameters.AddWithValue("@maxy", maxy);
+            }
 
             using var r = cmd.ExecuteReader();
             string? curGuid = null;
