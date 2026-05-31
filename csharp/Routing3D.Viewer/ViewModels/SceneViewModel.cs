@@ -1196,7 +1196,7 @@ namespace Routing3D.Viewer.ViewModels
             //   라우팅 경로보다 가늘게 그려 구분하고, 유틸 필터(체크박스)도 동일 적용한다.
             if (ShowExistingPipes && scene.ExistingPipes.Count > 0)
             {
-                double exDia = grid.CellMm * 0.45;   // 기존배관 튜브 지름(라우팅 경로 0.7 보다 가늘게).
+                double exDia = grid.CellMm * 0.6;   // 기존배관 튜브 지름(라우팅 경로 0.7 보다 약간 가늘게, 가시성 확보).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
                 int drawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
