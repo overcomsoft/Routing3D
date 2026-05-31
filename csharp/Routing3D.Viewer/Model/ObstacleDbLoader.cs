@@ -248,10 +248,10 @@ namespace Routing3D.Viewer.Model
                       ON eq.""NAME"" = rp.""SOURCE_OWNER_NAME""
                      AND eq.""IS_MAIN"" = true
                      AND eq.""SOURCE_FILE"" = @sf
-                     AND rp.""SOURCE_OWNER_POSX"" BETWEEN eq.""MIN_X"" AND eq.""MAX_X""
-                     AND rp.""SOURCE_OWNER_POSY"" BETWEEN eq.""MIN_Y"" AND eq.""MAX_Y""
-                     AND rp.""SOURCE_OWNER_POSZ"" BETWEEN eq.""MIN_Z"" AND eq.""MAX_Z""
                    ORDER BY s.""ROUTE_PATH_GUID"", s.""ORDER"", sd.""ORDER""", conn);
+            // 주의: 예전엔 PoC(SOURCE_OWNER_POS)가 장비 BBOX 안에 있어야 한다는 조건을 걸었으나(SpaceAI 유래),
+            //   CMP/DIFF 등 일부 공정은 PoC 가 장비 BBOX 밖이라 라우트가 전부 탈락해 기존배관이 안 보였다.
+            //   장비 NAME(IS_MAIN, 해당 SOURCE_FILE)은 source_file 당 유일하므로 NAME 매칭만으로 충분·안전하다.
             cmd.Parameters.AddWithValue("@sf", sourceFile);
 
             using var r = cmd.ExecuteReader();
