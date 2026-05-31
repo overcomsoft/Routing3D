@@ -237,7 +237,9 @@ namespace Routing3D.Viewer.Model
             using var cmd = new NpgsqlCommand(
                 @"SELECT s.""ROUTE_PATH_GUID"", rp.""UTILITY_GROUP"", rp.""SOURCE_UTILITY"",
                          sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
-                         sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ""
+                         sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ"",
+                         rp.""SOURCE_POSX"", rp.""SOURCE_POSY"", rp.""SOURCE_POSZ"",
+                         rp.""TARGET_POSX"", rp.""TARGET_POSY"", rp.""TARGET_POSZ""
                     FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
                     JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
                     JOIN ""TB_ROUTE_PATH"" rp    ON rp.""ROUTE_PATH_GUID"" = s.""ROUTE_PATH_GUID""
@@ -254,18 +256,34 @@ namespace Routing3D.Viewer.Model
             using var r = cmd.ExecuteReader();
             string? curGuid = null;
             ExistingPipe? cur = null;
+            // 현재 경로의 시작/끝 PoC 좌표(폴리라인을 종단 안쪽으로 자르기 위함). null=좌표 없음.
+            Pt3? curStart = null, curEnd = null;
+
+            void Flush()
+            {
+                if (cur == null) return;
+                // 종단 PoC 안쪽으로 절단(트렁크/매니폴드로 END 너머 연장된 row 제거). SpaceAI TrimToBoundary 이식.
+                if (curStart.HasValue && curEnd.HasValue)
+                    TrimToBoundary(cur.Points, curStart.Value, curEnd.Value);
+                if (cur.Points.Count >= 2) outPipes.Add(cur);
+            }
+
             while (r.Read())
             {
                 string g = r.GetString(0);
                 if (!string.Equals(curGuid, g, StringComparison.Ordinal))
                 {
-                    if (cur != null && cur.Points.Count >= 2) outPipes.Add(cur);
+                    Flush();
                     curGuid = g;
                     cur = new ExistingPipe
                     {
                         Group = r.IsDBNull(1) ? null : r.GetString(1),
                         Utility = r.IsDBNull(2) ? null : r.GetString(2),
                     };
+                    curStart = (r.IsDBNull(9) || r.IsDBNull(10) || r.IsDBNull(11))
+                        ? (Pt3?)null : new Pt3(r.GetDouble(9), r.GetDouble(10), r.GetDouble(11));
+                    curEnd = (r.IsDBNull(12) || r.IsDBNull(13) || r.IsDBNull(14))
+                        ? (Pt3?)null : new Pt3(r.GetDouble(12), r.GetDouble(13), r.GetDouble(14));
                 }
                 var from = new Pt3(r.GetDouble(3), r.GetDouble(4), r.GetDouble(5));
                 var to = new Pt3(r.GetDouble(6), r.GetDouble(7), r.GetDouble(8));
@@ -273,13 +291,41 @@ namespace Routing3D.Viewer.Model
                 else if (Dist2(cur.Points[cur.Points.Count - 1], from) > 1.0) cur.Points.Add(from);
                 cur.Points.Add(to);
             }
-            if (cur != null && cur.Points.Count >= 2) outPipes.Add(cur);
+            Flush();
         }
 
         private static double Dist2(Pt3 a, Pt3 b)
         {
             double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
             return dx * dx + dy * dy + dz * dz;
+        }
+
+        // 폴리라인을 startPos/endPos 에 가장 가까운 두 vertex 사이로 절단(SpaceAI ExistingPathFinder.TrimToBoundary 이식).
+        //   TB_ROUTE_SEGMENT_DETAIL 에 종단 PoC 너머로 연장된 트렁크/매니폴드 row 가 섞여 있어,
+        //   PoC↔종단 안쪽만 남겨 자연 종단을 보장한다. 결과가 2점 미만이면 원본 유지(안전 폴백). 인플레이스 수정.
+        private static void TrimToBoundary(List<Pt3> path, Pt3 startPos, Pt3 endPos)
+        {
+            if (path.Count <= 2) return;
+            int sIdx = NearestVertexIndex(path, startPos);
+            int eIdx = NearestVertexIndex(path, endPos);
+            int lo = Math.Min(sIdx, eIdx);
+            int hi = Math.Max(sIdx, eIdx);
+            if (hi - lo + 1 < 2) return;               // 너무 좁으면 자르지 않음.
+            if (lo == 0 && hi == path.Count - 1) return;  // 변화 없으면 스킵.
+            var trimmed = path.GetRange(lo, hi - lo + 1);
+            path.Clear();
+            path.AddRange(trimmed);
+        }
+
+        private static int NearestVertexIndex(List<Pt3> path, Pt3 target)
+        {
+            int best = 0; double bestSq = double.MaxValue;
+            for (int i = 0; i < path.Count; i++)
+            {
+                double d2 = Dist2(path[i], target);
+                if (d2 < bestSq) { bestSq = d2; best = i; }
+            }
+            return best;
         }
 
         // POC_LIST(jsonb 문자열) → 작업(start_mm → end_mm) 다수. 각 PoC 의 endPocs 각각이 작업 1건.
