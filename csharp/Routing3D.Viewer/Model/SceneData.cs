@@ -95,6 +95,7 @@ namespace Routing3D.Viewer.Model
         public List<Pt3> Points { get; } = new();   // PoC→종단 폴리라인(월드 mm, 순서대로).
         public string? Utility { get; set; }          // TB_ROUTE_PATH.SOURCE_UTILITY.
         public string? Group { get; set; }            // TB_ROUTE_PATH.UTILITY_GROUP.
+        public double DiameterMm { get; set; }        // 대표 관경(mm). 0 이면 미상 → 렌더에서 기본값.
 
         /// <summary>유틸리티 라벨 "[그룹] 유틸" — TaskInfo.UtilityLabel 과 동일 규약(색 일치용).</summary>
         public string Label =>

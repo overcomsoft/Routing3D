@@ -239,7 +239,8 @@ namespace Routing3D.Viewer.Model
                          sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
                          sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ"",
                          rp.""SOURCE_POSX"", rp.""SOURCE_POSY"", rp.""SOURCE_POSZ"",
-                         rp.""TARGET_POSX"", rp.""TARGET_POSY"", rp.""TARGET_POSZ""
+                         rp.""TARGET_POSX"", rp.""TARGET_POSY"", rp.""TARGET_POSZ"",
+                         rp.""SOURCE_SIZE""
                     FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
                     JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
                     JOIN ""TB_ROUTE_PATH"" rp    ON rp.""ROUTE_PATH_GUID"" = s.""ROUTE_PATH_GUID""
@@ -288,6 +289,7 @@ namespace Routing3D.Viewer.Model
                     {
                         Group = r.IsDBNull(1) ? null : r.GetString(1),
                         Utility = r.IsDBNull(2) ? null : r.GetString(2),
+                        DiameterMm = r.IsDBNull(15) ? 0 : ParsePipeSizeMm(r.GetString(15)),
                     };
                     curStart = (r.IsDBNull(9) || r.IsDBNull(10) || r.IsDBNull(11))
                         ? (Pt3?)null : new Pt3(r.GetDouble(9), r.GetDouble(10), r.GetDouble(11));
@@ -304,6 +306,56 @@ namespace Routing3D.Viewer.Model
         {
             double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
             return dx * dx + dy * dy + dz * dz;
+        }
+
+        // 배관 호칭경 문자열 → 외경 근사(mm). 예: "40A"→40, "150A"→150(A=호칭 DN mm),
+        //   "1/2B"→12.7, "1B"→25.4(B=인치×25.4). 레듀서("1/4BX1/2B")는 첫 토큰 사용.
+        //   파싱 실패/미상이면 0(렌더에서 기본 지름으로 대체).
+        private static double ParsePipeSizeMm(string? size)
+        {
+            if (string.IsNullOrWhiteSpace(size)) return 0;
+            // 레듀서 "AxB" 는 시작측(첫 토큰)으로. 대문자 X 기준 분리.
+            string tok = size.Trim().Split('X', 'x')[0].Trim();
+            if (tok.Length < 2) return 0;
+            char unit = char.ToUpperInvariant(tok[tok.Length - 1]);
+            string num = tok.Substring(0, tok.Length - 1).Trim();
+            double mm;
+            if (unit == 'A')   // A 호칭 = DN(mm) 근사.
+            {
+                return double.TryParse(num, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out mm) ? mm : 0;
+            }
+            if (unit == 'B')   // B 호칭 = 인치 × 25.4. "1/2", "3/8", "1" 같은 분수/정수.
+            {
+                double inch = ParseInch(num);
+                return inch > 0 ? inch * 25.4 : 0;
+            }
+            return 0;
+        }
+
+        // "1/2", "3/8", "1", "1-1/4" 같은 인치 표기를 double 인치로.
+        private static double ParseInch(string s)
+        {
+            s = s.Trim();
+            if (s.Length == 0) return 0;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            var ns = System.Globalization.NumberStyles.Any;
+            // 혼합수 "1-1/4" 또는 "1 1/4".
+            s = s.Replace('-', ' ');
+            double total = 0; bool any = false;
+            foreach (var part in s.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int slash = part.IndexOf('/');
+                if (slash > 0)
+                {
+                    if (double.TryParse(part.Substring(0, slash), ns, ci, out var nu) &&
+                        double.TryParse(part.Substring(slash + 1), ns, ci, out var de) && de != 0)
+                    { total += nu / de; any = true; }
+                }
+                else if (double.TryParse(part, ns, ci, out var w))
+                { total += w; any = true; }
+            }
+            return any ? total : 0;
         }
 
         // 폴리라인을 startPos/endPos 에 가장 가까운 두 vertex 사이로 절단(SpaceAI ExistingPathFinder.TrimToBoundary 이식).

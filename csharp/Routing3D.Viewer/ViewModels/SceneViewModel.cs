@@ -1193,10 +1193,10 @@ namespace Routing3D.Viewer.ViewModels
             }
 
             // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
-            //   라우팅 경로보다 가늘게 그려 구분하고, 유틸 필터(체크박스)도 동일 적용한다.
+            //   각 배관은 DB 의 실제 관경(SOURCE_SIZE→DiameterMm)으로 그린다(겹침 방지). 유틸 필터도 동일 적용.
             if (ShowExistingPipes && scene.ExistingPipes.Count > 0)
             {
-                double exDia = grid.CellMm * 0.6;   // 기존배관 튜브 지름(라우팅 경로 0.7 보다 약간 가늘게, 가시성 확보).
+                double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
                 int drawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
@@ -1211,7 +1211,9 @@ namespace Routing3D.Viewer.ViewModels
                         perUtilEx[label] = mb;
                     }
                     var pts = pipe.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
-                    mb.AddTube(pts, exDia, 8, false);
+                    // 실제 관경(외경) 사용. 너무 가늘면 안 보이므로 최소 8mm 로 클램프.
+                    double dia = pipe.DiameterMm > 0 ? Math.Max(pipe.DiameterMm, 8.0) : fallbackDia;
+                    mb.AddTube(pts, dia, 10, false);
                     drawn++;
                 }
                 int totalEx = 0;
