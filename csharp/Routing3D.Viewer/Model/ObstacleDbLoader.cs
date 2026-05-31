@@ -239,8 +239,7 @@ namespace Routing3D.Viewer.Model
                          sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
                          sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ"",
                          rp.""SOURCE_POSX"", rp.""SOURCE_POSY"", rp.""SOURCE_POSZ"",
-                         rp.""TARGET_POSX"", rp.""TARGET_POSY"", rp.""TARGET_POSZ"",
-                         rp.""SOURCE_OWNER_POSY""
+                         rp.""TARGET_POSX"", rp.""TARGET_POSY"", rp.""TARGET_POSZ""
                     FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
                     JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
                     JOIN ""TB_ROUTE_PATH"" rp    ON rp.""ROUTE_PATH_GUID"" = s.""ROUTE_PATH_GUID""
@@ -257,27 +256,25 @@ namespace Routing3D.Viewer.Model
             using var r = cmd.ExecuteReader();
             string? curGuid = null;
             ExistingPipe? cur = null;
-            // 현재 경로의 시작/끝 PoC 좌표(폴리라인을 종단 안쪽으로 자르기 위함). null=좌표 없음. (라우트 프레임)
+            // 현재 경로의 시작/끝 PoC 좌표(폴리라인을 종단 PoC 안쪽으로 자르기 위함). 라우트=BIM 동일 프레임.
             Pt3? curStart = null, curEnd = null;
-            // 라우트 지오메트리 Y축 부호 반전 여부. TB_ROUTE_* 좌표가 BIM(장애물/장비) 프레임과
-            // Y 부호가 반대로 저장된 데이터가 있어(SOURCE_OWNER_POSY = -SOURCE_POSY), 장애물과
-            // 겹쳐 보이도록 Y 를 뒤집어 맞춘다. owner(=BIM 프레임) vs source(=라우트 프레임) Y 로 자동 감지.
-            bool curFlipY = false;
 
             void Flush()
             {
                 if (cur == null) return;
-                // 종단 PoC 안쪽으로 절단(트렁크/매니폴드로 END 너머 연장된 row 제거). 라우트 프레임에서 수행.
+                // 종단 PoC 안쪽으로 절단(트렁크/매니폴드로 END 너머 연장된 row 제거). SpaceAI TrimToBoundary 이식.
                 if (curStart.HasValue && curEnd.HasValue)
                     TrimToBoundary(cur.Points, curStart.Value, curEnd.Value);
-                // 라우트→BIM 프레임 정렬: 필요 시 Y 부호 반전(절단 후 최종 좌표에 적용).
-                if (curFlipY)
-                    for (int i = 0; i < cur.Points.Count; i++)
-                    {
-                        var p = cur.Points[i];
-                        cur.Points[i] = new Pt3(p.X, -p.Y, p.Z);
-                    }
                 if (cur.Points.Count >= 2) outPipes.Add(cur);
+            }
+
+            // 연속 중복점은 추가하지 않는다(SEGMENT_DETAIL 에 길이 0 row 가 있어 그대로 두면
+            // 폴리라인에 같은 점이 연달아 들어가고, HelixToolkit AddTube 가 퇴화(NaN) 메시를
+            // 만들어 튜브가 통째로 안 보인다 — 기존배관이 표시되지 않던 실제 원인).
+            void AddPt(Pt3 p)
+            {
+                if (cur!.Points.Count == 0 || Dist2(cur.Points[cur.Points.Count - 1], p) > 1.0)
+                    cur.Points.Add(p);
             }
 
             while (r.Read())
@@ -296,22 +293,9 @@ namespace Routing3D.Viewer.Model
                         ? (Pt3?)null : new Pt3(r.GetDouble(9), r.GetDouble(10), r.GetDouble(11));
                     curEnd = (r.IsDBNull(12) || r.IsDBNull(13) || r.IsDBNull(14))
                         ? (Pt3?)null : new Pt3(r.GetDouble(12), r.GetDouble(13), r.GetDouble(14));
-                    // Y 반전 자동 감지: owner_Y(BIM) 와 source_Y(라우트) 가 부호 반대면 반전 필요.
-                    //   |owner + source| < |owner - source|  ⇔  owner ≈ -source.
-                    curFlipY = false;
-                    if (curStart.HasValue && !r.IsDBNull(15))
-                    {
-                        double ownerY = r.GetDouble(15);
-                        double sourceY = curStart.Value.Y;
-                        if (Math.Abs(ownerY + sourceY) < Math.Abs(ownerY - sourceY))
-                            curFlipY = true;
-                    }
                 }
-                var from = new Pt3(r.GetDouble(3), r.GetDouble(4), r.GetDouble(5));
-                var to = new Pt3(r.GetDouble(6), r.GetDouble(7), r.GetDouble(8));
-                if (cur!.Points.Count == 0) cur.Points.Add(from);
-                else if (Dist2(cur.Points[cur.Points.Count - 1], from) > 1.0) cur.Points.Add(from);
-                cur.Points.Add(to);
+                AddPt(new Pt3(r.GetDouble(3), r.GetDouble(4), r.GetDouble(5)));
+                AddPt(new Pt3(r.GetDouble(6), r.GetDouble(7), r.GetDouble(8)));
             }
             Flush();
         }
