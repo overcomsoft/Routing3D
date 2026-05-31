@@ -312,7 +312,7 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
 
-        /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 제외)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
+        /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. 토글은 '다음 라우팅'부터 적용(즉시 재라우팅 안 함).</summary>
         public bool IncludeFacilities
         {
@@ -886,10 +886,11 @@ namespace Routing3D.Viewer.ViewModels
         }
 
         // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
-        //   · 설비(TB_BIM_EQUIPMENT, 단 IS_MAIN 메인 장비는 시작 PoC 소스이므로 제외)
+        //   · 설비(TB_BIM_EQUIPMENT) — 메인 장비 포함 전체
         //   · 덕트/레터럴(TB_DUCT_LATERAL)
         //   · 이미 우리 알고리즘으로 설계된(라우팅 성공) 다른 배관의 경로(currentRows 의 자기 자신은 제외)
-        // 시작/끝 PoC 가 이들 표면에 닿아 막히면 엔진의 snap_to_free_cell(반경 2) 이 인접 빈 셀로 옮긴다.
+        // 시작/끝 PoC 가 이들 표면(특히 메인 장비)에 닿아 막히면 엔진의 snap_to_free_cell(반경 2) 이
+        // 인접 빈 셀로 옮겨 시작점을 확보한다.
         private void AddFacilityObstacles(Engine engine, HashSet<int> currentRows)
         {
             if (!_includeFacilities || _scene == null) return;
@@ -897,11 +898,8 @@ namespace Routing3D.Viewer.ViewModels
             double cell = s.Grid.CellMm;
             double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
 
-            foreach (var e in s.Equipment)
-            {
-                if (e.IsMain) continue;   // 메인 장비 = 라우팅 시작 PoC 소스 → 막으면 시작점 갇힘.
+            foreach (var e in s.Equipment)   // 메인 장비 포함 전체 설비를 충돌 대상으로.
                 AddBoxObstacle(engine, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ, minT);
-            }
             foreach (var d in s.DuctsLaterals)
                 AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
 

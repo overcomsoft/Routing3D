@@ -227,7 +227,7 @@
                                       ToolTip="공간 영역 — TB_BIM_SPACE_INFO 의 구역(CR/A/F/CSF)을 선형 와이어프레임 + 텍스트 라벨로 표시"/>
                             <CheckBox Content="충돌확장"
                                       IsChecked="{Binding IncludeFacilities}" Margin="0,0,12,0"
-                                      ToolTip="라우팅 충돌 대상 확장 — 설비(메인 장비 제외)·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로 취급해 회피. 다음 라우팅부터 적용."/>
+                                      ToolTip="라우팅 충돌 대상 확장 — 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로 취급해 회피. 다음 라우팅부터 적용."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
