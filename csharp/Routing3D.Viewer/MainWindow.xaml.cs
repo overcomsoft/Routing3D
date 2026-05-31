@@ -19,7 +19,7 @@ namespace Routing3D.Viewer
         {
             InitializeComponent();
             _vm = new SceneViewModel(initialScene);
-            _vm.SceneRebuilt += () => Dispatcher.BeginInvoke(new Action(FitToScene));
+            _vm.SceneRebuilt += () => Dispatcher.BeginInvoke(new Action(OnSceneRebuilt));
             _vm.FitViewRequested += () => Dispatcher.BeginInvoke(new Action(FitToScene));
             _vm.NavigateToRequested += target => Dispatcher.BeginInvoke(new Action(() => NavigateTo(target)));
             DataContext = _vm;
@@ -41,9 +41,14 @@ namespace Routing3D.Viewer
             }
         }
 
-        // 바닥 격자를 현재 씬 좌표에 맞춘 뒤 전체보기로 줌. 하드코딩 격자가 멀리 있으면
-        // ZoomExtents 가 거대한 박스에 맞춰 객체가 구석에 작게 보이므로, 먼저 격자를 옮긴다.
-        private void FitToScene()
+        // 마지막으로 줌을 맞춘 씬 경계(중심X·폭·길이). 경계가 바뀌었는지 비교해
+        // 새 프로젝트/씬 로드일 때만 ZoomExtents 하고, 레이어 토글에서는 카메라를 유지한다.
+        private double _fitCx = double.NaN, _fitW = double.NaN, _fitL = double.NaN;
+
+        private static bool NearlyEqual(double a, double b) => Math.Abs(a - b) < 1e-6;
+
+        // 바닥 격자를 현재 씬 좌표에 맞추고 공간 라벨을 다시 그린다(카메라는 건드리지 않음).
+        private void ApplyGroundAndLabels()
         {
             GroundGrid.Center = _vm.GroundCenter;
             GroundGrid.Width = _vm.GroundWidth;
@@ -51,6 +56,32 @@ namespace Routing3D.Viewer
             GroundGrid.MinorDistance = _vm.GroundMinorDistance;
             GroundGrid.MajorDistance = _vm.GroundMajorDistance;
             RebuildSpaceLabels();
+        }
+
+        // 씬 재구성(레이어 토글 포함). 격자·라벨은 항상 갱신하되, 카메라는 씬 경계가
+        // 바뀐 경우(새 씬 로드)에만 맞춘다 — 레이어 on/off 로는 현재 화면을 유지한다.
+        private void OnSceneRebuilt()
+        {
+            ApplyGroundAndLabels();
+            bool boundsChanged = !(NearlyEqual(_fitCx, _vm.GroundCenter.X)
+                                && NearlyEqual(_fitW, _vm.GroundWidth)
+                                && NearlyEqual(_fitL, _vm.GroundLength));
+            if (boundsChanged)
+            {
+                _fitCx = _vm.GroundCenter.X;
+                _fitW = _vm.GroundWidth;
+                _fitL = _vm.GroundLength;
+                View.ZoomExtents();
+            }
+        }
+
+        // ↺ 전체보기 버튼(FitViewRequested) — 항상 강제로 전체보기.
+        private void FitToScene()
+        {
+            ApplyGroundAndLabels();
+            _fitCx = _vm.GroundCenter.X;
+            _fitW = _vm.GroundWidth;
+            _fitL = _vm.GroundLength;
             View.ZoomExtents();
         }
 
