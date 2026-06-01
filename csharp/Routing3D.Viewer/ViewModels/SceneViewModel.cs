@@ -893,7 +893,10 @@ namespace Routing3D.Viewer.ViewModels
             // 클리어런스 항상 활성. 대형 격자(25mm/10mm)는 네이티브가 ImplicitOccupancy(복셀화 없는
             // 박스 색인) + '온디맨드 클리어런스'(박스 최근접 질의)로 전환 → 전역 거리맵(배관당 size×4B
             // ~520MB BFS) 없이 저렴하게 계산. 따라서 더는 대형 격자에서 클리어런스를 끄지 않는다(품질 유지).
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6);
+            // 대형 격자는 weighted A*(w_heur=1.5) — 솔리드 설비/덕트를 우회하는 어려운 경로를 탐색상한(12M)
+            // 내에 찾도록 목표 지향 탐색(약간 비최적 허용). 작은 격자(데모 등)는 표준 A*(1.0, 최적).
+            bool bigGrid = (long)g.Nx * g.Ny * g.Nz > 5_000_000;
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wHeur: bigGrid ? 1.5 : 1.0);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -905,10 +908,13 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pos in rowPositions)
             {
                 var row = Tasks[pos];
-                // 시작 PoC 가 메인 장비 내부에 있으면(충돌확장 시 장비가 막힘) 수직 하단으로 장비 바닥을
-                // 벗어난 첫 셀을 실제 시작점으로 삼는다(배관이 장비 아래로 빠져나가는 물리적 동작).
+                // 시작 PoC 가 메인 장비 내부면 수직 하단(장비 바닥 한 셀 아래)으로 빼낸 뒤(배관이 장비 아래로
+                // 빠져나가는 물리적 동작), 남은 덕트/레터럴 솔리드도 표면으로 투영.
                 var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
-                _engine.AddTask(sx, sy, sz, row.Gx, row.Gy, row.Gz, row.Utility, row.Group);
+                (sx, sy, sz) = LiftPocToSurface(sx, sy, sz);
+                // 종단 PoC(덕트 상부 등)도 솔리드 면 바로 바깥으로 투영 → 덕트 표면에 연결, 본체 관통 방지.
+                var (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz);
+                _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
             }
             return added;
@@ -937,6 +943,45 @@ namespace Routing3D.Viewer.ViewModels
             return (x, y, nz);
         }
 
+        // PoC 가 설비/덕트/레터럴 '솔리드 내부'에 있으면 가장 가까운 면 바로 바깥(+½셀)으로 빼낸다.
+        // 덕트 상부 PoC → 윗면 위 한 셀(자유)로 투영 → 배관이 덕트 표면에 닿아 연결되고 본체를 관통하지 않는다.
+        // (충돌확장이 항상 ON 이라 설비/덕트가 솔리드이므로, 표면 투영이 없으면 PoC 셀이 막혀 라우팅이 실패하거나
+        //  엔진 snap(반경 2)이 엉뚱한 옆 셀로 새어 관통/우회한다.) 여러 박스에 걸치면 몇 번 반복해 탈출.
+        private (double x, double y, double z) LiftPocToSurface(double x, double y, double z)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            double cell = s.Grid.CellMm, eps = 1.0, m = cell * 0.5;
+            for (int iter = 0; iter < 4; iter++)
+            {
+                bool moved = false;
+                // 한 박스 안이면 6면 중 침투가 가장 얕은 면으로 탈출(가장 가까운 표면 = 최소 우회).
+                void TryBox(double bMinX, double bMinY, double bMinZ, double bMaxX, double bMaxY, double bMaxZ)
+                {
+                    if (x <= bMinX - eps || x >= bMaxX + eps) return;
+                    if (y <= bMinY - eps || y >= bMaxY + eps) return;
+                    if (z <= bMinZ - eps || z >= bMaxZ + eps) return;
+                    double dxn = x - bMinX, dxp = bMaxX - x;
+                    double dyn = y - bMinY, dyp = bMaxY - y;
+                    double dzn = z - bMinZ, dzp = bMaxZ - z;
+                    double mn = Math.Min(Math.Min(Math.Min(dxn, dxp), Math.Min(dyn, dyp)), Math.Min(dzn, dzp));
+                    if (mn == dzp) z = bMaxZ + m;        // 윗면(덕트 상부 PoC 의 일반적 경우)
+                    else if (mn == dzn) z = bMinZ - m;   // 아랫면
+                    else if (mn == dxp) x = bMaxX + m;
+                    else if (mn == dxn) x = bMinX - m;
+                    else if (mn == dyp) y = bMaxY + m;
+                    else y = bMinY - m;
+                    moved = true;
+                }
+                foreach (var e in s.Equipment) TryBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                foreach (var d in s.DuctsLaterals) TryBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                if (!moved) break;
+            }
+            double zMin = s.Grid.Oz + m;
+            if (z < zMin) z = zMin;
+            return (x, y, z);
+        }
+
         // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
         //   · 설비(TB_BIM_EQUIPMENT) — 메인 장비 포함 전체
         //   · 덕트/레터럴(TB_DUCT_LATERAL)
@@ -950,35 +995,14 @@ namespace Routing3D.Viewer.ViewModels
             double cell = s.Grid.CellMm;
             double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
 
-            // '종단 PoC 를 포함하는' 설비/덕트(=연결 대상)는 장애물에서 제외한다. 그렇지 않으면 종단 PoC 가
-            // 자기 연결 덕트 안에 갇혀(snap 반경 밖) 라우팅이 실패한다. (시작 PoC 쪽 장비는 막되
-            // DropStartBelowEquipment 로 장비 아래로 빠져나간다.)
-            // ★ 부분집합(그룹/유틸) 라우팅 시에도 '전체 작업'의 종단을 제외한다 — 다른 작업의 연결 덕트가
-            //   현재 배관의 장애물로 남으면(부분집합만 제외하면) 경로를 막아 대량 실패한다. 전체 113개를 한 번에
-            //   라우팅하면 모든 종단 덕트가 자연히 제외돼 113/113 인데, 부분집합도 같은 제외 기준이어야 동일 품질.
-            var endPts = new List<Point3D>(Tasks.Count);
-            foreach (var t in Tasks)
-                endPts.Add(new Point3D(t.Gx, t.Gy, t.Gz));
-            double em = cell;   // 종단 포함 판정 여유(셀 1개).
-            bool BlocksAnEnd(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
-            {
-                foreach (var p in endPts)
-                    if (p.X >= mnx - em && p.X <= mxx + em &&
-                        p.Y >= mny - em && p.Y <= mxy + em &&
-                        p.Z >= mnz - em && p.Z <= mxz + em) return true;
-                return false;
-            }
-
-            foreach (var e in s.Equipment)   // 메인 장비 포함 전체 설비를 충돌 대상으로(종단 연결 대상은 제외).
-            {
-                if (BlocksAnEnd(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ)) continue;
+            // ★ 설비·덕트·레터럴을 '항상 솔리드 장애물'로 추가한다(제외 없음). 예전에는 종단 PoC 를 포함하는
+            //   덕트/설비 박스를 통째로 제외했는데, 그러면 그 덕트가 비충돌이 되어 배관이 덕트를 '관통'했다.
+            //   대신 종단/시작 PoC 가 솔리드에 갇히는 문제는 LiftPocToSurface 로 PoC 를 표면 바로 바깥으로
+            //   투영해 해결한다(BuildEngineForRows) → 배관이 덕트 표면에 닿아 연결되고 본체는 관통하지 않는다.
+            foreach (var e in s.Equipment)        // 메인 장비 포함 전체 설비.
                 AddBoxObstacle(engine, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ, minT);
-            }
-            foreach (var d in s.DuctsLaterals)
-            {
-                if (BlocksAnEnd(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ)) continue;
+            foreach (var d in s.DuctsLaterals)     // 덕트/레터럴(부대장비 포함).
                 AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
-            }
 
             // 이미 설계된(라우팅 성공) 다른 배관의 경로를 점유로 추가 — 새 배관이 이를 피하도록.
             double r = cell * 0.6;   // 경로 셀 폴리라인을 약 1셀 두께 튜브로 점유.

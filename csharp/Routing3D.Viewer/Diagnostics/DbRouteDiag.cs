@@ -55,18 +55,12 @@ namespace Routing3D.Viewer.Diagnostics
                 eng = new Engine();
                 eng.SetGrid(cell, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
                 int clr = wClear > 0 ? 2 : 0;
-                eng.SetParams(cell, 500, wClear, clr, 6);
+                eng.SetParams(cell, 500, wClear, clr, 6, wHeur: 1.5);  // 대형 격자 weighted A*(GUI 와 동일).
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
 
-                // 종단 제외는 '전체 작업' 기준(부분집합도 동일) — GUI AddFacilityObstacles 와 일치.
-                var endPts = sd.Tasks.Select(r => (r.Gx, r.Gy, r.Gz)).ToList();
-                double em = cell, minT = cell;
-                bool BlocksEnd(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
-                    => endPts.Any(p => p.Gx >= mnx - em && p.Gx <= mxx + em &&
-                                       p.Gy >= mny - em && p.Gy <= mxy + em &&
-                                       p.Gz >= mnz - em && p.Gz <= mxz + em);
+                double minT = cell;
                 void Box(double a, double b, double c, double d, double e2, double f2)
                 {
                     if (d - a < minT) { double m = (a + d) / 2; a = m - minT / 2; d = m + minT / 2; }
@@ -74,14 +68,39 @@ namespace Routing3D.Viewer.Diagnostics
                     if (f2 - c < minT) { double m = (c + f2) / 2; c = m - minT / 2; f2 = m + minT / 2; }
                     eng.AddObstacle(a, b, c, d, e2, f2);
                 }
-                if (fac)
+                if (fac)   // 설비·덕트·레터럴을 '항상' 솔리드 장애물로(제외 없음) — GUI 와 동일(관통 방지).
                 {
-                    foreach (var eq in sd.Equipment)
-                        if (!BlocksEnd(eq.MinX, eq.MinY, eq.MinZ, eq.MaxX, eq.MaxY, eq.MaxZ))
-                            Box(eq.MinX, eq.MinY, eq.MinZ, eq.MaxX, eq.MaxY, eq.MaxZ);
-                    foreach (var dl in sd.DuctsLaterals)
-                        if (!BlocksEnd(dl.MinX, dl.MinY, dl.MinZ, dl.MaxX, dl.MaxY, dl.MaxZ))
-                            Box(dl.MinX, dl.MinY, dl.MinZ, dl.MaxX, dl.MaxY, dl.MaxZ);
+                    foreach (var eq in sd.Equipment) Box(eq.MinX, eq.MinY, eq.MinZ, eq.MaxX, eq.MaxY, eq.MaxZ);
+                    foreach (var dl in sd.DuctsLaterals) Box(dl.MinX, dl.MinY, dl.MinZ, dl.MaxX, dl.MaxY, dl.MaxZ);
+                }
+
+                // PoC 가 설비/덕트 솔리드 내부면 가장 가까운 면 바로 바깥(+½셀)으로 투영 → 표면 연결(관통 방지).
+                (double, double, double) Lift(double x, double y, double z)
+                {
+                    double eps = 1.0, m = cell * 0.5;
+                    void TryBox(double bx0, double by0, double bz0, double bx1, double by1, double bz1)
+                    {
+                        if (x <= bx0 - eps || x >= bx1 + eps) return;
+                        if (y <= by0 - eps || y >= by1 + eps) return;
+                        if (z <= bz0 - eps || z >= bz1 + eps) return;
+                        double dxn = x - bx0, dxp = bx1 - x, dyn = y - by0, dyp = by1 - y, dzn = z - bz0, dzp = bz1 - z;
+                        double mn = Math.Min(Math.Min(Math.Min(dxn, dxp), Math.Min(dyn, dyp)), Math.Min(dzn, dzp));
+                        if (mn == dzp) z = bz1 + m; else if (mn == dzn) z = bz0 - m;
+                        else if (mn == dxp) x = bx1 + m; else if (mn == dxn) x = bx0 - m;
+                        else if (mn == dyp) y = by1 + m; else y = by0 - m;
+                    }
+                    for (int it = 0; it < 4; it++)
+                    {
+                        double px = x, py = y, pz = z;
+                        if (fac)
+                        {
+                            foreach (var eq in sd.Equipment) TryBox(eq.MinX, eq.MinY, eq.MinZ, eq.MaxX, eq.MaxY, eq.MaxZ);
+                            foreach (var dl in sd.DuctsLaterals) TryBox(dl.MinX, dl.MinY, dl.MinZ, dl.MaxX, dl.MaxY, dl.MaxZ);
+                        }
+                        if (px == x && py == y && pz == z) break;
+                    }
+                    if (z < g.Oz + m) z = g.Oz + m;
+                    return (x, y, z);
                 }
 
                 foreach (var t in rows)
@@ -96,17 +115,20 @@ namespace Routing3D.Viewer.Diagnostics
                                 lowest = eq.MinZ;
                         if (!double.IsNaN(lowest)) sz = Math.Max(g.Oz + cell * 0.5, lowest - cell * 0.5);
                     }
-                    eng.AddTask(sx, sy, sz, t.Gx, t.Gy, t.Gz, t.Utility, t.Group);
+                    (sx, sy, sz) = Lift(sx, sy, sz);
+                    var (gx, gy, gz) = Lift(t.Gx, t.Gy, t.Gz);
+                    eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
                 }
             }
             catch (Exception ex) { return $"{label}: BUILD-EXCEPTION {ex.Message}"; }
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int cbCount = 0, cbFail = 0;  // 진행 콜백 검증(다이얼로그와 동일 경로).
+            var failExp = new List<long>();  // 실패 배관의 확장수(상한 도달=12M 근처 / 막힘=작은 값 구분).
             try
             {
                 if (mode == "multi")
-                    eng.RouteMultiProgress("longest", p => { if (p.Phase == 1) { cbCount++; if (!p.Success) cbFail++; } });
+                    eng.RouteMultiProgress("longest", p => { if (p.Phase == 1) { cbCount++; if (!p.Success) { cbFail++; failExp.Add(p.ExpandedNodes); } } });
                 else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, "longest", 0);
                 else eng.RouteCorridor(factor, radius);
             }
@@ -121,7 +143,8 @@ namespace Routing3D.Viewer.Diagnostics
             }
             eng.Dispose();
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}";
+            string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}";
         }
     }
 }

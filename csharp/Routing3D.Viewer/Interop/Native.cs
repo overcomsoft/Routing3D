@@ -32,6 +32,7 @@ namespace Routing3D.Viewer.Interop
         {
             public double cell_mm, w_turn, w_clear;
             public double w_corridor;            // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작).
+            public double w_heur;                // 휴리스틱 가중(weighted A*). 0/1=표준, >1=목표 지향.
             public int clearance_radius, clearance_connectivity;
             public int corridor_radius;          // 회랑 성장 반경(셀).
             public int rack_level_count;         // rack_levels 사용 개수(0~8).

@@ -35,6 +35,9 @@ struct RouteParams {
     double cell_mm = 50.0;
     double w_turn = 500.0;
     double w_clear = 10.0;
+    // 휴리스틱 가중(weighted A*). 1.0=표준 A*(admissible·최적, 골든 불변). >1.0=목표 지향 탐색으로
+    // 확장 노드 급감(솔리드 장애물 우회 같은 어려운 경로를 탐색상한 내에 찾음) — 약간 비최적 허용.
+    double w_heur = 1.0;
     int clearance_radius = 2;
     int clearance_connectivity = 6;  // 6 또는 26
     std::map<int, double> w_tier;     // z셀 → 가산 mm
@@ -156,8 +159,9 @@ public:
         return c;
     }
 
-    double heuristic(const Cell& c, const Cell& goal) const {  // manhattan × cell_mm
-        return manhattan(c, goal) * p_.cell_mm;
+    double heuristic(const Cell& c, const Cell& goal) const {  // manhattan × cell_mm × w_heur
+        const double w = (p_.w_heur > 0.0) ? p_.w_heur : 1.0;
+        return manhattan(c, goal) * p_.cell_mm * w;
     }
 
 private:

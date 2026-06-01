@@ -280,6 +280,7 @@ extern "C" R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p) {
     e->doc.params.clearance_radius = p->clearance_radius;
     e->doc.params.clearance_connectivity = p->clearance_connectivity;
     e->doc.params.w_corridor = p->w_corridor;
+    e->doc.params.w_heur = p->w_heur;
     e->doc.params.corridor_radius = p->corridor_radius > 0 ? p->corridor_radius : 1;
     e->doc.params.rack_levels.clear();
     {
