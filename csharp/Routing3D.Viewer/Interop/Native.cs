@@ -84,6 +84,15 @@ namespace Routing3D.Viewer.Interop
                                                        double sz, double gx, double gy, double gz);
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
+
+        // 진행 콜백(cdecl) — 배관 1개 처리마다 호출. UnmanagedFunctionPointer 로 마샬링.
+        [UnmanagedFunctionPointer(Cdecl)]
+        public delegate void R3dProgressFn(IntPtr user, int orderIndex, int taskIndex, int success,
+                                           double lengthMm, int turns, long expandedNodes,
+                                           double elapsedMs, int done, int total);
+        [DllImport(Dll, CallingConvention = Cdecl)]
+        public static extern int r3d_route_multi_progress(IntPtr e, byte[] priorityUtf8,
+                                                          R3dProgressFn cb, IntPtr user);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_task(IntPtr e, int task, out R3dResult outRes);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_corridor(IntPtr e, int factor, int radius);
         [DllImport(Dll, CallingConvention = Cdecl)]

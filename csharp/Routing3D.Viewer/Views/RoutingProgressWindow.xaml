@@ -1,0 +1,81 @@
+<Window x:Class="Routing3D.Viewer.Views.RoutingProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="라우팅 진행 상황" Width="820" Height="560"
+        Background="#1e2230" WindowStartupLocation="CenterOwner">
+    <!-- 라우팅 처리 순서·배관별 성공/실패·실패 추정 사유를 실시간 표시(네이티브 진행 콜백 기반). -->
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#e8eaf0"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="Background" Value="#3a4862"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#5a6a8a"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 진행 요약 -->
+        <TextBlock Grid.Row="0" Text="{Binding HeaderText}" FontSize="14" FontWeight="Bold"
+                   Margin="2,0,2,6"/>
+        <!-- 진행 바 -->
+        <ProgressBar Grid.Row="1" Height="8" Margin="2,0,2,8" Minimum="0"
+                     Maximum="{Binding Total}" Value="{Binding Done}"
+                     Background="#2b3548" Foreground="#385b85" BorderThickness="0"/>
+
+        <!-- 배관별 처리 표 -->
+        <DataGrid Grid.Row="2" ItemsSource="{Binding Rows}" AutoGenerateColumns="False"
+                  IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                  CanUserAddRows="False" Background="#252b3d" RowBackground="#252b3d"
+                  AlternatingRowBackground="#2b3548" Foreground="#e8eaf0" BorderBrush="#404a64"
+                  HorizontalGridLinesBrush="#333b50" FontFamily="Consolas" FontSize="12"
+                  EnableRowVirtualization="True">
+            <DataGrid.ColumnHeaderStyle>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#2b3548"/>
+                    <Setter Property="Foreground" Value="#bfc6d6"/>
+                    <Setter Property="Padding" Value="6,3"/>
+                    <Setter Property="BorderBrush" Value="#404a64"/>
+                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                </Style>
+            </DataGrid.ColumnHeaderStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="순서" Binding="{Binding Order}" Width="48"/>
+                <DataGridTextColumn Header="작업(유틸·이름)" Binding="{Binding Label}" Width="*"/>
+                <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="60">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="추정 사유" Binding="{Binding Reason}" Width="180"/>
+                <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="80"/>
+                <DataGridTextColumn Header="꺾임" Binding="{Binding Turns}" Width="48"/>
+                <DataGridTextColumn Header="확장수" Binding="{Binding ExpandedText}" Width="90"/>
+                <DataGridTextColumn Header="ms" Binding="{Binding ElapsedText}" Width="70"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- 실패 사유 요약 -->
+        <TextBlock Grid.Row="3" Text="{Binding FailSummary}" Margin="2,8,2,4"
+                   TextWrapping="Wrap" Foreground="#ffb0b0"/>
+
+        <!-- 닫기 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="닫기" Width="90" Click="OnClose"/>
+        </StackPanel>
+    </Grid>
+</Window>

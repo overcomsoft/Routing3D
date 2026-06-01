@@ -81,6 +81,21 @@ namespace Routing3D.Viewer.Interop
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
+        /// <summary>한 배관 처리 결과(진행 다이얼로그용).</summary>
+        public readonly record struct RouteProgress(int OrderIndex, int TaskIndex, bool Success,
+            double LengthMm, int Turns, long ExpandedNodes, double ElapsedMs, int Done, int Total);
+
+        /// <summary>route_multi 와 동일(순차·충돌없음)하되 배관마다 onPipe 를 호출(처리순서·상태 실시간).
+        /// 콜백은 라우팅 스레드에서 동기 호출되므로, UI 갱신은 호출자가 Dispatcher 로 마샬링한다.</summary>
+        public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe)
+        {
+            // 델리게이트는 네이티브 호출이 끝날 때까지 살아 있어야 한다(지역 변수로 GC 보호).
+            Native.R3dProgressFn cb = (user, oi, ti, ok, len, turns, exp, ms, done, total) =>
+                onPipe(new RouteProgress(oi, ti, ok != 0, len, turns, exp, ms, done, total));
+            try { Check(Native.r3d_route_multi_progress(H, Native.Utf8(priority), cb, IntPtr.Zero), "route_multi_progress"); }
+            finally { GC.KeepAlive(cb); }
+        }
+
         // 단일 작업 재라우팅(원본 장애물 기준, 다른 배관 무시). 결과는 엔진에 저장된다.
         public RouteResult RouteTask(int task)
         {

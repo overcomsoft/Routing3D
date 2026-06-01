@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <numeric>
 #include <optional>
 #include <string>
@@ -95,10 +96,16 @@ ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
     return occ;
 }
 
+// 배관 1개 처리 후 호출되는 진행 콜백 타입(내부용). 인자: order_index, task_index, success,
+// length_mm, turns, expanded_nodes, elapsed_ms, done, total.
+using ProgressCb = std::function<void(int, int, bool, double, int, long long, double, int, int)>;
+
 // 다중 배관 순차 라우팅의 백엔드 무관 본체(Occ = Dense/Implicit). order/snap/astar/mark_pipe 동일.
 // 결과를 '원본 작업 인덱스' 에 저장해 핸들 API(get_result(task)) 매핑을 보존한다.
+// on_pipe 가 유효하면 배관마다 호출(진행 다이얼로그용) — 결과/순서에는 영향 없음.
 template <class Occ>
-void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited) {
+void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited,
+                      const ProgressCb& on_pipe = {}) {
     Occ work = occ.copy();  // 원본 점유 불변(M2).
 
     const int n = static_cast<int>(doc.tasks.size());
@@ -136,6 +143,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     // g/came 맵이 수 GB 로 폭증 → 메모리 고갈(0xC0000005). 탐색 상한을 둬 그런 배관을 조기 종료한다.
     // 작은 격자(골든 등)는 상한 없음(-1) 으로 기존 동작·결정성 보존.
     const long long max_exp = (occ.size() > 5000000LL) ? 12000000LL : -1;
+    int done = 0;
     for (int oi : order) {
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), 2);
@@ -149,6 +157,11 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             mark_pipe(work, path, 0);  // 깔린 경로를 점유로 추가(다음 배관 회피).
             if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
         }
+        ++done;
+        if (on_pipe) {
+            on_pipe(done - 1, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
+                    done, n);
+        }
     }
 }
 
@@ -156,13 +169,14 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
 //   작은 격자(≤5M 셀, 골든 등) → DenseOccupancy: 기존 동작·바이트 결과 완전 불변.
 //   거대 격자(>5M 셀, 25mm/10mm) → ImplicitOccupancy: 복셀화 없는 O(장애물) 저장 + 64비트 키 +
 //   온디맨드 클리어런스 → 130MB/2GB 배열·520MB 거리변환·int 오버플로를 모두 회피.
-void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited) {
+void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited,
+                          const ProgressCb& on_pipe = {}) {
     const long long cells =
         static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
     if (cells > 5000000LL) {
-        route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited);
+        route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe);
     } else {
-        route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited);
+        route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe);
     }
 }
 
@@ -323,6 +337,24 @@ extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     if (!e) return R3D_ERR_ARG;
     try {
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
+                                              void* user) {
+    if (!e) return R3D_ERR_ARG;
+    try {
+        ProgressCb on_pipe;  // cb 가 널이면 비활성(콜백 없는 route_multi 와 동일).
+        if (cb) {
+            on_pipe = [cb, user](int oi, int ti, bool ok, double len, int turns, long long exp,
+                                 double ms, int done, int total) {
+                cb(user, oi, ti, ok ? 1 : 0, len, turns, exp, ms, done, total);
+            };
+        }
+        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;

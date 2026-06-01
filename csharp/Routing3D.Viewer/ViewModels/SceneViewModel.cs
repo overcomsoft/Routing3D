@@ -23,6 +23,7 @@ using HelixToolkit.Wpf;
 using Microsoft.Win32;
 using Routing3D.Viewer.Interop;
 using Routing3D.Viewer.Model;
+using Routing3D.Viewer.Views;
 
 namespace Routing3D.Viewer.ViewModels
 {
@@ -251,13 +252,13 @@ namespace Routing3D.Viewer.ViewModels
             RouteGroupCommand = new RelayCommand(
                 () => { if (!string.IsNullOrEmpty(_selectedGroup))
                             _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup),
-                                               $"그룹 '{_selectedGroup}'", corridor: false); },
+                                               $"그룹 '{_selectedGroup}'", corridor: false, showProgress: true); },
                 () => _scene != null && !string.IsNullOrEmpty(_selectedGroup));
             RouteUtilityCommand = new RelayCommand(
                 () => { if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
                             _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup &&
                                                               UtilityKey(t.Utility) == _selectedUtility),
-                                               $"유틸리티 '{_selectedUtility}'", corridor: false); },
+                                               $"유틸리티 '{_selectedUtility}'", corridor: false, showProgress: true); },
                 () => _scene != null && !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility));
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
@@ -942,12 +943,15 @@ namespace Routing3D.Viewer.ViewModels
             double cell = s.Grid.CellMm;
             double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
 
-            // 라우팅 대상 배관의 '종단 PoC 를 포함하는' 설비/덕트(=연결 대상)는 장애물에서 제외한다.
-            // 그렇지 않으면 종단 PoC 가 자기 연결 덕트 안에 갇혀(snap 반경 밖) 라우팅이 전부 실패한다.
-            // (시작 PoC 쪽 장비는 막되 DropStartBelowEquipment 로 장비 아래로 빠져나간다.)
-            var endPts = new List<Point3D>(currentRows.Count);
-            foreach (var pos in currentRows)
-                endPts.Add(new Point3D(Tasks[pos].Gx, Tasks[pos].Gy, Tasks[pos].Gz));
+            // '종단 PoC 를 포함하는' 설비/덕트(=연결 대상)는 장애물에서 제외한다. 그렇지 않으면 종단 PoC 가
+            // 자기 연결 덕트 안에 갇혀(snap 반경 밖) 라우팅이 실패한다. (시작 PoC 쪽 장비는 막되
+            // DropStartBelowEquipment 로 장비 아래로 빠져나간다.)
+            // ★ 부분집합(그룹/유틸) 라우팅 시에도 '전체 작업'의 종단을 제외한다 — 다른 작업의 연결 덕트가
+            //   현재 배관의 장애물로 남으면(부분집합만 제외하면) 경로를 막아 대량 실패한다. 전체 113개를 한 번에
+            //   라우팅하면 모든 종단 덕트가 자연히 제외돼 113/113 인데, 부분집합도 같은 제외 기준이어야 동일 품질.
+            var endPts = new List<Point3D>(Tasks.Count);
+            foreach (var t in Tasks)
+                endPts.Add(new Point3D(t.Gx, t.Gy, t.Gz));
             double em = cell;   // 종단 포함 판정 여유(셀 1개).
             bool BlocksAnEnd(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
             {
@@ -1046,9 +1050,11 @@ namespace Routing3D.Viewer.ViewModels
 
         /// <summary>지정 행들만 부분집합으로 라우팅(무거운 네이티브 호출은 백그라운드 → UI 비차단).
         /// 범위에 없는 행의 경로 캐시는 보존된다(그룹/유틸을 차례로 눌러 누적 표시 가능).</summary>
-        private async Task RouteRowsAsync(IReadOnlyList<int> rowPositions, string label, bool corridor)
+        private async Task RouteRowsAsync(IReadOnlyList<int> rowPositions, string label, bool corridor,
+                                          bool showProgress = false)
         {
             if (_scene == null || rowPositions.Count == 0) return;
+            RoutingProgressWindow? dlg = null;
             try
             {
                 var added = BuildEngineForRows(rowPositions);
@@ -1065,6 +1071,25 @@ namespace Routing3D.Viewer.ViewModels
                 bool hier = _useHierarchicalCorridor && !cor;
                 // coarse 셀 ≈ 160mm 가 되도록 factor 산출(4~24 클램프), 통로 반경 2 coarse 셀.
                 int factor = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
+
+                // 진행 다이얼로그 — 표준 route_multi 경로(cor/hier 아님)에서만 배관별 콜백을 받아 실시간 표시.
+                bool useProgress = showProgress && !cor && !hier;
+                if (useProgress)
+                {
+                    dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
+                    dlg.Begin(label, added.Count);
+                    dlg.Show();
+                }
+
+                // 엔진 작업 인덱스(=added 순서) → 표시 라벨(유틸·종단명).
+                string LabelOf(int taskIdx)
+                {
+                    if (taskIdx < 0 || taskIdx >= added.Count) return $"#{taskIdx}";
+                    var tr = Tasks[added[taskIdx]];
+                    string end = string.IsNullOrEmpty(tr.EndName) ? tr.Label : tr.EndName!;
+                    return string.IsNullOrEmpty(tr.Utility) ? end : $"{tr.Utility} → {end}";
+                }
+
                 await Task.Run(() =>
                 {
                     if (cor)
@@ -1078,15 +1103,33 @@ namespace Routing3D.Viewer.ViewModels
                         // priority 순차 + mark_pipe 로 배관 간 충돌 0.
                         engine.RouteCorridorMulti(factor, 2, priority, 0);
                     }
+                    else if (useProgress)
+                    {
+                        var d = dlg!;
+                        engine.RouteMultiProgress(priority, p => d.ReportPipe(p, LabelOf(p.TaskIndex)));
+                    }
                     else
                     {
                         engine.RouteMulti(priority);
                     }
                 });
+                dlg?.Complete();
                 CacheResults(added);
-                BuildModel();
+                BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
+                // 이번 배치 결과를 명확히 덮어쓴다 — "성공 16/113"(전체 대비)이 실패로 오해되지 않도록
+                // "이번 라우팅 16/16"을 앞세우고 전체 누적은 괄호로 부기한다.
+                int batchOk = 0;
+                foreach (var pos in added) if (Tasks[pos].Success) batchOk++;
+                int sceneOk = 0;
+                foreach (var t in Tasks) if (t.Success) sceneOk++;
+                string fail = batchOk < added.Count ? $" · 실패 {added.Count - batchOk}" : "";
+                Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}   |   전체 누적 {sceneOk}/{Tasks.Count}";
             }
-            catch (Exception ex) { Status = "경로 탐색 오류: " + ex.Message; }
+            catch (Exception ex)
+            {
+                Status = "경로 탐색 오류: " + ex.Message;
+                dlg?.Complete(failedToRun: true, error: ex.Message);
+            }
         }
 
         // ---- 단계별 탐색(선택 배관 A* 진행 애니메이션) ----

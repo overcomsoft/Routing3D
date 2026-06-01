@@ -60,7 +60,8 @@ namespace Routing3D.Viewer.Diagnostics
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
 
-                var endPts = rows.Select(r => (r.Gx, r.Gy, r.Gz)).ToList();
+                // 종단 제외는 '전체 작업' 기준(부분집합도 동일) — GUI AddFacilityObstacles 와 일치.
+                var endPts = sd.Tasks.Select(r => (r.Gx, r.Gy, r.Gz)).ToList();
                 double em = cell, minT = cell;
                 bool BlocksEnd(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
                     => endPts.Any(p => p.Gx >= mnx - em && p.Gx <= mxx + em &&
@@ -101,9 +102,11 @@ namespace Routing3D.Viewer.Diagnostics
             catch (Exception ex) { return $"{label}: BUILD-EXCEPTION {ex.Message}"; }
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            int cbCount = 0, cbFail = 0;  // 진행 콜백 검증(다이얼로그와 동일 경로).
             try
             {
-                if (mode == "multi") eng.RouteMulti("longest");
+                if (mode == "multi")
+                    eng.RouteMultiProgress("longest", p => { cbCount++; if (!p.Success) cbFail++; });
                 else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, "longest", 0);
                 else eng.RouteCorridor(factor, radius);
             }
@@ -117,7 +120,8 @@ namespace Routing3D.Viewer.Diagnostics
                 catch { }
             }
             eng.Dispose();
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms)";
+            string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}";
         }
     }
 }
