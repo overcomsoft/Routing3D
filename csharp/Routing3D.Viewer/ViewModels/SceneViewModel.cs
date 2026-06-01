@@ -1427,8 +1427,8 @@ namespace Routing3D.Viewer.ViewModels
                     double s = grid.CellMm * 0.9;
                     foreach (var (ci, cj, ck) in cells)
                         cmb.AddBox(CellToWorld(grid, new PathCell(ci, cj, ck)), s, s, s);
-                    group.Children.Add(Geometry(cmb, Colors.Red, 235));
-                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Colors.Red), Label = $"충돌(collision) {cells.Count}" });
+                    group.Children.Add(Geometry(cmb, Colors.Magenta, 235));
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Colors.Magenta), Label = $"충돌(collision) {cells.Count}" });
                 }
             }
 

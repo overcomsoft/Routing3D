@@ -294,7 +294,7 @@
                                 <TextBlock Text="■ A* 탐색 셀 (단계별 탐색)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="Red" Stroke="#888" StrokeThickness="0.5"/>
+                                <Rectangle Width="14" Height="14" Fill="Magenta" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="■ 충돌 셀 (≥2 배관 공유)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <TextBlock Text="경로·장애물·장비·레터럴·덕트 등 레이어 색은 위 '범례'를 참고하세요."
