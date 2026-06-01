@@ -190,7 +190,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
-        private bool _includeFacilities = true;     // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로.
+        private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -330,12 +330,9 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
 
         /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
-        /// 배관의 경로를 장애물로 추가해 충돌을 피한다. 토글은 '다음 라우팅'부터 적용(즉시 재라우팅 안 함).</summary>
-        public bool IncludeFacilities
-        {
-            get => _includeFacilities;
-            set { if (Set(ref _includeFacilities, value)) Status = value ? "충돌확장 ON — 다음 라우팅부터 설비·덕트·레터럴·기설계 배관을 회피합니다." : "충돌확장 OFF — 원본 장애물만 회피합니다."; }
-        }
+        /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
+        /// getter 전용이라 UI 에서 끌 수 없다(체크박스는 켜진 채 비활성).</summary>
+        public bool IncludeFacilities => _includeFacilities;   // _includeFacilities 는 항상 true(고정).
 
         /// <summary>점유맵 해상도. true=원본(전체 셀 표시, 느릴 수 있음), false=다운샘플(상한까지만).</summary>
         public bool OccupancyFullRes
