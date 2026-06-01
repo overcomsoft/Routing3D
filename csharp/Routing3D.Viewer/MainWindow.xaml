@@ -105,6 +105,11 @@
                                       ItemsSource="{Binding GroupList}"
                                       SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                       ToolTip="유틸리티 그룹 선택 → 아래 유틸리티 목록이 나오고, 상단 '탐색 범위'가 이 그룹으로 설정됩니다."/>
+                            <Button Content="▶ 이 그룹 전체 라우팅"
+                                    Command="{Binding RouteGroupCommand}"
+                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"
+                                    HorizontalContentAlignment="Center"
+                                    ToolTip="선택한 유틸리티 그룹의 모든 PoC를 한꺼번에 충돌회피 라우팅합니다(충돌확장 ON이면 설비·덕트·기설계 배관도 회피)."/>
                         </StackPanel>
                     </Border>
 
@@ -119,6 +124,11 @@
                                          SelectedItem="{Binding SelectedUtility, Mode=TwoWay}"
                                          ToolTip="유틸리티 선택 → 아래 개별 PoC 목록이 나오고, 상단 '탐색 범위'가 이 유틸리티로 설정됩니다."/>
                             </Border>
+                            <Button Content="▶ 이 유틸리티 전체 라우팅"
+                                    Command="{Binding RouteUtilityCommand}"
+                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"
+                                    HorizontalContentAlignment="Center"
+                                    ToolTip="선택한 유틸리티의 모든 PoC를 한꺼번에 충돌회피 라우팅합니다."/>
                         </StackPanel>
                     </Border>
 

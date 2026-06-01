@@ -246,6 +246,18 @@ namespace Routing3D.Viewer.ViewModels
             LoadDbCommand = new RelayCommand(
                 () => { if (_selectedProject != null) _ = LoadFromDbAsync(_selectedProject.ProjectId); },
                 () => _selectedProject != null);
+            // 좌측 드릴다운 선택을 한꺼번에 라우팅 — 선택 그룹/유틸리티의 모든 PoC를 부분집합 충돌회피 라우팅.
+            RouteGroupCommand = new RelayCommand(
+                () => { if (!string.IsNullOrEmpty(_selectedGroup))
+                            _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup),
+                                               $"그룹 '{_selectedGroup}'", corridor: false); },
+                () => _scene != null && !string.IsNullOrEmpty(_selectedGroup));
+            RouteUtilityCommand = new RelayCommand(
+                () => { if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
+                            _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup &&
+                                                              UtilityKey(t.Utility) == _selectedUtility),
+                                               $"유틸리티 '{_selectedUtility}'", corridor: false); },
+                () => _scene != null && !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility));
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
@@ -542,6 +554,8 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand UtilityClearCommand { get; }
         public RelayCommand LoadProjectsCommand { get; }
         public RelayCommand LoadDbCommand { get; }
+        public RelayCommand RouteGroupCommand { get; }
+        public RelayCommand RouteUtilityCommand { get; }
 
         // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
         public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
