@@ -260,6 +260,9 @@ namespace Routing3D.Viewer.ViewModels
                                                               UtilityKey(t.Utility) == _selectedUtility),
                                                $"유틸리티 '{_selectedUtility}'", corridor: false, showProgress: true); },
                 () => _scene != null && !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility));
+            // 자동설계된(라우팅된) 모든 경로 삭제 — 결과 캐시 초기화 + 라이브 오버레이 제거 + 재렌더.
+            ClearRoutesCommand = new RelayCommand(ClearAllRoutes,
+                () => _scene != null && Tasks.Any(t => t.Success));
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
@@ -564,6 +567,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand LoadDbCommand { get; }
         public RelayCommand RouteGroupCommand { get; }
         public RelayCommand RouteUtilityCommand { get; }
+        public RelayCommand ClearRoutesCommand { get; }
 
         // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
         public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
@@ -1022,6 +1026,33 @@ namespace Routing3D.Viewer.ViewModels
             }
         }
 
+        // 지정 행들의 자동설계 결과(경로/성공/길이/방문)를 초기화한다 — '기존설계 삭제' / 재설계 전 초기화에 사용.
+        private void ClearRouteResults(IEnumerable<int> rowPositions)
+        {
+            foreach (var pos in rowPositions)
+            {
+                var r = Tasks[pos];
+                r.Success = false;
+                r.LengthMm = 0;
+                r.Path = System.Array.Empty<PathCell>();
+                r.Visited = System.Array.Empty<PathCell>();
+            }
+        }
+
+        // 자동설계된 '모든' 경로 삭제(버튼) — 전체 작업 결과 초기화 + 라이브 오버레이 제거 + 재렌더.
+        private void ClearAllRoutes()
+        {
+            if (_scene == null) return;
+            var all = new List<int>(Tasks.Count);
+            for (int i = 0; i < Tasks.Count; i++) all.Add(i);
+            ClearRouteResults(all);
+            _compareMode = false;
+            ResetLiveRoute();
+            BuildModel();
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested();  // 버튼 비활성 즉시 반영.
+            Status = "자동설계된 경로를 모두 삭제했습니다.";
+        }
+
         // 엔진 결과(엔진 인덱스 e ↔ added[e] 행)를 행 캐시에 기록. 부분집합 라우팅 후 호출.
         private void CacheResults(IReadOnlyList<int> added)
         {
@@ -1063,6 +1094,11 @@ namespace Routing3D.Viewer.ViewModels
             RoutingProgressWindow? dlg = null;
             try
             {
+                // 동일 대상(동일 Start PoC)을 다시 자동설계할 때 — 기존 설계 데이터를 먼저 지우고 진행한다.
+                // (대상 행만 초기화; 다른 그룹/유틸의 누적 경로는 보존 → 충돌 회피·표시 유지.)
+                ClearRouteResults(rowPositions);
+                BuildModel();   // 지운 상태를 즉시 3D에 반영(라이브 오버레이 위에 옛 경로가 남지 않도록).
+
                 var added = BuildEngineForRows(rowPositions);
                 Status = $"경로 탐색 중… {label} (작업 {added.Count})";
                 var engine = _engine!;
