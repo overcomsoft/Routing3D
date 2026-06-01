@@ -96,9 +96,11 @@ ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
     return occ;
 }
 
-// 배관 1개 처리 후 호출되는 진행 콜백 타입(내부용). 인자: order_index, task_index, success,
-// length_mm, turns, expanded_nodes, elapsed_ms, done, total.
-using ProgressCb = std::function<void(int, int, bool, double, int, long long, double, int, int)>;
+// 진행 콜백 타입(내부용). phase=0(탐색 진행)/1(배관 완료).
+//   인자: phase, order_index, task_index, success, length_mm, turns, expanded_nodes, elapsed_ms,
+//         done, total, progress01, path(완료·성공 시 경로 셀, 아니면 nullptr).
+using ProgressCb = std::function<void(int, int, int, bool, double, int, long long, double, int, int,
+                                      double, const std::vector<Cell>*)>;
 
 // 다중 배관 순차 라우팅의 백엔드 무관 본체(Occ = Dense/Implicit). order/snap/astar/mark_pipe 동일.
 // 결과를 '원본 작업 인덱스' 에 저장해 핸들 API(get_result(task)) 매핑을 보존한다.
@@ -143,13 +145,25 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     // g/came 맵이 수 GB 로 폭증 → 메모리 고갈(0xC0000005). 탐색 상한을 둬 그런 배관을 조기 종료한다.
     // 작은 격자(골든 등)는 상한 없음(-1) 으로 기존 동작·결정성 보존.
     const long long max_exp = (occ.size() > 5000000LL) ? 12000000LL : -1;
+    // 탐색 진행율 보고 간격(확장 수). 너무 잦으면 콜백 폭주 → 5만마다(배관당 수십 회).
+    const long long progress_every = on_pipe ? 50000LL : 0;
     int done = 0;
-    for (int oi : order) {
+    for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
+        const int oi = order[static_cast<size_t>(oidx)];
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), 2);
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), 2);
+
+        // 탐색 중 진행율(처리상태 %) 콜백 — phase=0. 현재 배관의 order/task 인덱스로 행을 찾는다.
+        std::function<void(long long, double)> intra;
+        if (on_pipe) {
+            intra = [&](long long expanded, double prog) {
+                on_pipe(0, oidx, oi, false, 0.0, 0, expanded, 0.0, done, n, prog, nullptr);
+            };
+        }
         AStarResult res = astar_weighted(work, s, g, doc.params, max_exp, collect_visited,
-                                         use_corridor ? &corridor : nullptr);
+                                         use_corridor ? &corridor : nullptr,
+                                         on_pipe ? &intra : nullptr, progress_every);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
@@ -158,9 +172,9 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
         }
         ++done;
-        if (on_pipe) {
-            on_pipe(done - 1, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
-                    done, n);
+        if (on_pipe) {  // phase=1 완료 — 지표 + (성공 시) 경로 셀.
+            on_pipe(1, oidx, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
+                    done, n, 1.0, ok ? &path : nullptr);
         }
     }
 }
@@ -349,9 +363,25 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
     try {
         ProgressCb on_pipe;  // cb 가 널이면 비활성(콜백 없는 route_multi 와 동일).
         if (cb) {
-            on_pipe = [cb, user](int oi, int ti, bool ok, double len, int turns, long long exp,
-                                 double ms, int done, int total) {
-                cb(user, oi, ti, ok ? 1 : 0, len, turns, exp, ms, done, total);
+            on_pipe = [cb, user](int phase, int oi, int ti, bool ok, double len, int turns,
+                                 long long exp, double ms, int done, int total, double prog,
+                                 const std::vector<Cell>* path) {
+                // 경로 셀(i,j,k) 를 임시 int 배열로 펴서 콜백에 전달(포인터는 호출 동안만 유효).
+                const int32_t* pptr = nullptr;
+                int32_t plen = 0;
+                std::vector<int32_t> buf;
+                if (path && !path->empty()) {
+                    buf.reserve(path->size() * 3);
+                    for (const Cell& c : *path) {
+                        buf.push_back(c.i);
+                        buf.push_back(c.j);
+                        buf.push_back(c.k);
+                    }
+                    pptr = buf.data();
+                    plen = static_cast<int32_t>(path->size());
+                }
+                cb(user, phase, oi, ti, ok ? 1 : 0, len, turns, exp, ms, done, total, prog, pptr,
+                   plen);
             };
         }
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe);

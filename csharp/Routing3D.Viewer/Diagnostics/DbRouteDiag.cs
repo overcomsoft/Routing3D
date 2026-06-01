@@ -106,7 +106,7 @@ namespace Routing3D.Viewer.Diagnostics
             try
             {
                 if (mode == "multi")
-                    eng.RouteMultiProgress("longest", p => { cbCount++; if (!p.Success) cbFail++; });
+                    eng.RouteMultiProgress("longest", p => { if (p.Phase == 1) { cbCount++; if (!p.Success) cbFail++; } });
                 else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, "longest", 0);
                 else eng.RouteCorridor(factor, radius);
             }

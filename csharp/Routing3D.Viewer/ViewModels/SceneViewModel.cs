@@ -426,6 +426,12 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>기존설계 비교 오버레이(기존 경로=주황 / 개발 경로=시안 굵은 튜브 + 시작/끝 마커).</summary>
         public Model3D? CompareModel { get => _compareModel; private set => Set(ref _compareModel, value); }
 
+        // 진행 다이얼로그 라우팅 중 '배관 완료마다' 점진 표시하는 라이브 오버레이(유틸 색 튜브).
+        // 라우팅이 끝나면 비우고 BuildModel 의 최종 렌더로 대체한다(중복 방지).
+        private Model3D? _liveRouteModel;
+        public Model3D? LiveRouteModel { get => _liveRouteModel; private set => Set(ref _liveRouteModel, value); }
+        private Model3DGroup? _liveGroup;
+
         /// <summary>우측 '기존설계 비교 분석' 패널 텍스트(매칭 상태 + 길이/꺾임/종단점/간섭 지표). null=비활성.</summary>
         public string? ComparisonReport { get => _comparisonReport; private set => Set(ref _comparisonReport, value); }
 
@@ -1074,21 +1080,26 @@ namespace Routing3D.Viewer.ViewModels
 
                 // 진행 다이얼로그 — 표준 route_multi 경로(cor/hier 아님)에서만 배관별 콜백을 받아 실시간 표시.
                 bool useProgress = showProgress && !cor && !hier;
+                var grid = _scene.Grid;
+                // 엔진 작업 인덱스(=added 순서)별 메타/색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
+                // Brush(.Color)·컬렉션 접근이 불가). 콜백은 이 값 배열만 참조 → 스레드 안전.
+                var meta = new (string grp, string util, string sp, string ep, Color col)[added.Count];
+                for (int k = 0; k < added.Count; k++)
+                {
+                    var tr = Tasks[added[k]];
+                    string sp = string.IsNullOrEmpty(tr.PocName) ? $"({tr.Sx:0},{tr.Sy:0},{tr.Sz:0})" : tr.PocName!;
+                    string ep = string.IsNullOrEmpty(tr.EndName) ? $"({tr.Gx:0},{tr.Gy:0},{tr.Gz:0})" : tr.EndName!;
+                    Color col = (tr.Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
+                    meta[k] = (tr.Group ?? "", tr.Utility ?? "", sp, ep, col);
+                }
                 if (useProgress)
                 {
+                    ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
                     dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
                     dlg.Begin(label, added.Count);
                     dlg.Show();
                 }
-
-                // 엔진 작업 인덱스(=added 순서) → 표시 라벨(유틸·종단명).
-                string LabelOf(int taskIdx)
-                {
-                    if (taskIdx < 0 || taskIdx >= added.Count) return $"#{taskIdx}";
-                    var tr = Tasks[added[taskIdx]];
-                    string end = string.IsNullOrEmpty(tr.EndName) ? tr.Label : tr.EndName!;
-                    return string.IsNullOrEmpty(tr.Utility) ? end : $"{tr.Utility} → {end}";
-                }
+                var disp = System.Windows.Application.Current?.Dispatcher;
 
                 await Task.Run(() =>
                 {
@@ -1106,7 +1117,20 @@ namespace Routing3D.Viewer.ViewModels
                     else if (useProgress)
                     {
                         var d = dlg!;
-                        engine.RouteMultiProgress(priority, p => d.ReportPipe(p, LabelOf(p.TaskIndex)));
+                        engine.RouteMultiProgress(priority, p =>
+                        {
+                            int ti = p.TaskIndex;
+                            var m = (ti >= 0 && ti < meta.Length)
+                                ? meta[ti]
+                                : (grp: "", util: "", sp: "", ep: "", col: Colors.Cyan);
+                            d.ReportPipe(p, m.grp, m.util, m.sp, m.ep);
+                            // 배관 완료(성공) 시 즉시 3D 라이브 오버레이에 그 경로를 추가.
+                            if (p.Phase == 1 && p.Success && p.Path.Length >= 1)
+                            {
+                                var path = p.Path; var col = m.col;
+                                disp?.BeginInvoke(new Action(() => AppendLivePipe(path, col, grid)));
+                            }
+                        });
                     }
                     else
                     {
@@ -1115,6 +1139,7 @@ namespace Routing3D.Viewer.ViewModels
                 });
                 dlg?.Complete();
                 CacheResults(added);
+                ResetLiveRoute();   // 라이브 오버레이 제거 → 아래 BuildModel 의 최종 렌더로 대체(중복 방지).
                 BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
                 // 이번 배치 결과를 명확히 덮어쓴다 — "성공 16/113"(전체 대비)이 실패로 오해되지 않도록
                 // "이번 라우팅 16/16"을 앞세우고 전체 누적은 괄호로 부기한다.
@@ -1526,6 +1551,28 @@ namespace Routing3D.Viewer.ViewModels
 
         private static Point3D CellToWorld(GridMeta g, PathCell c) =>
             new(g.Ox + (c.I + 0.5) * g.CellMm, g.Oy + (c.J + 0.5) * g.CellMm, g.Oz + (c.K + 0.5) * g.CellMm);
+
+        // 라이브 오버레이 초기화(배치 라우팅 시작 시). UI 스레드에서 호출.
+        private void ResetLiveRoute()
+        {
+            _liveGroup = null;
+            LiveRouteModel = null;
+        }
+
+        // 배관 1개(경로 셀)를 유틸 색 튜브로 라이브 오버레이에 추가(완료 즉시 3D 갱신). UI 스레드에서 호출.
+        private void AppendLivePipe(PathCell[] path, Color color, GridMeta grid)
+        {
+            if (path.Length < 1) return;
+            if (_liveGroup == null) { _liveGroup = new Model3DGroup(); LiveRouteModel = _liveGroup; }
+            var mb = new MeshBuilder(false, false);
+            var pts = path.Select(c => CellToWorld(grid, c)).ToList();
+            double dia = grid.CellMm * 0.7, mr = grid.CellMm * 0.9;
+            if (pts.Count >= 2) mb.AddTube(pts, dia, 8, false);
+            mb.AddSphere(pts[0], mr);
+            mb.AddSphere(pts[^1], mr);
+            // Model3DGroup 의 Children 변경은 바인딩된 ModelVisual3D 를 즉시 다시 렌더(재대입 불필요).
+            _liveGroup.Children.Add(Geometry(mb, color, 235));
+        }
 
         // 선택 PoC 의 시작(초록)·끝(노랑) 점을 강조 구로 그린다. 라우팅과 무관 — 선택 즉시 갱신,
         // 전체 모델을 다시 만들지 않고 별도 오버레이(SelectionModel)만 교체한다(대형 장면에서도 가볍게).

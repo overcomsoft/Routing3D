@@ -184,6 +184,7 @@
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
                     <ModelVisual3D Content="{Binding StepHighlightModel}"/> <!-- 선택 경로 구간 강조(흰색) -->
                     <ModelVisual3D Content="{Binding CompareModel}"/>     <!-- 기존설계 비교(주황=기존/시안=개발) -->
+                    <ModelVisual3D Content="{Binding LiveRouteModel}"/>   <!-- 진행 다이얼로그 라우팅 라이브(배관 완료마다 점진) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
 
@@ -207,9 +208,9 @@
                             <CheckBox Content="덕트"
                                       IsChecked="{Binding ShowDucts}" Margin="0,0,12,0"
                                       ToolTip="TB_DUCT_LATERAL 의 CATEGORY=DUCT 을 청색 박스로 표시"/>
-                            <CheckBox Content="경로"
+                            <CheckBox Content="자동경로"
                                       IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"
-                                      ToolTip="라우팅 경로 (유틸리티별 색 튜브)"/>
+                                      ToolTip="자동 라우팅 경로 (유틸리티별 색 튜브)"/>
                             <CheckBox Content="기존배관"
                                       IsChecked="{Binding ShowExistingPipes}" Margin="0,0,12,0"
                                       ToolTip="기존 설계배관 — TB_ROUTE_PATH(메인 장비 PoC→종단)을 유틸리티 색의 가는 튜브로 표시"/>

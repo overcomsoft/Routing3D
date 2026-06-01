@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -155,10 +156,15 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 
 // ------------------------------------------------------------- 비용함수 A*
 // 상태 = (셀, 진입방향 dir). dir ∈ [-1,5] → state = lin*7 + (dir+1).
+// on_progress(expanded, progress01): 탐색 중 진행율 콜백(뷰어 진행 다이얼로그의 '처리상태 %').
+//   progress01 = 1 - h_min/h_start (목표까지 남은 최소 휴리스틱의 감소율, [0,0.99] 클램프).
+//   progress_every>0 이고 on_progress 가 유효하면 그 간격(확장 수)마다 호출. 결과/결정성에는 영향 없음.
 template <class Occ>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
                            long long max_expansions = -1, bool collect_visited = false,
-                           const std::unordered_set<int>* corridor = nullptr) {
+                           const std::unordered_set<int>* corridor = nullptr,
+                           const std::function<void(long long, double)>* on_progress = nullptr,
+                           long long progress_every = 0) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
@@ -187,7 +193,9 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     long long counter = 0;
     long long s0 = state_of(occ.lin(start), -1);
     g[s0] = 0.0;
-    open.push({model.heuristic(start, goal), counter++, start, -1});
+    const double h_start = model.heuristic(start, goal);  // 진행율 기준(시작→목표 휴리스틱).
+    double h_min = h_start;                                // 지금까지 본 목표 최근접 휴리스틱.
+    open.push({h_start, counter++, start, -1});
     long long expanded = 0;
 
     while (!open.empty()) {
@@ -199,6 +207,17 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         if (collect_visited) {
             int cl = occ.lin(cur.cell);
             if (visited_seen.insert(cl).second) R.visited.push_back(cur.cell);
+        }
+        // 진행율 보고(처리상태 %): 목표까지 남은 최소 휴리스틱의 감소율.
+        if (on_progress && progress_every > 0) {
+            double hc = model.heuristic(cur.cell, goal);
+            if (hc < h_min) h_min = hc;
+            if (expanded % progress_every == 0) {
+                double prog = (h_start > 0.0) ? 1.0 - h_min / h_start : 0.0;
+                if (prog < 0.0) prog = 0.0;
+                if (prog > 0.99) prog = 0.99;
+                (*on_progress)(expanded, prog);
+            }
         }
 
         if (cur.cell == goal) {

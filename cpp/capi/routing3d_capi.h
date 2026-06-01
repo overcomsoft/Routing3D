@@ -114,18 +114,23 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
 R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(원본 장애물)
 
-// 배관 1개를 처리할 때마다 호출되는 진행 콜백(cdecl). 뷰어 진행 다이얼로그용 — 처리 순서·성공/실패·
-// 지표·실패 추정을 실시간 표시한다. ABI 안전: 콜백은 라우팅과 같은 스레드에서 동기 호출되며,
-// 콜백 내부에서 던진 예외는 경계를 넘지 않도록 호스트가 처리해야 한다(여기선 catch 로 방어).
+// 라우팅 진행 콜백(cdecl). 뷰어 진행 다이얼로그용 — 처리 순서·단계별 진행율·성공/실패·지표·경로를
+// 실시간 표시한다. ABI 안전: 라우팅과 같은 스레드에서 동기 호출. 콜백 예외는 경계를 넘기지 말 것.
 //   user         : 호스트 컨텍스트 포인터(그대로 전달).
+//   phase        : 0=탐색 진행(처리상태 %), 1=배관 완료(결과 지표 + 경로).
 //   order_index  : 처리 순서(0부터, priority 정렬 기준).
 //   task_index   : 원본 작업 인덱스(get_result 와 동일 매핑).
-//   success      : 1/0.  length_mm/turns/expanded_nodes/elapsed_ms : 이 배관의 결과 지표.
-//   done/total   : 진행률(done = 지금까지 처리 수, total = 전체).
-typedef void(__cdecl* R3dProgressFn)(void* user, int32_t order_index, int32_t task_index,
-                                     int32_t success, double length_mm, int32_t turns,
-                                     int64_t expanded_nodes, double elapsed_ms, int32_t done,
-                                     int32_t total);
+//   success      : phase==1 에서만 유효(1/0).
+//   length_mm/turns/expanded_nodes/elapsed_ms : phase==1 의 결과 지표(phase==0 은 expanded 만 유효).
+//   done/total   : 진행률(done = 완료 배관 수, total = 전체).
+//   progress01   : phase==0 의 탐색 진행율(0~1, 휴리스틱 근접 기반). phase==1 은 1.0.
+//   path_ijk/path_len : phase==1 성공 시 경로 셀((i,j,k) 연속, path_len 개). 그 외 NULL/0.
+//                       포인터는 콜백 호출 동안만 유효 — 즉시 복사할 것.
+typedef void(__cdecl* R3dProgressFn)(void* user, int32_t phase, int32_t order_index,
+                                     int32_t task_index, int32_t success, double length_mm,
+                                     int32_t turns, int64_t expanded_nodes, double elapsed_ms,
+                                     int32_t done, int32_t total, double progress01,
+                                     const int32_t* path_ijk, int32_t path_len);
 // r3d_route_multi 와 동일(순차·충돌없음)하되 배관마다 cb 를 호출한다. cb 가 널이면 콜백 없이 동작.
 R3D_API R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
                                            void* user);
