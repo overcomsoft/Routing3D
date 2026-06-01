@@ -190,7 +190,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private bool _includeFacilities = true;     // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로.
-        private bool _useHierarchicalCorridor = true;  // 라우팅을 계층 corridor(Sparse+astar_hashed)로 — 10mm 등 대형/정밀 격자에서 OOM 없이 안전.
+        private bool _useHierarchicalCorridor = false;  // true=계층 corridor(Sparse+astar_hashed, 대형/정밀 격자 안전, 균일비용). false=route_multi(가중 A*, 회전·클리어런스 품질). 25mm 에선 route_multi 권장.
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
@@ -939,10 +939,32 @@ namespace Routing3D.Viewer.ViewModels
             double cell = s.Grid.CellMm;
             double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
 
-            foreach (var e in s.Equipment)   // 메인 장비 포함 전체 설비를 충돌 대상으로.
+            // 라우팅 대상 배관의 '종단 PoC 를 포함하는' 설비/덕트(=연결 대상)는 장애물에서 제외한다.
+            // 그렇지 않으면 종단 PoC 가 자기 연결 덕트 안에 갇혀(snap 반경 밖) 라우팅이 전부 실패한다.
+            // (시작 PoC 쪽 장비는 막되 DropStartBelowEquipment 로 장비 아래로 빠져나간다.)
+            var endPts = new List<Point3D>(currentRows.Count);
+            foreach (var pos in currentRows)
+                endPts.Add(new Point3D(Tasks[pos].Gx, Tasks[pos].Gy, Tasks[pos].Gz));
+            double em = cell;   // 종단 포함 판정 여유(셀 1개).
+            bool BlocksAnEnd(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                foreach (var p in endPts)
+                    if (p.X >= mnx - em && p.X <= mxx + em &&
+                        p.Y >= mny - em && p.Y <= mxy + em &&
+                        p.Z >= mnz - em && p.Z <= mxz + em) return true;
+                return false;
+            }
+
+            foreach (var e in s.Equipment)   // 메인 장비 포함 전체 설비를 충돌 대상으로(종단 연결 대상은 제외).
+            {
+                if (BlocksAnEnd(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ)) continue;
                 AddBoxObstacle(engine, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ, minT);
+            }
             foreach (var d in s.DuctsLaterals)
+            {
+                if (BlocksAnEnd(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ)) continue;
                 AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
+            }
 
             // 이미 설계된(라우팅 성공) 다른 배관의 경로를 점유로 추가 — 새 배관이 이를 피하도록.
             double r = cell * 0.6;   // 경로 셀 폴리라인을 약 1셀 두께 튜브로 점유.
