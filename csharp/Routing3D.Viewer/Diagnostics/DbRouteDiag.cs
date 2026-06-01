@@ -29,7 +29,9 @@ namespace Routing3D.Viewer.Diagnostics
             sb.AppendLine($"grid {g.Nx}x{g.Ny}x{g.Nz} cell={g.CellMm} origin=({g.Ox:0},{g.Oy:0},{g.Oz:0})");
             sb.AppendLine($"obstacles={sd.Obstacles.Count} (passthrough {passN}) equipment={sd.Equipment.Count} ducts={sd.DuctsLaterals.Count} tasks={sd.Tasks.Count}");
 
-            var rows = sd.Tasks.Where(t => string.Equals(t.Utility, utility, StringComparison.OrdinalIgnoreCase)).ToList();
+            var rows = string.Equals(utility, "ALL", StringComparison.OrdinalIgnoreCase)
+                ? sd.Tasks.ToList()
+                : sd.Tasks.Where(t => string.Equals(t.Utility, utility, StringComparison.OrdinalIgnoreCase)).ToList();
             sb.AppendLine($"utility '{utility}': {rows.Count} tasks");
             if (rows.Count > 0)
             {
@@ -38,15 +40,12 @@ namespace Routing3D.Viewer.Diagnostics
             }
             sb.AppendLine();
 
-            int autoF = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
-            sb.AppendLine(Try(sd, rows, fac: false, drop: false, factor: autoF, radius: 2, mode: "cm",    $"A corridorMULTI f={autoF} obstaclesOnly"));
-            sb.AppendLine(Try(sd, rows, fac: false, drop: false, factor: autoF, radius: 2, mode: "multi", $"F route_multi      obstaclesOnly"));
-            sb.AppendLine(Try(sd, rows, fac: true,  drop: true,  factor: autoF, radius: 2, mode: "multi", $"G route_multi      +facilities+drop"));
+            sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 0, mode: "multi", "G route_multi +facilities+drop clearOFF cap"));
             return sb.ToString();
         }
 
         static string Try(SceneData sd, List<TaskInfo> rows, bool fac, bool drop,
-                          int factor, int radius, string mode, string label)
+                          double wClear, string mode, string label, int factor = 6, int radius = 2)
         {
             var g = sd.Grid;
             double cell = g.CellMm;
@@ -55,7 +54,8 @@ namespace Routing3D.Viewer.Diagnostics
             {
                 eng = new Engine();
                 eng.SetGrid(cell, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
-                eng.SetParams(cell, 500, 10, 2, 6);
+                int clr = wClear > 0 ? 2 : 0;
+                eng.SetParams(cell, 500, wClear, clr, 6);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);

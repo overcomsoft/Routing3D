@@ -882,7 +882,10 @@ namespace Routing3D.Viewer.ViewModels
             ResetEngine();
             var g = scene.Grid;
             _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6);
+            // 대형 격자(25mm 1.3억 셀 등)에서는 클리어런스 거리맵(배관당 격자 전체 BFS + size×4B 배열,
+            // ~520MB)이 속도·메모리의 주 병목 → 비활성(w_clear=0). 작은 격자는 클리어런스 유지(품질).
+            bool bigGrid = (long)g.Nx * g.Ny * g.Nz > 5_000_000;
+            _engine.SetParams(g.CellMm, 500, bigGrid ? 0 : 10, bigGrid ? 0 : 2, 6);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);

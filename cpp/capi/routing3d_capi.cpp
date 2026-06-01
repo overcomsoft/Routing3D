@@ -119,11 +119,15 @@ void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool colle
     std::unordered_set<int> corridor;
     const bool use_corridor = doc.params.w_corridor > 0.0;
     const int corridor_radius = doc.params.corridor_radius > 0 ? doc.params.corridor_radius : 1;
+    // 대형 격자(예 25mm·1.3억 셀)에서는 경로가 없는/막힌 배관이 도달 가능한 셀을 전부 확장해
+    // g/came 맵이 수 GB 로 폭증 → 메모리 고갈(0xC0000005). 탐색 상한을 둬 그런 배관을 조기 종료한다.
+    // 작은 격자(골든 등)는 상한 없음(-1) 으로 기존 동작·결정성 보존.
+    const long long max_exp = (occ.size() > 5000000LL) ? 12000000LL : -1;
     for (int oi : order) {
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), 2);
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), 2);
-        AStarResult res = astar_weighted(work, s, g, doc.params, -1, collect_visited,
+        AStarResult res = astar_weighted(work, s, g, doc.params, max_exp, collect_visited,
                                          use_corridor ? &corridor : nullptr);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
