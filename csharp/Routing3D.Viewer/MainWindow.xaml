@@ -274,11 +274,11 @@
                         <StackPanel>
                             <TextBlock Text="마커 안내 (선택 배관)" FontWeight="Bold" Margin="0,0,0,4"/>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#50FF78" Stroke="#888" StrokeThickness="0.5"/>
+                                <Ellipse Width="14" Height="14" Fill="#FF2D2D" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="● 시작점 (시작 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#FFE13C" Stroke="#888" StrokeThickness="0.5"/>
+                                <Ellipse Width="14" Height="14" Fill="#3278FF" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="● 끝점 (종단 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">

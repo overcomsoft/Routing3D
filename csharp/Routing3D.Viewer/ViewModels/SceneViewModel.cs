@@ -1461,10 +1461,10 @@ namespace Routing3D.Viewer.ViewModels
             var grp = new Model3DGroup();
             var s = new MeshBuilder(false, false);
             s.AddSphere(new Point3D(t.Sx, t.Sy, t.Sz), r);
-            grp.Children.Add(Geometry(s, Color.FromRgb(80, 255, 120), 235));   // 시작 = 초록.
+            grp.Children.Add(Geometry(s, Color.FromRgb(255, 45, 45), 235));    // 시작 PoC = 빨강.
             var e = new MeshBuilder(false, false);
             e.AddSphere(new Point3D(t.Gx, t.Gy, t.Gz), r);
-            grp.Children.Add(Geometry(e, Color.FromRgb(255, 225, 60), 235));   // 끝 = 노랑.
+            grp.Children.Add(Geometry(e, Color.FromRgb(50, 120, 255), 235));   // 종단 PoC = 파랑.
 
             // 경로가 있으면 방향 전환(꺾임) 지점을 마젠타 구로 표시 + 구간 단계 리스트 구성.
             BuildPathSteps(g, t.Path, grp);
