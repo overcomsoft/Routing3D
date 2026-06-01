@@ -190,7 +190,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private bool _includeFacilities = true;     // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로.
-        private bool _useHierarchicalCorridor = false;  // true=계층 corridor(Sparse+astar_hashed, 대형/정밀 격자 안전, 균일비용). false=route_multi(가중 A*, 회전·클리어런스 품질). 25mm 에선 route_multi 권장.
+        private bool _useHierarchicalCorridor = true;   // 라우팅을 계층 corridor(Sparse+astar_hashed, 64비트 pack20)로. route_multi(가중 A*)는 25mm 등 큰 격자에서 lin() 정수 오버플로로 크래시(0xC0000005) → 반드시 corridor 사용.
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
