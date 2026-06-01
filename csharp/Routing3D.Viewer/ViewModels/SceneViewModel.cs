@@ -191,6 +191,10 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
+        // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
+        private PatternStore? _patterns;
+        private bool _patternsTried;                    // DB 1회만 조회(미스도 캐시).
+        private bool _usePatterns = true;               // 기존설계 패턴 활용 토글(기본 ON, 미스 시 자동 기하 폴백).
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -333,6 +337,21 @@ namespace Routing3D.Viewer.ViewModels
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
         /// getter 전용이라 UI 에서 끌 수 없다(체크박스는 켜진 채 비활성).</summary>
         public bool IncludeFacilities => _includeFacilities;   // _includeFacilities 는 항상 true(고정).
+
+        /// <summary>기존설계 패턴 활용 — 학습된 진출/진입 면(장비=-z·덕트=+z 등)으로 시작/종단 PoC 를
+        /// 투영해 자동라우팅을 사람 설계에 맞춘다. 패턴 저장소(pgvector route_stub_pattern)가 비었거나
+        /// 키 미스면 자동으로 기존 최근접-면 규칙으로 폴백(무해). 기본 ON.</summary>
+        public bool UsePatterns
+        {
+            get => _usePatterns;
+            set { if (Set(ref _usePatterns, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
+        public string PatternStatus =>
+            !_usePatterns ? "기존설계 패턴: OFF"
+            : _patterns == null ? "기존설계 패턴: 없음(기하 폴백)"
+            : $"기존설계 패턴: {_patterns.Count}키";
 
         /// <summary>점유맵 해상도. true=원본(전체 셀 표시, 느릴 수 있음), false=다운샘플(상한까지만).</summary>
         public bool OccupancyFullRes
@@ -697,6 +716,13 @@ namespace Routing3D.Viewer.ViewModels
                 Status = "DB 장면 로드 중…";
                 var sd = await Task.Run(() => ObstacleDbLoader.LoadScene(_dbConfig, projectId, _cellMm));
                 _scene = sd;
+                // 기존설계 패턴 저장소(pgvector)를 1회 로드(미스도 캐시) — 학습된 진출/진입 면으로 PoC 투영(L2a).
+                if (!_patternsTried)
+                {
+                    _patternsTried = true;
+                    _patterns = await Task.Run(() => PatternStore.TryLoad(_dbConfig));
+                    OnChanged(nameof(PatternStatus));
+                }
                 ResetEngine();
                 var g = sd.Grid;
                 _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
@@ -910,14 +936,26 @@ namespace Routing3D.Viewer.ViewModels
                 var row = Tasks[pos];
                 // 시작 PoC 가 메인 장비 내부면 수직 하단(장비 바닥 한 셀 아래)으로 빼낸 뒤(배관이 장비 아래로
                 // 빠져나가는 물리적 동작), 남은 덕트/레터럴 솔리드도 표면으로 투영.
+                // 학습된 진출/진입 면(있으면) — 장비(EQUIP)·덕트(DUCT) 키로 조회. 최근접 면 대신 사용.
+                string? startFace = LearnedFace("EQUIP", row.Group, row.Utility);
+                string? endFace = LearnedFace("DUCT", row.Group, row.Utility);
                 var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
-                (sx, sy, sz) = LiftPocToSurface(sx, sy, sz);
+                (sx, sy, sz) = LiftPocToSurface(sx, sy, sz, startFace);
+                (sx, sy, sz) = SnapPocToFreeCell(sx, sy, sz, startFace);   // 파묻힌 시작 PoC → 최근접 자유 셀.
                 // 종단 PoC(덕트 상부 등)도 솔리드 면 바로 바깥으로 투영 → 덕트 표면에 연결, 본체 관통 방지.
-                var (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz);
+                var (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz, endFace);
+                (gx, gy, gz) = SnapPocToFreeCell(gx, gy, gz, endFace);     // 파묻힌 종단 PoC → 최근접 자유 셀.
                 _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
             }
             return added;
+        }
+
+        // 기존설계 패턴에서 학습된 진출/진입 면(예: EQUIP=-z, DUCT=+z)을 조회한다. 패턴 OFF/미적재/미스면 null.
+        private string? LearnedFace(string anchorKind, string? group, string? utility)
+        {
+            if (!_usePatterns || _patterns == null) return null;
+            return _patterns.TryGet(anchorKind, group, utility, out var tpl) ? tpl.Face : null;
         }
 
         // 시작점이 설비 AABB 내부면 그 설비(들) 중 가장 낮은 바닥(MinZ) 한 셀 아래로 Z 를 내려, 장비 밖
@@ -947,7 +985,8 @@ namespace Routing3D.Viewer.ViewModels
         // 덕트 상부 PoC → 윗면 위 한 셀(자유)로 투영 → 배관이 덕트 표면에 닿아 연결되고 본체를 관통하지 않는다.
         // (충돌확장이 항상 ON 이라 설비/덕트가 솔리드이므로, 표면 투영이 없으면 PoC 셀이 막혀 라우팅이 실패하거나
         //  엔진 snap(반경 2)이 엉뚱한 옆 셀로 새어 관통/우회한다.) 여러 박스에 걸치면 몇 번 반복해 탈출.
-        private (double x, double y, double z) LiftPocToSurface(double x, double y, double z)
+        private (double x, double y, double z) LiftPocToSurface(double x, double y, double z,
+                                                                string? preferFace = null)
         {
             var s = _scene;
             if (s == null || !_includeFacilities) return (x, y, z);
@@ -955,12 +994,25 @@ namespace Routing3D.Viewer.ViewModels
             for (int iter = 0; iter < 4; iter++)
             {
                 bool moved = false;
-                // 한 박스 안이면 6면 중 침투가 가장 얕은 면으로 탈출(가장 가까운 표면 = 최소 우회).
+                // 한 박스 안이면 탈출 면을 고른다. preferFace(학습된 진출/진입 면)가 주어지고 그 면으로 나갈
+                // 수 있으면 그 면으로(사람 설계 관례: 덕트=+z 상부, 장비=-z 하부) — 없으면 침투가 가장 얕은 면.
                 void TryBox(double bMinX, double bMinY, double bMinZ, double bMaxX, double bMaxY, double bMaxZ)
                 {
                     if (x <= bMinX - eps || x >= bMaxX + eps) return;
                     if (y <= bMinY - eps || y >= bMaxY + eps) return;
                     if (z <= bMinZ - eps || z >= bMaxZ + eps) return;
+                    if (preferFace != null)
+                    {
+                        switch (preferFace)
+                        {
+                            case "+z": z = bMaxZ + m; moved = true; return;
+                            case "-z": z = bMinZ - m; moved = true; return;
+                            case "+x": x = bMaxX + m; moved = true; return;
+                            case "-x": x = bMinX - m; moved = true; return;
+                            case "+y": y = bMaxY + m; moved = true; return;
+                            case "-y": y = bMinY - m; moved = true; return;
+                        }
+                    }
                     double dxn = x - bMinX, dxp = bMaxX - x;
                     double dyn = y - bMinY, dyp = bMaxY - y;
                     double dzn = z - bMinZ, dzp = bMaxZ - z;
@@ -980,6 +1032,97 @@ namespace Routing3D.Viewer.ViewModels
             double zMin = s.Grid.Oz + m;
             if (z < zMin) z = zMin;
             return (x, y, z);
+        }
+
+        // 접근불가 PoC 전처리 — Lift 후에도 시작/종단 셀이 솔리드에 막혀 있으면(파묻힌 PoC: 여러 솔리드에
+        // 둘러싸여 면 투영이 다시 솔리드 안으로 떨어지거나, 엔진 snap(반경 2)으로도 못 빠져나오는 경우)
+        // 가장 가까운 '자유 셀'로 옮긴다. ① 학습된 면 법선으로 바깥 행진(도메인 방향 우선: 덕트=+z 상부 등)
+        // → ② 실패 시 체비셰프 반경을 넓혀가며 최근접 자유 셀. 끝내 못 찾으면(진짜 접근불가) 원점 유지.
+        // 이미 자유 셀이면 그대로 반환(이미 성공하는 작업엔 영향 0 = 회귀 없음).
+        private const int SnapMarchCells = 16;   // 학습면 방향 최대 행진(셀).
+        private const int SnapMaxRadius = 6;     // 반경 확장 탐색 상한(셀).
+
+        private (double x, double y, double z) SnapPocToFreeCell(double x, double y, double z, string? preferFace)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            double cell = s.Grid.CellMm;
+            if (!CellBlocked(x, y, z)) return (x, y, z);   // 이미 자유 → 변경 없음.
+
+            // ① 학습된 진출/진입 면 방향으로 바깥 행진(있으면) — 도메인에 맞는 방향으로 먼저 탈출 시도.
+            if (preferFace != null)
+            {
+                var (dx, dy, dz) = FaceNormal(preferFace);
+                if (dx != 0 || dy != 0 || dz != 0)
+                    for (int k = 1; k <= SnapMarchCells; k++)
+                    {
+                        double nx = x + dx * cell * k, ny = y + dy * cell * k, nz = z + dz * cell * k;
+                        if (InGrid(nx, ny, nz) && !CellBlocked(nx, ny, nz)) return (nx, ny, nz);
+                    }
+            }
+            // ② 체비셰프 반경 확장 — 셸 단위로 넓혀가며 가장 가까운 자유 셀.
+            for (int r = 1; r <= SnapMaxRadius; r++)
+            {
+                (double, double, double)? best = null; double bestD = double.MaxValue;
+                for (int di = -r; di <= r; di++)
+                    for (int dj = -r; dj <= r; dj++)
+                        for (int dk = -r; dk <= r; dk++)
+                        {
+                            if (Math.Max(Math.Max(Math.Abs(di), Math.Abs(dj)), Math.Abs(dk)) != r) continue; // 셸만.
+                            double nx = x + di * cell, ny = y + dj * cell, nz = z + dk * cell;
+                            if (!InGrid(nx, ny, nz) || CellBlocked(nx, ny, nz)) continue;
+                            double d = di * di + dj * dj + dk * dk;
+                            if (d < bestD) { bestD = d; best = (nx, ny, nz); }
+                        }
+                if (best != null) return best.Value;
+            }
+            return (x, y, z);  // 진짜 접근불가 → 엔진 snap 에 맡김(여전히 실패할 수 있음).
+        }
+
+        private static (double dx, double dy, double dz) FaceNormal(string face) => face switch
+        {
+            "+x" => (1, 0, 0),
+            "-x" => (-1, 0, 0),
+            "+y" => (0, 1, 0),
+            "-y" => (0, -1, 0),
+            "+z" => (0, 0, 1),
+            "-z" => (0, 0, -1),
+            _ => (0, 0, 0),
+        };
+
+        private bool InGrid(double x, double y, double z)
+        {
+            var g = _scene!.Grid;
+            return x >= g.Ox && y >= g.Oy && z >= g.Oz
+                && x <= g.Ox + g.Nx * g.CellMm && y <= g.Oy + g.Ny * g.CellMm && z <= g.Oz + g.Nz * g.CellMm;
+        }
+
+        // 점이 속한 셀(반열린 [lo, lo+cell))이 어떤 솔리드(장애물 비통과 + 설비/덕트, 얇은 축은 minT 팽창)와
+        // 겹치면 막힘. 엔진 복셀화(box↔cell overlap, 동일 minT)와 같은 기준 → 엔진 is_blocked 근사.
+        private bool CellBlocked(double x, double y, double z)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm, minT = cell;
+            int ci = (int)Math.Floor((x - g.Ox) / cell);
+            int cj = (int)Math.Floor((y - g.Oy) / cell);
+            int ck = (int)Math.Floor((z - g.Oz) / cell);
+            double clx = g.Ox + ci * cell, chx = clx + cell;
+            double cly = g.Oy + cj * cell, chy = cly + cell;
+            double clz = g.Oz + ck * cell, chz = clz + cell;
+
+            bool Overlap(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                if (mxx - mnx < minT) { double c = (mnx + mxx) / 2; mnx = c - minT / 2; mxx = c + minT / 2; }
+                if (mxy - mny < minT) { double c = (mny + mxy) / 2; mny = c - minT / 2; mxy = c + minT / 2; }
+                if (mxz - mnz < minT) { double c = (mnz + mxz) / 2; mnz = c - minT / 2; mxz = c + minT / 2; }
+                return clx < mxx && chx > mnx && cly < mxy && chy > mny && clz < mxz && chz > mnz;
+            }
+            foreach (var o in s.Obstacles)
+                if (!o.IsPassThrough && Overlap(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ)) return true;
+            foreach (var e in s.Equipment)
+                if (Overlap(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ)) return true;
+            foreach (var d in s.DuctsLaterals)
+                if (Overlap(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ)) return true;
+            return false;
         }
 
         // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
