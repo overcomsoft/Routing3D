@@ -879,10 +879,36 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pos in rowPositions)
             {
                 var row = Tasks[pos];
-                _engine.AddTask(row.Sx, row.Sy, row.Sz, row.Gx, row.Gy, row.Gz, row.Utility, row.Group);
+                // 시작 PoC 가 메인 장비 내부에 있으면(충돌확장 시 장비가 막힘) 수직 하단으로 장비 바닥을
+                // 벗어난 첫 셀을 실제 시작점으로 삼는다(배관이 장비 아래로 빠져나가는 물리적 동작).
+                var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
+                _engine.AddTask(sx, sy, sz, row.Gx, row.Gy, row.Gz, row.Utility, row.Group);
                 added.Add(pos);
             }
             return added;
+        }
+
+        // 시작점이 설비 AABB 내부면 그 설비(들) 중 가장 낮은 바닥(MinZ) 한 셀 아래로 Z 를 내려, 장비 밖
+        // 첫 셀을 라우팅 시작점으로 만든다. XY 는 유지. 충돌확장 OFF(설비 비충돌)이거나 설비 밖이면 원점 유지.
+        private (double x, double y, double z) DropStartBelowEquipment(double x, double y, double z)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            const double eps = 1.0;
+            double lowestBottom = double.NaN;
+            foreach (var e in s.Equipment)
+            {
+                if (x < e.MinX - eps || x > e.MaxX + eps) continue;
+                if (y < e.MinY - eps || y > e.MaxY + eps) continue;
+                if (z < e.MinZ - eps || z > e.MaxZ + eps) continue;
+                if (double.IsNaN(lowestBottom) || e.MinZ < lowestBottom) lowestBottom = e.MinZ;
+            }
+            if (double.IsNaN(lowestBottom)) return (x, y, z);   // 설비 안이 아님 → 그대로.
+            double cell = s.Grid.CellMm;
+            double nz = lowestBottom - cell * 0.5;              // 설비 바닥 한 셀 아래.
+            double gridBottom = s.Grid.Oz + cell * 0.5;
+            if (nz < gridBottom) nz = gridBottom;               // 격자 하한 밖이면 클램프.
+            return (x, y, nz);
         }
 
         // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
