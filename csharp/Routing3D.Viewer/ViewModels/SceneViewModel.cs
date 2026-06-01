@@ -190,6 +190,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private bool _includeFacilities = true;     // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로.
+        private bool _useHierarchicalCorridor = true;  // 라우팅을 계층 corridor(Sparse+astar_hashed)로 — 10mm 등 대형/정밀 격자에서 OOM 없이 안전.
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
@@ -1035,10 +1036,27 @@ namespace Routing3D.Viewer.ViewModels
                 double wCorridor = cor ? cellMm * 2.0 : 0.0;
                 int[] rackLevels = cor ? ComputeRackLevels() : System.Array.Empty<int>();
                 string priority = _priority;
+                // 계층 corridor 사용 여부('회랑 비용' 모드(cor)는 route_multi 로 랙 번들링 유지).
+                bool hier = _useHierarchicalCorridor && !cor;
+                // coarse 셀 ≈ 160mm 가 되도록 factor 산출(4~24 클램프), 통로 반경 2 coarse 셀.
+                int factor = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
                 await Task.Run(() =>
                 {
-                    if (cor) engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
-                    engine.RouteMulti(priority);
+                    if (cor)
+                    {
+                        engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
+                        engine.RouteMulti(priority);
+                    }
+                    else if (hier)
+                    {
+                        // Sparse + astar_hashed: 셀 수 배열을 안 잡아 10mm 대형 격자도 안전.
+                        // priority 순차 + mark_pipe 로 배관 간 충돌 0.
+                        engine.RouteCorridorMulti(factor, 2, priority, 0);
+                    }
+                    else
+                    {
+                        engine.RouteMulti(priority);
+                    }
                 });
                 CacheResults(added);
                 BuildModel();

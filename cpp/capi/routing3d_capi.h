@@ -127,6 +127,15 @@ R3D_API R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t ma
 // 비용함수(회전/클리어런스)는 미적용(균일 비용). 결과는 작업 인덱스별로 저장.
 R3D_API R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius);
 
+// 순차 계층 corridor 라우팅(대형/정밀 격자 + 배관 간 충돌 회피). r3d_route_corridor 와 동일한
+// Sparse + astar_hashed(해시 기반, 셀 수 배열 미할당)이되, priority 순서로 한 배관씩 라우팅하고
+// 깔린 경로를 mark_pipe(pipe_radius) 로 점유 추가해 다음 배관이 피하도록 한다(충돌 0).
+//   factor : coarse/fine 셀 비율.  radius : corridor 팽창 반경(coarse 셀).
+//   priority : "longest"|"shortest"|"utility"|"original".  pipe_radius : 깔린 배관 팽창 반경(fine 셀).
+// 비용함수(회전/클리어런스)는 미적용(균일 비용). 결과는 작업 인덱스별로 저장.
+R3D_API R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int32_t radius,
+                                           const char* priority, int32_t pipe_radius);
+
 // 결과/경로 조회.
 R3D_API R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out);
 // 경로 셀을 buf(int32_t[3*buf_cells], (i,j,k) 연속)에 복사. 반환=실제 복사한 셀 수.

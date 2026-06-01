@@ -92,6 +92,12 @@ namespace Routing3D.Viewer.Interop
         public void RouteCorridor(int factor = 16, int radius = 2)
             => Check(Native.r3d_route_corridor(H, factor, radius), "route_corridor");
 
+        // 순차 계층 corridor(Sparse + astar_hashed, 셀 수 배열 미할당 → 10mm 등 대형/정밀 격자 안전).
+        // priority 순서로 한 배관씩 라우팅하고 mark_pipe(pipeRadius)로 점유 추가 → 배관 간 충돌 0.
+        public void RouteCorridorMulti(int factor, int radius, string priority = "longest", int pipeRadius = 0)
+            => Check(Native.r3d_route_corridor_multi(H, factor, radius, Native.Utf8(priority), pipeRadius),
+                     "route_corridor_multi");
+
         // ---- 결과 조회 ----
         public RouteResult GetResult(int task)
         {

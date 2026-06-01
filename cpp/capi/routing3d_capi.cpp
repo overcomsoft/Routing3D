@@ -364,6 +364,51 @@ extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t ra
     }
 }
 
+// 순차 계층 corridor: r3d_route_corridor 와 같은 Sparse + astar_hashed 이되, priority 순서로
+// 한 배관씩 라우팅하고 성공 경로를 fine 점유에 mark_pipe 로 추가해 다음 배관이 피하게 한다(충돌 0).
+extern "C" R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int32_t radius,
+                                              const char* priority, int32_t pipe_radius) {
+    if (!e) return R3D_ERR_ARG;
+    if (factor < 1 || radius < 0) return R3D_ERR_ARG;
+    try {
+        SceneDoc& doc = e->doc;
+
+        SparseOccupancy fine(doc.shape, doc.origin, doc.cell_mm);
+        Cell cshape{(doc.shape.i + factor - 1) / factor, (doc.shape.j + factor - 1) / factor,
+                    (doc.shape.k + factor - 1) / factor};
+        SparseOccupancy coarse(cshape, doc.origin, doc.cell_mm * factor);
+        for (const Obstacle& o : doc.obstacles) {
+            try {
+                AABB box(o.min_xyz, o.max_xyz);
+                fine.add_box(box);
+                coarse.add_box(box);
+            } catch (...) {
+                // 퇴화 박스 무시.
+            }
+        }
+
+        const std::string prio = priority ? priority : "longest";
+        const std::vector<int> order = order_indices(fine, doc.tasks, prio);
+        const int pr = pipe_radius > 0 ? pipe_radius : 0;
+
+        doc.results.assign(doc.tasks.size(), std::nullopt);
+        for (int idx : order) {
+            const RouteTask& t = doc.tasks[static_cast<size_t>(idx)];
+            Cell s = snap_to_free_cell(fine, fine.to_cell(t.start_mm), 2);
+            Cell g = snap_to_free_cell(fine, fine.to_cell(t.end_mm), 2);
+            CorridorRoute cr = route_corridor(fine, coarse, s, g, factor, radius, -1);
+            if (cr.fine.success) {
+                // 다음 배관이 피하도록 fine 점유에 경로(+반경)를 추가. coarse 는 가이드라 미표시.
+                mark_pipe(fine, cr.fine.path, pr);
+            }
+            doc.results[static_cast<size_t>(idx)] = to_scene_result(cr.fine);
+        }
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
 extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) {
     if (!e) return R3D_ERR_ARG;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
