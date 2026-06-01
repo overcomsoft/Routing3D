@@ -177,11 +177,12 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     std::priority_queue<detail::PQItem, std::vector<detail::PQItem>, detail::PQCmp> open;
     std::unordered_map<long long, double> g;
     std::unordered_map<long long, long long> came;  // state → 직전 state
-    std::vector<uint8_t> closed(static_cast<size_t>(occ.size()) * 7, 0);
-    // 셀 단위 방문 표시(collect_visited 일 때만 사용). 같은 셀이 여러 진입방향으로 expand 돼도
-    // 시각화는 한 번만. 가중 A* 라 state ≠ cell — 별도 셀 비트맵으로 dedupe.
-    std::vector<uint8_t> visited_seen;
-    if (collect_visited) visited_seen.assign(static_cast<size_t>(occ.size()), 0);
+    // 확정(closed) state 집합 — 해시 기반(메모리 ∝ 탐색 셀). dense 배열(occ.size()*7)로 잡으면
+    // 대형/정밀 격자(예 360x577x626 ≈ 1.3억 셀 → 910MB)에서 메모리 폭발/크래시. 결정성은 PQ
+    // (f, counter) 가 보장하므로 closed 자료구조 교체는 결과/expanded_nodes 에 영향 없음.
+    std::unordered_set<long long> closed;
+    // 셀 단위 방문 dedupe(collect_visited 일 때만). 같은 셀이 여러 진입방향으로 expand 돼도 시각화는 한 번.
+    std::unordered_set<int> visited_seen;
 
     long long counter = 0;
     long long s0 = state_of(occ.lin(start), -1);
@@ -193,15 +194,11 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         detail::PQItem cur = open.top();
         open.pop();
         long long st = state_of(occ.lin(cur.cell), cur.dir);
-        if (closed[static_cast<size_t>(st)]) continue;
-        closed[static_cast<size_t>(st)] = 1;
+        if (!closed.insert(st).second) continue;   // 이미 확정된 state면 skip.
         ++expanded;
         if (collect_visited) {
             int cl = occ.lin(cur.cell);
-            if (!visited_seen[static_cast<size_t>(cl)]) {
-                visited_seen[static_cast<size_t>(cl)] = 1;
-                R.visited.push_back(cur.cell);
-            }
+            if (visited_seen.insert(cl).second) R.visited.push_back(cur.cell);
         }
 
         if (cur.cell == goal) {
@@ -233,7 +230,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             Cell nb{cur.cell.i + d.i, cur.cell.j + d.j, cur.cell.k + d.k};
             if (!occ.in_bounds(nb) || occ.is_blocked(nb)) continue;
             long long ns = state_of(occ.lin(nb), nidx);
-            if (closed[static_cast<size_t>(ns)]) continue;
+            if (closed.count(ns)) continue;
             double t = g_cur + model.move_cost(nb, prev_off, d);
             auto git = g.find(ns);
             if (git == g.end() || t < git->second) {
