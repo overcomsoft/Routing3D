@@ -196,7 +196,7 @@ namespace Routing3D.Viewer.ViewModels
         // DB 접속 설정(환경변수 우선) + 선택된 프로젝트 / 격자 셀 크기.
         private readonly DbConfig _dbConfig = DbConfig.FromEnv();
         private ProjectInfo? _selectedProject;
-        private double _cellMm = 100.0;
+        private double _cellMm = 10.0;   // 라우팅 격자 셀 크기(mm). 작을수록 정밀하지만 셀 수가 (비율)³ 으로 폭증.
         private bool _suppressProjectAutoLoad;
 
         // 경로 탐색 범위(모두/그룹별/유틸별) + 선택 대상(그룹/유틸 1개).
