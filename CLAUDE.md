@@ -126,12 +126,14 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 | **3.8** | **rip-up & reroute** — 무손실 결정적, 합성 1/2→2/2, project6 cell=200 +3 실측 | ctest `ripup` + pytest |
 | 3.9 | scene.txt I/O (Python 픽스처 바이트 동일 재출력) | F2 무손실 왕복 |
 | 3.10 | pybind11 바인딩 → `routing3d_cpp.pyd` | 골든 01/02/03 + scene.txt 왕복 일치 |
-| 3.11 | 벤치 · 최적화 — **미착수** | — |
+| **3.11** | **sparse 확장(정밀 셀 대응)** — `ImplicitOccupancy`(복셀화 폐기, 장애물 AABB를 `SpatialBoxIndex` 유니폼그리드로 색인) + A* **64비트 키**(`state_of`/`unlin`) + **온디맨드 클리어런스**(전역 거리변환 폐기, `CostModel` `HasClearanceQuery`). 격자>5M셀이면 capi 가 자동 전환(이하 Dense=골든 바이트 불변) | ctest `implicit`(Dense==Implicit 전수 일치) + 25mm 14/14·10mm 크래시 0(20.3억 셀) |
 | **3.12** | **회귀 리포트** — 표준 벤치 자동 측정·기대치 비교 → `docs/routing3d_regression_report.{docx,pdf}` | 골든 3/3 PASS |
 
 - **CLI**: `routing3d_cli` (코어만, demo/route/summary 명령, `--mode multi\|single\|ripup`)
-- **DLL**: `routing3d_capi.dll` (외부 의존성 0, 261KB)
-- **ctest 9/9**: golden · scene_io · occupancy · corridor · **ripup** · capi · vdb · fcl · bindings
+- **DLL**: `routing3d_capi.dll` (외부 의존성 0)
+- **점유 백엔드 3종**: `DenseOccupancy`(소격자·골든) / `SparseOccupancy`(corridor) / **`ImplicitOccupancy`**(정밀·거대격자 — 메모리 O(장애물+깔린셀), 셀 크기 무관)
+- **ctest 10/10**: golden · scene_io · occupancy · corridor · **implicit** · ripup · attract · capi · vdb · fcl
+  (pybind `bindings` 는 commit 2ce3eb8 에서 `astar_weighted` 에 corridor 인자 추가 후 미갱신 — `bindings.cpp:134` 에 `py::arg("corridor")` 누락. 파이썬 모듈 빌드 시에만 영향, capi/뷰어 무관)
 
 ### C# 인터롭 (완료, 2026-05-29~30)
 
@@ -228,7 +230,7 @@ C# 직교 A* + 동일 DB. UI 스타일·DB 흐름 참조용(직접 포팅 안 �
 
 ## 9. 다음 작업 후보
 
-- **3.11 벤치 · 최적화**: corridor 폭/해상도 튜닝, 클리어런스 로컬화, 라우팅에 FCL 통합, 독립 배관 병렬화
+- **정밀 셀 탐색량 최적화(10mm)**: sparse 저장(S1~S4)으로 메모리·오버플로는 해결됨 — 25mm 실용(유틸 단위 ~분), **10mm 는 셀 16배·탐색량 폭증으로 ~110s/배관·탐색상한(12M) 도달분 실패**(메모리 아님). 다음 계층 = **계층 corridor 강건화**(굵은 가이드→가는 튜브로 탐색을 튜브 부피에 한정, 종단점 최근접 스냅+튜브 적응폭) / 가중(ε)A* / 독립 배관 병렬화. ImplicitOccupancy 가 이미 corridor 백엔드로 적합.
 - **접근불가 PoC 전처리**: 종단 PoC가 장애물에 파묻혔을 때 스냅 반경 확장 / 표면 투사(rip-up으로는 구조상 해소 불가)
 - **negotiated-congestion / CBS**: 비용기반 충돌 회피 — rip-up 의 더 강력한 후속
 - **P3b' OpenVDB capi**: VDB 백엔드를 C ABI 로 노출 + 런타임 DLL 동봉 (Sparse로 목표 충족돼 보류 중)

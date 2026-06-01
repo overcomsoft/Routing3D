@@ -40,7 +40,7 @@ namespace Routing3D.Viewer.Diagnostics
             }
             sb.AppendLine();
 
-            sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 0, mode: "multi", "G route_multi +facilities+drop clearOFF cap"));
+            sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 10, mode: "multi", "G route_multi +facilities+drop clearON(Implicit 온디맨드)"));
             return sb.ToString();
         }
 

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <array>
+#include <concepts>
 #include <deque>
 #include <map>
 #include <stdexcept>
@@ -20,6 +21,14 @@
 #include "routing3d/geometry.hpp"
 
 namespace routing3d {
+
+// 백엔드가 '온디맨드 클리어런스'(셀→최근접 장애물 거리)를 직접 제공하는가(S4).
+// 제공하면(ImplicitOccupancy) CostModel 은 전역 distance transform 배열을 만들지 않고
+// 질의로 대체한다 → 메모리 = O(탐색 셀), 셀 크기 무관. Dense/Sparse 는 미제공 → 기존 경로 유지.
+template <class Occ>
+concept HasClearanceQuery = requires(const Occ& o, const Cell& c, int r) {
+    { o.clearance_cells(c, r) } -> std::convertible_to<int>;
+};
 
 // 라우팅 비용 파라미터 (모든 비용 mm). 모든 값 >= 0 (보너스/감산 금지).
 struct RouteParams {
@@ -102,8 +111,12 @@ public:
               const std::unordered_set<int>* corridor = nullptr)
         : occ_(occ), p_(std::move(params)), corridor_(corridor) {
         if (p_.w_clear > 0.0 && p_.clearance_radius > 0) {
-            clearance_ = clearance_map(occ_, p_.clearance_radius, p_.clearance_connectivity);
-            has_clear_ = true;
+            if constexpr (HasClearanceQuery<Occ>) {
+                on_demand_clear_ = true;  // 백엔드 질의로 대체 — 전역 배열 미생성(S4).
+            } else {
+                clearance_ = clearance_map(occ_, p_.clearance_radius, p_.clearance_connectivity);
+                has_clear_ = true;
+            }
         }
         rack_ = std::unordered_set<int>(p_.rack_levels.begin(), p_.rack_levels.end());
     }
@@ -111,7 +124,12 @@ public:
     // 클리어런스 근접 + 단(z) 분리 가산 페널티.
     double cell_penalty(const Cell& c) const {
         double pen = 0.0;
-        if (has_clear_) {
+        if constexpr (HasClearanceQuery<Occ>) {
+            if (on_demand_clear_) {
+                int d = occ_.clearance_cells(c, p_.clearance_radius);
+                if (d < p_.clearance_radius) pen += p_.w_clear * (p_.clearance_radius - d);
+            }
+        } else if (has_clear_) {
             int d = clearance_[static_cast<size_t>(occ_.lin(c))];
             if (d < p_.clearance_radius) pen += p_.w_clear * (p_.clearance_radius - d);
         }
@@ -123,7 +141,8 @@ public:
             // 회랑(이미 깔린 배관 곁) 또는 선호 단(rack)에 속하면 면제, 아니면 가산.
             // Python cost.py cell_penalty 와 1:1. 보너스가 아닌 '회랑 밖 가산'이라 admissibility 보존.
             bool on_corridor = (rack_.find(c.k) != rack_.end()) ||
-                (corridor_ != nullptr && corridor_->find(occ_.lin(c)) != corridor_->end());
+                (corridor_ != nullptr &&
+                 corridor_->find(static_cast<int>(occ_.lin(c))) != corridor_->end());
             if (!on_corridor) pen += p_.w_corridor;
         }
         return pen;
@@ -144,8 +163,9 @@ public:
 private:
     const Occ& occ_;
     RouteParams p_;
-    std::vector<int> clearance_;  // 비어 있으면 클리어런스 비활성
+    std::vector<int> clearance_;  // 비어 있으면 클리어런스 비활성(Dense/Sparse 전역 배열)
     bool has_clear_ = false;
+    bool on_demand_clear_ = false;  // true 면 occ_.clearance_cells 질의 사용(Implicit, S4)
     const std::unordered_set<int>* corridor_ = nullptr;  // 회랑 셀(lin) 집합. nullptr=미사용.
     std::unordered_set<int> rack_;                       // 선호 단 캐시(Python frozenset 대응).
 };

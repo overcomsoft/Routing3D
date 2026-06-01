@@ -81,12 +81,25 @@ void fill_result(R3dResult& o, const std::optional<SceneResult>& r) {
     o.visited_len = r->visited ? static_cast<int32_t>(r->visited->size()) : 0;
 }
 
-// 다중 배관 순차 라우팅을 '원본 작업 인덱스' 기준으로 doc.results 에 채운다.
-// route_sequential 과 동일한 빌딩블록(order/snap/astar_weighted/mark_pipe)을 쓰되,
-// 결과를 원래 인덱스에 저장해 핸들 API(get_result(task))의 매핑을 보존한다.
-void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited) {
-    DenseOccupancy occ = occupancy_from_doc(doc);
-    DenseOccupancy work = occ.copy();  // 원본 점유 불변.
+// 거대 격자에서 복셀화 없이(O(장애물 수)) 점유를 표현하는 ImplicitOccupancy 를 doc 로부터 구성.
+// 셀 크기와 무관한 메모리 → 25mm/10mm 등 정밀 격자의 저장 폭발/오버플로를 근본 해소(S3).
+ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
+    ImplicitOccupancy occ(doc.shape, doc.origin, doc.cell_mm);
+    for (const Obstacle& o : doc.obstacles) {
+        try {
+            occ.add_box(AABB(o.min_xyz, o.max_xyz));
+        } catch (const std::invalid_argument&) {
+            continue;  // 두께 0(퇴화) 박스는 건너뛴다(occupancy_from_doc 과 동일).
+        }
+    }
+    return occ;
+}
+
+// 다중 배관 순차 라우팅의 백엔드 무관 본체(Occ = Dense/Implicit). order/snap/astar/mark_pipe 동일.
+// 결과를 '원본 작업 인덱스' 에 저장해 핸들 API(get_result(task)) 매핑을 보존한다.
+template <class Occ>
+void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited) {
+    Occ work = occ.copy();  // 원본 점유 불변(M2).
 
     const int n = static_cast<int>(doc.tasks.size());
     std::vector<int> order(static_cast<size_t>(n));
@@ -136,6 +149,20 @@ void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool colle
             mark_pipe(work, path, 0);  // 깔린 경로를 점유로 추가(다음 배관 회피).
             if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
         }
+    }
+}
+
+// 격자 크기로 백엔드 선택(sparse 해법):
+//   작은 격자(≤5M 셀, 골든 등) → DenseOccupancy: 기존 동작·바이트 결과 완전 불변.
+//   거대 격자(>5M 셀, 25mm/10mm) → ImplicitOccupancy: 복셀화 없는 O(장애물) 저장 + 64비트 키 +
+//   온디맨드 클리어런스 → 130MB/2GB 배열·520MB 거리변환·int 오버플로를 모두 회피.
+void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited) {
+    const long long cells =
+        static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
+    if (cells > 5000000LL) {
+        route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited);
+    } else {
+        route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited);
     }
 }
 

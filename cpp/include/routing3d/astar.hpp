@@ -170,9 +170,9 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     }
 
     CostModel<Occ> model(occ, params, corridor);
-    auto state_of = [&](int lin, int dir) -> long long {
-        return static_cast<long long>(lin) * 7 + (dir + 1);
-    };
+    // 상태키 = lin*7 + (dir+1). lin 은 백엔드 키 타입(Dense/Sparse=int, Implicit=long long)을
+    // long long 으로 받아 곱한다 → 10mm 거대격자(20억 셀)에서도 int 오버플로 없음(S2).
+    auto state_of = [&](long long lin, int dir) -> long long { return lin * 7 + (dir + 1); };
 
     std::priority_queue<detail::PQItem, std::vector<detail::PQItem>, detail::PQCmp> open;
     std::unordered_map<long long, double> g;
@@ -204,11 +204,11 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         if (cur.cell == goal) {
             std::vector<Cell> path;
             long long s = st;
-            path.push_back(occ.unlin(static_cast<int>(s / 7)));
+            path.push_back(occ.unlin(s / 7));  // unlin 은 long long 인자(백엔드 무관, S2).
             auto it = came.find(s);
             while (it != came.end()) {
                 s = it->second;
-                path.push_back(occ.unlin(static_cast<int>(s / 7)));
+                path.push_back(occ.unlin(s / 7));
                 it = came.find(s);
             }
             for (size_t a = 0, b = path.size() - 1; a < b; ++a, --b) std::swap(path[a], path[b]);
