@@ -94,7 +94,7 @@ namespace Routing3D.Viewer.Model
         ///   4) 장애물 BBOX 로 격자(origin/shape/cell_mm) 산출
         /// connectedOnly=true 면 PoC 의 isConnected=true 인 것만 작업으로 만든다.
         /// </summary>
-        public static SceneData LoadScene(DbConfig config, int projectId, double cellMm = 10.0,
+        public static SceneData LoadScene(DbConfig config, int projectId, double cellMm = 25.0,
                                           bool connectedOnly = true)
         {
             using var conn = new NpgsqlConnection(config.ConnectionString);
