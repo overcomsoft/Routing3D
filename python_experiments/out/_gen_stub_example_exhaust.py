@@ -18,12 +18,32 @@ r"""기존설계 스텁 — 실제 Exhaust 배관 샘플 워크드 예시 문서
 """
 import os
 
+import matplotlib
+matplotlib.use("Agg")  # 헤드리스 PNG 렌더(디스플레이 불필요).
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Line3DCollection  # noqa: F401 (3D 보장)
+
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs")
+
+# ---- 실측 데이터(DB → learn_pipe 캡처). 본 표본 배관 GUID 2014e40a…, Exhaust/ACID, 150mm. ----
+POLYLINE = [
+    (187850, 9131, 15495), (187850, 9131, 15009), (187850, 9051, 14814),
+    (187850, 9012, 14776), (187850, 8931, 14581), (187850, 8931, 13528),
+    (188005, 8931, 13373), (190020, 8931, 13373), (190175, 8931, 13218),
+    (190175, 8931, 13155), (190175, 8931, 12946), (190175, 8931, 12968),
+    (190175, 8931, 12948),
+]
+EQUIP_AABB = ((185821, 5686, 15495), (190427, 16358, 17500))   # 장비 WTNHJ02_
+DUCT_AABB = ((189920, 5008, 12448), (190720, 14493, 12948))     # LATERAL PIPE_db90d44a…
+START_POC = POLYLINE[0]    # (187850, 9131, 15495) 출발(EQUIP, -z)
+END_POC = POLYLINE[-1]     # (190175, 8931, 12948) 종단(DUCT, +z)
+STUB_SPLIT_START = 6       # 점 0..6 = 출발 스텁(하강), 6..8 = 중간(수평), 8..12 = 종단 스텁
+STUB_SPLIT_END = 8
 CODE_FONT = "Consolas"
 BODY_FONT = "Malgun Gothic"
 CODE_BG = "F2F2F2"
@@ -126,6 +146,73 @@ def add_table(doc, headers, rows):
     return t
 
 
+def _box_edges(lo, hi):
+    """AABB 12개 모서리 선분 [(p0,p1), …] 을 반환(와이어프레임용)."""
+    x0, y0, z0 = lo
+    x1, y1, z1 = hi
+    c = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+         (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    e = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+         (0, 4), (1, 5), (2, 6), (3, 7)]
+    return [(c[a], c[b]) for a, b in e]
+
+
+def make_figure(png_path):
+    """실제 표본 배관의 3D 다이어그램 + X-Z 측면 투영(2 패널)을 PNG 로 저장한다."""
+    fig = plt.figure(figsize=(11, 4.6), dpi=150)
+
+    # ---- (좌) 3D 뷰 ----
+    ax = fig.add_subplot(1, 2, 1, projection="3d")
+    for lo, hi, col, name in [(EQUIP_AABB[0], EQUIP_AABB[1], "#d9892f", "Equipment WTNHJ02_"),
+                              (DUCT_AABB[0], DUCT_AABB[1], "#2f9d9d", "Lateral duct")]:
+        for (p0, p1) in _box_edges(lo, hi):
+            ax.plot(*zip(p0, p1), color=col, lw=0.8, alpha=0.6)
+        ax.plot([], [], color=col, lw=2, label=name)
+    # 스텁 구간별 색: 출발(빨강계)·중간(회색)·종단(파랑계).
+    segs = [(0, STUB_SPLIT_START, "#e23030", "Start stub (EQUIP, -z)"),
+            (STUB_SPLIT_START, STUB_SPLIT_END, "#888888", "Middle (free A*)"),
+            (STUB_SPLIT_END, len(POLYLINE) - 1, "#3070ff", "End stub (DUCT, +z)")]
+    for a, b, col, name in segs:
+        xs = [POLYLINE[i][0] for i in range(a, b + 1)]
+        ys = [POLYLINE[i][1] for i in range(a, b + 1)]
+        zs = [POLYLINE[i][2] for i in range(a, b + 1)]
+        ax.plot(xs, ys, zs, color=col, lw=2.4, label=name)
+    ax.scatter(*START_POC, color="#e23030", s=55, depthshade=False)
+    ax.scatter(*END_POC, color="#3070ff", s=55, depthshade=False)
+    ax.set_title("3D — Exhaust(ACID) pipe + anchors", fontsize=9)
+    ax.set_xlabel("X (mm)", fontsize=7); ax.set_ylabel("Y (mm)", fontsize=7)
+    ax.set_zlabel("Z (mm)", fontsize=7)
+    ax.tick_params(labelsize=6)
+    ax.legend(fontsize=6, loc="upper left")
+    ax.view_init(elev=18, azim=-58)
+
+    # ---- (우) X-Z 측면 투영(하강→수평→상승 프로파일이 가장 또렷) ----
+    ax2 = fig.add_subplot(1, 2, 2)
+    for lo, hi, col, name in [(EQUIP_AABB[0], EQUIP_AABB[1], "#d9892f", "Equipment"),
+                              (DUCT_AABB[0], DUCT_AABB[1], "#2f9d9d", "Duct")]:
+        ax2.add_patch(plt.Rectangle((lo[0], lo[2]), hi[0] - lo[0], hi[2] - lo[2],
+                                    fill=True, facecolor=col, alpha=0.12, edgecolor=col, lw=1.2))
+    for a, b, col, _ in segs:
+        xs = [POLYLINE[i][0] for i in range(a, b + 1)]
+        zs = [POLYLINE[i][2] for i in range(a, b + 1)]
+        ax2.plot(xs, zs, color=col, lw=2.6, marker="o", ms=3)
+    ax2.scatter(START_POC[0], START_POC[2], color="#e23030", s=70, zorder=5)
+    ax2.scatter(END_POC[0], END_POC[2], color="#3070ff", s=70, zorder=5)
+    ax2.annotate("Start PoC (face -z)", (START_POC[0], START_POC[2]),
+                 textcoords="offset points", xytext=(6, 6), fontsize=7, color="#e23030")
+    ax2.annotate("End PoC (face +z)", (END_POC[0], END_POC[2]),
+                 textcoords="offset points", xytext=(-30, -12), fontsize=7, color="#3070ff")
+    ax2.set_title("X-Z side projection — down then up", fontsize=9)
+    ax2.set_xlabel("X (mm)", fontsize=7); ax2.set_ylabel("Z (mm)", fontsize=7)
+    ax2.tick_params(labelsize=6)
+    ax2.grid(True, lw=0.3, alpha=0.4)
+
+    fig.tight_layout()
+    fig.savefig(png_path, bbox_inches="tight")
+    plt.close(fig)
+    print("figure:", png_path)
+
+
 def render(title, subtitle, blocks, filename):
     doc = Document()
     set_base_style(doc)
@@ -148,6 +235,11 @@ def render(title, subtitle, blocks, filename):
             add_code(doc, payload)
         elif kind == "table":
             add_table(doc, payload[0], payload[1])
+        elif kind == "img":
+            doc.add_picture(payload[0], width=Inches(payload[1]))
+            cap = doc.add_paragraph()
+            cr = cap.add_run(payload[2])
+            _set_run_font(cr, BODY_FONT, 9, ea_font=BODY_FONT, color=(0x70, 0x70, 0x70))
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.normpath(os.path.join(OUT_DIR, filename))
     doc.save(path)
@@ -158,6 +250,9 @@ def render(title, subtitle, blocks, filename):
 # 본문 — 실측 데이터(아래 값은 모두 DB → learn_pipe 캡처)
 # =============================================================================
 def build():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    png = os.path.normpath(os.path.join(OUT_DIR, "routing3d_stub_example_exhaust_fig.png"))
+    make_figure(png)
     blocks = [
         # ----------------------------------------------------------------- 1
         ("h1", "1. 샘플 — Clean 장비 Exhaust(ACID) 배관"),
@@ -189,6 +284,11 @@ def build():
          "  10 (190175,  8931, 12946)   │\n"
          "  11 (190175,  8931, 12968)   │ (실측 미세 지터)\n"
          "  12 (190175,  8931, 12948)   ← 종단 PoC(덕트 상부면)"),
+        ("img", (png, 6.6,
+                 "그림 1. 실측 표본 배관의 3D 형상(좌)과 X-Z 측면 투영(우). 주황=장비 WTNHJ02_ AABB, "
+                 "청록=레터럴 덕트 AABB. 빨강=출발 스텁(EQUIP, 장비 바닥 −z), 회색=중간 수평 런, "
+                 "파랑=종단 스텁(DUCT, 덕트 상부 +z). 빨강 점=출발 PoC, 파랑 점=종단 PoC. "
+                 "측면 투영에서 ‘아래로 하강 → 랙에서 수평 → 위로 진입’ 프로파일이 또렷하다.")),
 
         # ----------------------------------------------------------------- 2
         ("h1", "2. 출발(EQUIP) 스텁 추출"),
