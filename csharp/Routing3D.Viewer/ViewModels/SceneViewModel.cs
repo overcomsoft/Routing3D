@@ -191,6 +191,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private bool _showPocMarkers = true;        // 모든 작업의 시작 PoC(빨강)·종단 PoC(파랑) 마커(초기 표시).
+        private bool _showStubs = true;             // 기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직+엘보) 강조.
         private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
         // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
         private PatternStore? _patterns;
@@ -343,6 +344,9 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
         /// <summary>모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구) 마커 — 라우팅 전에도 초기 표시. 기본 ON.</summary>
         public bool ShowPocMarkers { get => _showPocMarkers; set { if (Set(ref _showPocMarkers, value)) RebuildIfReady(); } }
+        /// <summary>기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직배관+엘보)을 굵은 색 튜브로 강조. 기본 ON.
+        /// 학습 파이프라인(StubExtractor)과 동일 로직으로 잘라내 학습 스텁과 일치한다.</summary>
+        public bool ShowStubs { get => _showStubs; set { if (Set(ref _showStubs, value)) RebuildIfReady(); } }
 
         /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
@@ -1859,7 +1863,10 @@ namespace Routing3D.Viewer.ViewModels
             {
                 double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
-                int drawn = 0;
+                // 출발(빨강)·종단(파랑) 스텁 강조 — 학습 StubExtractor 로 잘라낸 수직+엘보 구간을 굵은 색 튜브로.
+                var startStubMb = new MeshBuilder(false, false);
+                var endStubMb = new MeshBuilder(false, false);
+                int drawn = 0, stubDrawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
                 {
                     // 좌측에서 유틸리티 그룹을 선택했으면 그 그룹의 기존 설계배관만 표시(미선택=전체).
@@ -1878,6 +1885,20 @@ namespace Routing3D.Viewer.ViewModels
                     double dia = pipe.DiameterMm > 0 ? Math.Max(pipe.DiameterMm, 8.0) : fallbackDia;
                     mb.AddTube(pts, dia, 10, false);
                     drawn++;
+
+                    // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 굵은 튜브로 강조.
+                    if (ShowStubs)
+                    {
+                        double stubDia = Math.Max(dia * 1.8, grid.CellMm * 0.6);
+                        var (startStub, endStub) = StubExtractor.ForPipe(pipe);
+                        if (startStub.Count >= 2)
+                        {
+                            startStubMb.AddTube(startStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
+                            stubDrawn++;
+                        }
+                        if (endStub.Count >= 2)
+                            endStubMb.AddTube(endStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
+                    }
                 }
                 int totalEx = 0;
                 foreach (var kv in perUtilEx)
@@ -1892,6 +1913,13 @@ namespace Routing3D.Viewer.ViewModels
                         Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
                         Label = $"기존 설계배관 {drawn}"
                     });
+                if (ShowStubs && stubDrawn > 0)
+                {
+                    group.Children.Add(Geometry(startStubMb, Color.FromRgb(226, 48, 48), 255));   // 출발 스텁 = 빨강.
+                    group.Children.Add(Geometry(endStubMb, Color.FromRgb(48, 112, 255), 255));    // 종단 스텁 = 파랑.
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(226, 48, 48)), Label = $"출발 스텁 {stubDrawn}" });
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(48, 112, 255)), Label = "종단 스텁" });
+                }
             }
 
             // PoC 마커 — 모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시.
