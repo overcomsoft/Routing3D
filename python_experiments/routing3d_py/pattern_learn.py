@@ -48,6 +48,12 @@ AXIS_VECS: list[Vec3] = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1)
 # 스텁으로 인정할 PoC 끝에서의 최대 누적 길이(mm)·최대 꺾임 수.
 STUB_MAX_MM = 4000.0
 STUB_MAX_BENDS = 3
+# 방향 런(run)이 이 길이 미만이면 잡음(설계 지터)으로 보고 인접 런에 흡수한다 — 미세 옵셋 지터가
+# '엘보'로 오인돼 꺾임 예산을 소진하고 정작 수직→수평 전환(진짜 엘보)을 놓치는 문제를 막는다.
+STUB_MIN_DIR_RUN_MM = 250.0
+# 스텁은 '수직배관 + 첫 엘보(수직→수평 전환)'까지 본다. 엘보 이후 수평 리드인을 이만큼만 담고 종료
+# (전체 랙 런이 아니라 엘보 방향을 기록할 정도). 이로써 스텁 = 출발/진입면 + 수직 + 엘보.
+STUB_LEADIN_MM = 800.0
 # 앵커(장비/덕트) 매칭 허용 반경(mm) — AABB 밖이어도 이 거리 내 중심이면 매칭.
 ANCHOR_MAX_MM = 3000.0
 
@@ -131,35 +137,100 @@ def nearest_face(poc: Vec3, lo: Vec3, hi: Vec3) -> int:
     return min(cand, key=lambda c: abs(c[0]))[1]
 
 
-def _walk_stub(seg: list[Vec3]) -> tuple[list[Vec3], list[int]]:
-    """PoC(=seg[0])에서 시작해 스텁 구간을 잘라낸다.
-
-    누적 길이가 STUB_MAX_MM 를 넘거나 꺾임이 STUB_MAX_BENDS 에 도달하면 종료.
-    반환: (스텁 점열, 방향 시퀀스 인덱스 리스트[연속 동일 병합]).
-    """
-    out: list[Vec3] = [seg[0]]
-    dirs: list[int] = []
-    total = 0.0
+def _dir_runs(seg: list[Vec3]) -> list[list]:
+    """폴리라인을 방향 런 [[축d, 누적길이], …] 으로 압축한다(연속 동일 방향 병합)."""
+    runs: list[list] = []
     for i in range(1, len(seg)):
         a, b = seg[i - 1], seg[i]
         seglen = _dist(a, b)
         if seglen < 1e-6:
             continue
         d = axis_snap(_sub(b, a))
-        is_turn = bool(dirs) and d != dirs[-1]
-        if is_turn and len(dirs) >= STUB_MAX_BENDS:
+        if runs and runs[-1][0] == d:
+            runs[-1][1] += seglen
+        else:
+            runs.append([d, seglen])
+    return runs
+
+
+def _merge_short_runs(runs: list[list]) -> list[list]:
+    """STUB_MIN_DIR_RUN_MM 미만 방향 런을 인접 런에 흡수한다(설계 지터 제거).
+
+    가장 짧은 미달 런을 골라: 양 이웃이 같은 방향이면 셋을 병합, 아니면 더 긴 이웃에 길이를
+    흡수시키고 제거한다. 모든 런이 임계 이상이거나 1개만 남을 때까지 반복.
+    """
+    runs = [r[:] for r in runs]
+    while len(runs) > 1:
+        idx = min(range(len(runs)), key=lambda i: runs[i][1])
+        if runs[idx][1] >= STUB_MIN_DIR_RUN_MM:
             break
-        if total + seglen > STUB_MAX_MM:
-            t = (STUB_MAX_MM - total) / seglen
-            out.append(_lerp(a, b, t))
-            if not dirs or d != dirs[-1]:
-                dirs.append(d)
+        if idx == 0:
+            runs[1][1] += runs[0][1]
+            runs.pop(0)
+        elif idx == len(runs) - 1:
+            runs[-2][1] += runs[-1][1]
+            runs.pop()
+        elif runs[idx - 1][0] == runs[idx + 1][0]:
+            runs[idx - 1][1] += runs[idx][1] + runs[idx + 1][1]
+            del runs[idx:idx + 2]
+        elif runs[idx - 1][1] >= runs[idx + 1][1]:
+            runs[idx - 1][1] += runs[idx][1]
+            runs.pop(idx)
+        else:
+            runs[idx + 1][1] += runs[idx][1]
+            runs.pop(idx)
+    return runs
+
+
+def _points_until(seg: list[Vec3], length: float) -> list[Vec3]:
+    """PoC(seg[0])에서 누적 길이 length 까지의 점열(마지막 세그먼트는 잘라서 끝점 추가)."""
+    out: list[Vec3] = [seg[0]]
+    total = 0.0
+    for i in range(1, len(seg)):
+        a, b = seg[i - 1], seg[i]
+        seglen = _dist(a, b)
+        if seglen < 1e-6:
+            continue
+        if total + seglen >= length:
+            t = (length - total) / seglen if seglen > 0 else 1.0
+            out.append(_lerp(a, b, max(0.0, min(1.0, t))))
             break
         out.append(b)
         total += seglen
-        if not dirs or d != dirs[-1]:
-            dirs.append(d)
-    return out, dirs
+    return out
+
+
+def _walk_stub(seg: list[Vec3]) -> tuple[list[Vec3], list[int]]:
+    """PoC(=seg[0])에서 시작해 스텁 구간(출발/진입면 + 수직배관 + 첫 엘보)을 잘라낸다.
+
+    [개선] 단순히 '수직배관까지'가 아니라 '수직 → 첫 엘보(수직축→수평축 전환)'까지를 스텁으로 본다.
+      ① 방향 런 압축 후 STUB_MIN_DIR_RUN_MM 미만 런(설계 지터)을 흡수해 가짜 꺾임을 없앤다.
+      ② 첫 방향(런[0])의 축을 '수직축'으로 보고, 축이 다른 첫 런 = 엘보. 엘보 직후 STUB_LEADIN_MM
+         수평 리드인까지만 담아 스텁을 종료한다(엘보 방향을 기록할 정도, 전체 랙 런은 제외).
+      ③ 엘보가 없으면 STUB_MAX_MM·STUB_MAX_BENDS 한도까지.
+    반환: (스텁 점열, 방향 시퀀스 인덱스 리스트[엘보 포함]).
+    """
+    runs = _merge_short_runs(_dir_runs(seg))
+    if not runs:
+        return [seg[0]], []
+
+    vert_axis = runs[0][0] // 2          # 첫 방향(수직배관)의 축.
+    elbow = None                          # 첫 엘보(축이 다른 첫 런)의 인덱스.
+    for i in range(1, len(runs)):
+        if runs[i][0] // 2 != vert_axis:
+            elbow = i
+            break
+
+    if elbow is None:
+        dir_seq = [r[0] for r in runs[:STUB_MAX_BENDS + 1]]
+        length = min(STUB_MAX_MM, sum(r[1] for r in runs[:STUB_MAX_BENDS + 1]))
+    else:
+        keep = runs[:elbow + 1][:STUB_MAX_BENDS + 1]   # 수직(들) + 엘보, 꺾임 한도.
+        dir_seq = [r[0] for r in keep]
+        pre = sum(r[1] for r in runs[:elbow])           # 엘보 이전(수직) 누적.
+        length = min(STUB_MAX_MM, pre + min(runs[elbow][1], STUB_LEADIN_MM))
+
+    return _points_until(seg, length), dir_seq
 
 
 def _rel_pos(poc: Vec3, lo: Vec3, hi: Vec3) -> list[float]:
