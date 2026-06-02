@@ -167,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 | **L2b** | 기존설계 회랑 소프트바이어스(옵트인) | C ABI `r3d_set_corridor_cells` + corridor 키 `long long` 확장 + `SceneViewModel.{UseDesignCorridor,BuildDesignCorridorCells}` | 199(동일성공)·**설계추종**(totalLen↓)·6.4s |
 | **속도튜닝** | weighted A* `w_heur` 1.5→2.0 + 임계 5M→300k셀 | `SceneViewModel.BuildEngineForRows` · `DbRouteDiag`(env `R3D_WCORR/WHEUR/CORRRAD`) | **회랑 ON 47s→6.2s(7.6×)** · 198→199 · 기하 baseline 도 194→199 |
 | **L3a 랙번들** | 유틸그룹 수평 런 z-높이(랙) 학습 → 엔진 `rack_levels`(면제 z-셀)로 공용 랙에 번들. 랙 페널티 cell×0.2(회랑보다 부드럽게) | Python `pattern_learn.learn_rack_levels`(+`--rack-report`) · C# `SceneViewModel.BuildRackLevels`(런타임, env `R3D_RACK`) · UI '랙 번들(L3a)' | **199→200**(랙이 혼잡 배관에 구조 제공) · 랙 z-집중도 17.3%→21.4% · totalLen↓ · 6.4s |
-| **L3b 검색증강** | pgvector HNSW K-NN 거리가중 투표 추론(집계뷰의 키별 단일 mode 대신 PoC 컨텍스트별 ANN) | `pattern_db.{suggest_stub, StubSuggestion}` + DB 테스트 | 추론 프리미티브(실 DB 검증). C# 뷰어 적용은 보류(천장 200 도달 → 성공보다 모호키 면 정밀도) |
+| **L3b 검색증강** | 다중면(bimodal) DUCT 키에서 PoC 컨텍스트(앵커 내 rel·접근 dir) 최근접 표본으로 진입면 분기. **자기검증 LOO 게이트**(ANN 이 집계 다수결을 +10pp 이기는 키만 적용) | Python `pattern_db.{suggest_stub,StubSuggestion}` · C# `PatternStore.{LoadAnnSamples,TryGetFaceAnn}`+`SceneViewModel.LearnedDuctFace` · 진단 env `R3D_ANN` | **무분별 ANN 은 해로움**(199→192, UPW_S/HOT DI_S 에서 rel/dir 이 면과 반상관) → LOO 게이트로 **NFW 1키만 채택**(ANN 97% vs 집계 59%). 회귀 0(199 유지), 라우팅 지표 중립·면 품질↑ |
 
 - **학습/적재 CLI**: `python -m routing3d_py.pattern_learn --project N {--report|--rack-report|--write-db}` · 통계 `python -m routing3d_py.pattern_db --stats` · 스키마 `--apply-schema`. (`--rack-report`=유틸그룹 랙 z-높이 학습, L3a)
 - **검색증강(L3b)**: `pattern_db.suggest_stub(kind, group, util, feat, k)` → `StubSuggestion`(거리가중 K-NN 투표 면/평균 rise·offset·신뢰도). pgvector HNSW 본격 활용.
@@ -259,7 +259,7 @@ C# 직교 A* + 동일 DB. UI 스타일·DB 흐름 참조용(직접 포팅 안 �
 ## 9. 다음 작업 후보
 
 - ~~**패턴학습 L2b 속도 튜닝**~~: **완료** — 회랑 페널티 비용장을 휴리스틱이 과소평가하던 게 병목. weighted A* `w_heur` 1.5→2.0 + weighted 임계 5M→300k셀로 **회랑 ON 47s→6.2s(7.6× 단축)**, 성공 198→199, 회랑 OFF baseline 도 194→199. 엔진 무변경(뷰어 파라미터). 잔여 9실패는 혼잡/막힘(아래 CBS).
-- ~~**패턴학습 L3**~~: **L3a 랙 번들링 완료**(유틸그룹 수평 런 z-높이 학습→`rack_levels`, project6 c100 199→200·랙 집중도 17→21%) + **L3b 검색증강 추론 프리미티브 완료**(`suggest_stub` HNSW K-NN 투표). **남은 L3b**: C# 뷰어가 집계 템플릿 대신 `suggest_stub` ANN을 PoC별로 호출(모호한 키=한 그룹 내 다중 진입면 분기 정밀도 향상 — 성공 천장 200 도달이라 품질 개선용).
+- ~~**패턴학습 L3**~~: **완료**. L3a 랙 번들링(유틸그룹 수평 런 z-높이→`rack_levels`, 199→200·랙 집중도 17→21%) + L3b 검색증강(다중면 DUCT 키 PoC별 ANN 면 분기 + **자기검증 LOO 게이트** = ANN 이 집계를 이기는 키만 적용, 무분별 ANN 회귀 199→192 방지, NFW 1키 채택). **교훈**: 한 키 내 진입면 분기는 [rel,dir] 로 항상 예측되진 않음(UPW_S/HOT DI_S 반상관) → 게이트 필수. 추가 특징(접근 세그먼트 방향열·인접 장애물)로 분기 정밀도 향상이 다음 후보.
 - **정밀 셀 탐색량 최적화(10mm)**: sparse 저장(S1~S4)으로 메모리·오버플로는 해결됨 — 25mm 실용(유틸 단위 ~분), **10mm 는 셀 16배·탐색량 폭증으로 ~110s/배관·탐색상한(12M) 도달분 실패**(메모리 아님). 다음 계층 = **계층 corridor 강건화**(굵은 가이드→가는 튜브로 탐색을 튜브 부피에 한정, 종단점 최근접 스냅+튜브 적응폭) / 가중(ε)A* / 독립 배관 병렬화. ImplicitOccupancy 가 이미 corridor 백엔드로 적합.
 - ~~**접근불가 PoC 전처리**~~: **완료(P3j 전처리)** — 파묻힌 PoC를 학습면 행진+반경확장으로 최근접 자유셀 스냅(project6 c100 +7 복구). 남은 실패는 혼잡/막힘(아래 CBS 대상).
 - **negotiated-congestion / CBS**: 비용기반 충돌 회피 — rip-up 의 더 강력한 후속. project6 c100 잔여 10실패(expanded>0=경로 없음)가 이 대상.

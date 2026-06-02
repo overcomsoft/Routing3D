@@ -978,7 +978,9 @@ namespace Routing3D.Viewer.ViewModels
                 // 빠져나가는 물리적 동작), 남은 덕트/레터럴 솔리드도 표면으로 투영.
                 // 학습된 진출/진입 면(있으면) — 장비(EQUIP)·덕트(DUCT) 키로 조회. 최근접 면 대신 사용.
                 string? startFace = LearnedFace("EQUIP", row.Group, row.Utility);
-                string? endFace = LearnedFace("DUCT", row.Group, row.Utility);
+                // DUCT 종단 면은 검색증강(L3b) — 다중면 키에서 PoC 위치·접근방향별 ANN 분기(단일면은 집계와 동일).
+                string? endFace = LearnedDuctFace(row.Group, row.Utility, row.Gx, row.Gy, row.Gz,
+                                                  row.Sx, row.Sy, row.Sz);
                 var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
                 (sx, sy, sz) = LiftPocToSurface(sx, sy, sz, startFace);
                 (sx, sy, sz) = SnapPocToFreeCell(sx, sy, sz, startFace);   // 파묻힌 시작 PoC → 최근접 자유 셀.
@@ -1088,6 +1090,51 @@ namespace Routing3D.Viewer.ViewModels
         {
             if (!_usePatterns || _patterns == null) return null;
             return _patterns.TryGet(anchorKind, group, utility, out var tpl) ? tpl.Face : null;
+        }
+
+        // 검색증강(L3b) — DUCT 종단 진입면을 PoC 컨텍스트(앵커 덕트 내 상대위치 + 접근방향)별 ANN 으로 분기한다.
+        // 한 (그룹·유틸) 키 안에 진입면이 여럿 섞인 다중면 키(예 UPW_S = +x 57% / +z 43%)에서, 집계 대표면이
+        // 틀리는 PoC 를 그 PoC 와 가장 닮은 학습 표본의 면으로 바로잡는다. 단일면/미적재/앵커 없음 → 집계 폴백.
+        private string? LearnedDuctFace(string? group, string? utility, double ex, double ey, double ez,
+                                        double sx, double sy, double sz)
+        {
+            if (!_usePatterns || _patterns == null) return null;
+            var d = NearestDuctAnchor(ex, ey, ez);
+            if (d != null)
+            {
+                var rel = new[] { RelIn(ex, d.MinX, d.MaxX), RelIn(ey, d.MinY, d.MaxY), RelIn(ez, d.MinZ, d.MaxZ) };
+                // 학습 DUCT dir_unit = unit(src - tgt)(덕트로의 접근방향). 추론 = unit(start - end).
+                var dir = Unit(sx - ex, sy - ey, sz - ez);
+                if (_patterns.TryGetFaceAnn("DUCT", group, utility, rel, dir, out var f)) return f;
+            }
+            return LearnedFace("DUCT", group, utility);   // 집계 폴백.
+        }
+
+        private static double RelIn(double v, double lo, double hi)
+            => hi - lo <= 1e-6 ? 0.5 : Math.Min(1.0, Math.Max(0.0, (v - lo) / (hi - lo)));
+
+        private static double[] Unit(double x, double y, double z)
+        {
+            double n = Math.Sqrt(x * x + y * y + z * z);
+            return n < 1e-9 ? new double[3] : new[] { x / n, y / n, z / n };
+        }
+
+        // 종단 PoC 를 포함하는 덕트, 없으면 3000mm 내 가장 가까운 덕트(Python find_duct 미러). 없으면 null.
+        private DuctLateral? NearestDuctAnchor(double x, double y, double z)
+        {
+            var s = _scene; if (s == null) return null;
+            const double eps = 1.0, maxMm = 3000.0;
+            foreach (var d in s.DuctsLaterals)
+                if (x >= d.MinX - eps && x <= d.MaxX + eps && y >= d.MinY - eps && y <= d.MaxY + eps &&
+                    z >= d.MinZ - eps && z <= d.MaxZ + eps) return d;
+            DuctLateral? best = null; double bd = maxMm;
+            foreach (var d in s.DuctsLaterals)
+            {
+                double cx = (d.MinX + d.MaxX) / 2, cy = (d.MinY + d.MaxY) / 2, cz = (d.MinZ + d.MaxZ) / 2;
+                double dist = Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
+                if (dist < bd) { bd = dist; best = d; }
+            }
+            return best;
         }
 
         // 시작점이 설비 AABB 내부면 그 설비(들) 중 가장 낮은 바닥(MinZ) 한 셀 아래로 Z 를 내려, 장비 밖
