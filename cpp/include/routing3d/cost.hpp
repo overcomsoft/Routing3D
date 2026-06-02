@@ -38,6 +38,11 @@ struct RouteParams {
     // 휴리스틱 가중(weighted A*). 1.0=표준 A*(admissible·최적, 골든 불변). >1.0=목표 지향 탐색으로
     // 확장 노드 급감(솔리드 장애물 우회 같은 어려운 경로를 탐색상한 내에 찾음) — 약간 비최적 허용.
     double w_heur = 1.0;
+    // 동적(수렴) 가중 A* — w_heur_near>0 이고 <w_heur 이면 휴리스틱 가중을 목표까지 남은 거리에 따라
+    //   w_eff = w_heur_near + (w_heur - w_heur_near)·(h/h_start)  로 보간한다.
+    //   먼 곳(h≈h_start)=w_heur(공격적·빠름), 목표 근처(h→0)=w_heur_near(신중·막다른길 회피).
+    //   준최적 상한은 여전히 w_heur. 0=비활성(정적 w_heur, 골든 불변). 미세격자 PoC 근처 그리디 함정 완화.
+    double w_heur_near = 0.0;
     int clearance_radius = 2;
     int clearance_connectivity = 6;  // 6 또는 26
     std::map<int, double> w_tier;     // z셀 → 가산 mm
@@ -163,6 +168,10 @@ public:
     double heuristic(const Cell& c, const Cell& goal) const {  // manhattan × cell_mm × w_heur
         const double w = (p_.w_heur > 0.0) ? p_.w_heur : 1.0;
         return manhattan(c, goal) * p_.cell_mm * w;
+    }
+    // 가중 없는 맨해튼 휴리스틱(mm) — 동적 가중 A* 의 기저(astar_weighted 가 거리비로 가중을 보간).
+    double heuristic_raw(const Cell& c, const Cell& goal) const {
+        return manhattan(c, goal) * p_.cell_mm;
     }
 
 private:

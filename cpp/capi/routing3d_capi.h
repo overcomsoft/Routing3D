@@ -74,6 +74,7 @@ typedef struct {
     double cell_mm, w_turn, w_clear;
     double w_corridor;               // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작). >0=기존설계 유사 번들링.
     double w_heur;                   // 휴리스틱 가중(weighted A*). 0/1=표준. >1=목표 지향(확장 급감, 약간 비최적).
+    double w_heur_near;              // 동적 가중 목표근처 값. (0,w_heur) 면 수렴 가중. 0=정적 w_heur(불변).
     int32_t clearance_radius, clearance_connectivity;  // connectivity 6 또는 26
     int32_t corridor_radius;         // 회랑 성장 반경(셀). 기본 1.
     int32_t rack_level_count;        // rack_levels 사용 개수(0~8).

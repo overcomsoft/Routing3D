@@ -204,7 +204,22 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     g[s0] = 0.0;
     const double h_start = model.heuristic(start, goal);  // 진행율 기준(시작→목표 휴리스틱).
     double h_min = h_start;                                // 지금까지 본 목표 최근접 휴리스틱.
-    open.push({h_start, counter++, start, -1});
+    // 동적(수렴) 가중 — w_heur_near 가 (0, w_heur) 면 목표까지 거리비로 가중을 보간. 비활성이면
+    // weighted_h(c)=heuristic_raw(c)*wf 로 정적 model.heuristic 과 부동소수까지 동일(골든 불변).
+    const double wf = (params.w_heur > 0.0) ? params.w_heur : 1.0;
+    const double wn = params.w_heur_near;
+    // 동적 가중은 '무제한' 탐색에서만 적용한다(max_expansions<=0). 예산-게이트(probe 300k·hier 12M)
+    // 탐색에서 목표근처 가중을 낮추면 예산을 초과해 escalation/폴백이 폭주(실측 cell=25 1.3s→33s)하므로,
+    // 거대격자 경로(항상 상한 부여)에선 자동 비활성 → 정적 w_heur 유지. 골든(wn=0)은 항상 비활성.
+    const bool dyn = (wn > 0.0 && wn < wf && max_expansions <= 0);
+    const double h_start_raw = model.heuristic_raw(start, goal);
+    auto weighted_h = [&](const Cell& c) -> double {
+        const double hr = model.heuristic_raw(c, goal);
+        if (!dyn) return hr * wf;
+        const double w = wn + (wf - wn) * (h_start_raw > 0.0 ? hr / h_start_raw : 0.0);
+        return hr * w;
+    };
+    open.push({weighted_h(start), counter++, start, -1});
     long long expanded = 0;
 
     while (!open.empty()) {
@@ -265,7 +280,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             if (git == g.end() || t < git->second) {
                 g[ns] = t;
                 came[ns] = st;
-                open.push({t + model.heuristic(nb, goal), counter++, nb, nidx});
+                open.push({t + weighted_h(nb), counter++, nb, nidx});
             }
         }
     }

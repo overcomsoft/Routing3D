@@ -42,7 +42,7 @@ namespace Routing3D.Viewer.Interop
 
         public void SetParams(double cellMm, double wTurn, double wClear, int clearanceRadius, int clearanceConnectivity,
                               double wCorridor = 0.0, int corridorRadius = 1, int[]? rackLevels = null,
-                              double wHeur = 1.0)
+                              double wHeur = 1.0, double wHeurNear = 0.0)
         {
             var rack = new int[8];
             int rackCount = 0;
@@ -54,6 +54,7 @@ namespace Routing3D.Viewer.Interop
             var p = new Native.R3dParams
             {
                 cell_mm = cellMm, w_turn = wTurn, w_clear = wClear, w_corridor = wCorridor, w_heur = wHeur,
+                w_heur_near = wHeurNear,
                 clearance_radius = clearanceRadius, clearance_connectivity = clearanceConnectivity,
                 corridor_radius = corridorRadius, rack_level_count = rackCount, rack_levels = rack
             };
