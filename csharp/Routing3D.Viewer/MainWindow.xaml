@@ -249,6 +249,10 @@
                                       IsChecked="{Binding UsePatterns}"
                                       Margin="0,0,12,0"
                                       ToolTip="기존설계 패턴 활용 — 사람이 그린 기존배관에서 학습한 진출/진입 면(장비=아래·덕트=상부 등)으로 시작/종단 PoC를 투영해 자동라우팅을 사람 설계에 맞춥니다. 저장소가 비었거나 키 미스면 기존 최근접-면 규칙으로 자동 폴백."/>
+                            <CheckBox Content="기존설계 회랑 (L2b)"
+                                      IsChecked="{Binding UseDesignCorridor}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="기존설계 회랑 — 매칭되는 기존배관(TB_ROUTE_PATH) 폴리라인을 회랑으로 주입하고 회랑 밖을 비용 가산(w_corridor)해, 새 경로가 사람 설계를 부드럽게 따라가게 합니다(충돌은 여전히 회피). 경로 모양을 바꾸므로 기본 OFF."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>

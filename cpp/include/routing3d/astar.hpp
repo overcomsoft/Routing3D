@@ -162,7 +162,7 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 template <class Occ>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
                            long long max_expansions = -1, bool collect_visited = false,
-                           const std::unordered_set<int>* corridor = nullptr,
+                           const std::unordered_set<long long>* corridor = nullptr,
                            const std::function<void(long long, double)>* on_progress = nullptr,
                            long long progress_every = 0) {
     auto t0 = detail::Clock::now();

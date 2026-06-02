@@ -195,6 +195,10 @@ namespace Routing3D.Viewer.ViewModels
         private PatternStore? _patterns;
         private bool _patternsTried;                    // DB 1회만 조회(미스도 캐시).
         private bool _usePatterns = true;               // 기존설계 패턴 활용 토글(기본 ON, 미스 시 자동 기하 폴백).
+        // 기존설계 회랑(L2b) — 매칭되는 기존 설계배관(TB_ROUTE_PATH) 폴리라인을 회랑 시드로 주입하고
+        // w_corridor 로 회랑 밖을 가산 → 새 경로가 사람 설계를 부드럽게 따라간다(충돌은 여전히 회피).
+        // 경로 '모양'을 바꾸므로 기본 OFF(옵트인). ON 시 BuildEngineForRows 가 회랑 셀 주입 + w_corridor>0.
+        private bool _useDesignCorridor;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -345,6 +349,14 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _usePatterns;
             set { if (Set(ref _usePatterns, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>기존설계 회랑(L2b) — 매칭 기존배관 폴리라인을 회랑으로 주입해 새 경로가 사람 설계를
+        /// 부드럽게 따라가게 한다(w_corridor 소프트 바이어스, 충돌은 여전히 회피). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        public bool UseDesignCorridor
+        {
+            get => _useDesignCorridor;
+            set { if (Set(ref _useDesignCorridor, value)) OnChanged(nameof(PatternStatus)); }
         }
 
         /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
@@ -922,7 +934,10 @@ namespace Routing3D.Viewer.ViewModels
             // 대형 격자는 weighted A*(w_heur=1.5) — 솔리드 설비/덕트를 우회하는 어려운 경로를 탐색상한(12M)
             // 내에 찾도록 목표 지향 탐색(약간 비최적 허용). 작은 격자(데모 등)는 표준 A*(1.0, 최적).
             bool bigGrid = (long)g.Nx * g.Ny * g.Nz > 5_000_000;
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wHeur: bigGrid ? 1.5 : 1.0);
+            // 기존설계 회랑(L2b) ON 이면 회랑 밖 셀당 가산(=½칸 비용)으로 부드럽게 설계 경로를 유도.
+            double wCorr = _useDesignCorridor ? g.CellMm * 0.5 : 0.0;
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
+                              wHeur: bigGrid ? 1.5 : 1.0);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -948,7 +963,48 @@ namespace Routing3D.Viewer.ViewModels
                 _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
             }
+            // 기존설계 회랑(L2b) — 매칭 기존배관 폴리라인 셀을 회랑 시드로 주입(w_corridor>0 일 때 효력).
+            _engine.SetCorridorCells(_useDesignCorridor ? BuildDesignCorridorCells(rowPositions, 2) : null);
             return added;
+        }
+
+        // 지정 행들의 매칭 기존 설계배관(TB_ROUTE_PATH) 폴리라인을 격자 셀로 복셀화(±dilate 팽창)해
+        // 회랑 시드(ijk 평탄 배열)로 만든다. 새 경로가 이 회랑 안을 '싸게' 지나 사람 설계를 따라가게 한다.
+        private int[] BuildDesignCorridorCells(IReadOnlyList<int> rowPositions, int dilate)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm;
+            var set = new HashSet<(int, int, int)>();
+            foreach (var pos in rowPositions)
+            {
+                var pipe = FindMatchingExistingPipe(Tasks[pos]);
+                if (pipe == null || pipe.Points.Count < 2) continue;
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                    double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                    for (int sIdx = 0; sIdx <= steps; sIdx++)
+                    {
+                        double tt = (double)sIdx / steps;
+                        int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                        int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                        int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                        for (int di = -dilate; di <= dilate; di++)
+                            for (int dj = -dilate; dj <= dilate; dj++)
+                                for (int dk = -dilate; dk <= dilate; dk++)
+                                {
+                                    int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                    if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                    set.Add((ii, jj, kk));
+                                }
+                    }
+                }
+            }
+            var arr = new int[set.Count * 3];
+            int n = 0;
+            foreach (var (i, j, k) in set) { arr[n++] = i; arr[n++] = j; arr[n++] = k; }
+            return arr;
         }
 
         // 기존설계 패턴에서 학습된 진출/진입 면(예: EQUIP=-z, DUCT=+z)을 조회한다. 패턴 OFF/미적재/미스면 null.

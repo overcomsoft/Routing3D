@@ -82,6 +82,11 @@ namespace Routing3D.Viewer.Interop
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
+        /// <summary>학습된 회랑 셀(ijk 삼중항 평탄 배열)을 설정한다(L2b 소프트 바이어스). w_corridor>0 일 때
+        /// route_multi 가 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도. null/빈 배열이면 회랑을 비운다.</summary>
+        public void SetCorridorCells(int[]? ijk)
+            => Check(Native.r3d_set_corridor_cells(H, ijk, ijk == null ? 0 : ijk.Length / 3), "set_corridor_cells");
+
         /// <summary>라우팅 진행 이벤트. Phase 0=탐색 진행(Progress01), 1=배관 완료(지표+Path).</summary>
         public readonly record struct RouteProgress(int Phase, int OrderIndex, int TaskIndex,
             bool Success, double LengthMm, int Turns, long ExpandedNodes, double ElapsedMs,

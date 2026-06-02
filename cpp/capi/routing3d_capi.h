@@ -115,6 +115,11 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
 R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(원본 장애물)
 
+// 학습된 회랑 셀(ijk 삼중항 배열, 길이 n)을 설정한다(L2b 소프트 바이어스). w_corridor>0(set_params)일 때
+// route_multi 가 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도(기존설계 스텁/랙 형상 따라가기).
+// n<=0 또는 ijk==NULL 이면 회랑을 비운다(기존 동작). 셀 좌표는 현재 격자(set_grid) 기준 (i,j,k).
+R3D_API R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32_t n);
+
 // 라우팅 진행 콜백(cdecl). 뷰어 진행 다이얼로그용 — 처리 순서·단계별 진행율·성공/실패·지표·경로를
 // 실시간 표시한다. ABI 안전: 라우팅과 같은 스레드에서 동기 호출. 콜백 예외는 경계를 넘기지 말 것.
 //   user         : 호스트 컨텍스트 포인터(그대로 전달).

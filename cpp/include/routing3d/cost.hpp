@@ -110,8 +110,9 @@ template <class Occ>
 class CostModel {
 public:
     // corridor: 회랑 셀(occ.lin 인덱스) 집합. nullptr 이면 회랑 미사용(rack_levels 만 면제).
+    //   키는 long long(occ.lin) — ImplicitOccupancy 의 64비트 lin(정밀/거대 격자)에서도 무손실.
     CostModel(const Occ& occ, RouteParams params,
-              const std::unordered_set<int>* corridor = nullptr)
+              const std::unordered_set<long long>* corridor = nullptr)
         : occ_(occ), p_(std::move(params)), corridor_(corridor) {
         if (p_.w_clear > 0.0 && p_.clearance_radius > 0) {
             if constexpr (HasClearanceQuery<Occ>) {
@@ -145,7 +146,7 @@ public:
             // Python cost.py cell_penalty 와 1:1. 보너스가 아닌 '회랑 밖 가산'이라 admissibility 보존.
             bool on_corridor = (rack_.find(c.k) != rack_.end()) ||
                 (corridor_ != nullptr &&
-                 corridor_->find(static_cast<int>(occ_.lin(c))) != corridor_->end());
+                 corridor_->find(static_cast<long long>(occ_.lin(c))) != corridor_->end());
             if (!on_corridor) pen += p_.w_corridor;
         }
         return pen;
@@ -170,7 +171,7 @@ private:
     std::vector<int> clearance_;  // 비어 있으면 클리어런스 비활성(Dense/Sparse 전역 배열)
     bool has_clear_ = false;
     bool on_demand_clear_ = false;  // true 면 occ_.clearance_cells 질의 사용(Implicit, S4)
-    const std::unordered_set<int>* corridor_ = nullptr;  // 회랑 셀(lin) 집합. nullptr=미사용.
+    const std::unordered_set<long long>* corridor_ = nullptr;  // 회랑 셀(lin) 집합. nullptr=미사용.
     std::unordered_set<int> rack_;                       // 선호 단 캐시(Python frozenset 대응).
 };
 

@@ -29,7 +29,7 @@ int main() {
     // --- 1) cell_penalty 회랑/랙 로직 ---
     {  // 회랑 밖 가산, 회랑 안 면제
         RouteParams p; p.cell_mm = 100.0; p.w_turn = 0.0; p.w_clear = 0.0; p.w_corridor = 100.0;
-        std::unordered_set<int> corr; corr.insert(occ.lin(Cell{5, 5, 0}));
+        std::unordered_set<long long> corr; corr.insert(occ.lin(Cell{5, 5, 0}));
         CostModel<DenseOccupancy> cm(occ, p, &corr);
         check(cm.cell_penalty(Cell{5, 5, 0}) == 0.0, "회랑 안 셀 면제");
         check(cm.cell_penalty(Cell{1, 1, 0}) == 100.0, "회랑 밖 셀 가산");
@@ -42,7 +42,7 @@ int main() {
     }
     {  // w_corridor=0 비활성
         RouteParams p; p.cell_mm = 100.0; p.w_turn = 0.0; p.w_clear = 0.0; p.w_corridor = 0.0;
-        std::unordered_set<int> corr; corr.insert(occ.lin(Cell{5, 5, 0}));
+        std::unordered_set<long long> corr; corr.insert(occ.lin(Cell{5, 5, 0}));
         CostModel<DenseOccupancy> cm(occ, p, &corr);
         check(cm.cell_penalty(Cell{1, 1, 0}) == 0.0, "w_corridor=0 비활성");
     }

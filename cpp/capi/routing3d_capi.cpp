@@ -35,6 +35,9 @@ using namespace routing3d;
 struct R3dEngine {
     SceneDoc doc;
     bool collect_visited = true;  // 기본 on — 뷰어 '방문맵' 즉시 사용. set_collect_visited 로 끔.
+    // 학습된 회랑 셀(ijk) — w_corridor>0 일 때 route_multi 가 시드로 사용해 배관을 그 곁으로 유도(L2b).
+    // r3d_set_corridor_cells 로 설정/초기화. 비어 있으면 기존 동작(깔린 배관 곁 번들링만).
+    std::vector<Cell> corridor_seed;
 };
 
 namespace {
@@ -107,7 +110,7 @@ using ProgressCb = std::function<void(int, int, int, bool, double, int, long lon
 // on_pipe 가 유효하면 배관마다 호출(진행 다이얼로그용) — 결과/순서에는 영향 없음.
 template <class Occ>
 void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited,
-                      const ProgressCb& on_pipe = {}) {
+                      const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr) {
     Occ work = occ.copy();  // 원본 점유 불변(M2).
 
     const int n = static_cast<int>(doc.tasks.size());
@@ -138,9 +141,15 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     // 회랑 인력(params.w_corridor>0)이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다
     // → 기존 설계처럼 공용 랙으로 뭉치고 굴곡/길이가 늘어난다. 0이면 기존 동작과 동일.
     doc.results.assign(static_cast<size_t>(n), std::nullopt);
-    std::unordered_set<int> corridor;
+    std::unordered_set<long long> corridor;
     const bool use_corridor = doc.params.w_corridor > 0.0;
     const int corridor_radius = doc.params.corridor_radius > 0 ? doc.params.corridor_radius : 1;
+    // 학습된 회랑 시드(L2b) — w_corridor>0 일 때 외부 주입 셀(seed)을 회랑에 미리 넣어, 배관이
+    // 그 곁을 '싸게'(w_corridor 면제) 지나가도록 유도(기존설계 스텁/랙 형상 따라가기). 0이면 무시.
+    if (use_corridor && seed) {
+        for (const Cell& c : *seed)
+            if (work.in_bounds(c)) corridor.insert(static_cast<long long>(work.lin(c)));
+    }
     // 대형 격자(예 25mm·1.3억 셀)에서는 경로가 없는/막힌 배관이 도달 가능한 셀을 전부 확장해
     // g/came 맵이 수 GB 로 폭증 → 메모리 고갈(0xC0000005). 탐색 상한을 둬 그런 배관을 조기 종료한다.
     // 작은 격자(골든 등)는 상한 없음(-1) 으로 기존 동작·결정성 보존.
@@ -184,13 +193,13 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
 //   거대 격자(>5M 셀, 25mm/10mm) → ImplicitOccupancy: 복셀화 없는 O(장애물) 저장 + 64비트 키 +
 //   온디맨드 클리어런스 → 130MB/2GB 배열·520MB 거리변환·int 오버플로를 모두 회피.
 void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited,
-                          const ProgressCb& on_pipe = {}) {
+                          const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr) {
     const long long cells =
         static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
     if (cells > 5000000LL) {
-        route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe);
+        route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe, seed);
     } else {
-        route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe);
+        route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe, seed);
     }
 }
 
@@ -351,7 +360,8 @@ extern "C" R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task, double s
 extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     if (!e) return R3D_ERR_ARG;
     try {
-        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited);
+        const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
+        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, {}, seed);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
@@ -385,7 +395,25 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
                    plen);
             };
         }
-        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe);
+        const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
+        route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe, seed);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+// 학습된 회랑 셀(ijk 삼중항 배열, 길이 n)을 엔진에 설정한다(L2b). w_corridor>0 일 때 route_multi 가
+// 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도한다. n<=0 또는 ijk==null 이면 회랑을 비운다.
+extern "C" R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32_t n) {
+    if (!e) return R3D_ERR_ARG;
+    try {
+        e->corridor_seed.clear();
+        if (ijk && n > 0) {
+            e->corridor_seed.reserve(static_cast<size_t>(n));
+            for (int32_t t = 0; t < n; ++t)
+                e->corridor_seed.push_back(Cell{ijk[3 * t], ijk[3 * t + 1], ijk[3 * t + 2]});
+        }
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;

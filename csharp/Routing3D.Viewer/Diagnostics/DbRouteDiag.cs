@@ -63,7 +63,11 @@ namespace Routing3D.Viewer.Diagnostics
                 eng = new Engine();
                 eng.SetGrid(cell, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
                 int clr = wClear > 0 ? 2 : 0;
-                eng.SetParams(cell, 500, wClear, clr, 6, wHeur: 1.5);  // 대형 격자 weighted A*(GUI 와 동일).
+                // 기존설계 회랑(L2b) — R3D_CORRIDOR=on 이면 회랑 밖 가산(GUI UseDesignCorridor 와 동일).
+                bool useCorr = string.Equals(Environment.GetEnvironmentVariable("R3D_CORRIDOR"), "on",
+                                             StringComparison.OrdinalIgnoreCase);
+                double wCorr = useCorr ? cell * 0.5 : 0.0;
+                eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: 2, wHeur: 1.5);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -211,6 +215,42 @@ namespace Routing3D.Viewer.Diagnostics
                     (gx, gy, gz) = SnapFree(gx, gy, gz, Face("DUCT", t));
                     eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
                 }
+
+                // 기존설계 회랑 시드(L2b) — 매칭 기존배관 폴리라인을 셀로 복셀화(±2)해 주입.
+                if (useCorr)
+                {
+                    var set = new HashSet<(int, int, int)>();
+                    foreach (var t in rows)
+                    {
+                        var pipe = MatchPipe(sd, t, cell);
+                        if (pipe == null || pipe.Points.Count < 2) continue;
+                        for (int i = 1; i < pipe.Points.Count; i++)
+                        {
+                            var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                            double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                            double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                            int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                            for (int sIdx = 0; sIdx <= steps; sIdx++)
+                            {
+                                double tt = (double)sIdx / steps;
+                                int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                                int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                                int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                                for (int di = -2; di <= 2; di++)
+                                    for (int dj = -2; dj <= 2; dj++)
+                                        for (int dk = -2; dk <= 2; dk++)
+                                        {
+                                            int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                            if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                            set.Add((ii, jj, kk));
+                                        }
+                            }
+                        }
+                    }
+                    var arr = new int[set.Count * 3]; int nn = 0;
+                    foreach (var (i, j, k) in set) { arr[nn++] = i; arr[nn++] = j; arr[nn++] = k; }
+                    eng.SetCorridorCells(arr);
+                }
             }
             catch (Exception ex) { return $"{label}: BUILD-EXCEPTION {ex.Message}"; }
 
@@ -237,6 +277,31 @@ namespace Routing3D.Viewer.Diagnostics
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
             return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}";
+        }
+
+        // 작업(TaskInfo) ↔ 기존 설계배관(TB_ROUTE_PATH) 매칭 — 양 끝 PoC 거리 합 최소(양방향), 임계 내. (GUI FindMatchingExistingPipe 미러)
+        static ExistingPipe? MatchPipe(SceneData sd, TaskInfo t, double cell)
+        {
+            if (sd.ExistingPipes.Count == 0) return null;
+            double tol = Math.Max(3 * cell, 1500.0) * 2;
+            ExistingPipe? best = null; double bestScore = double.MaxValue;
+            foreach (var p in sd.ExistingPipes)
+            {
+                if (p.Points.Count < 2) continue;
+                var ps = p.SourcePos ?? p.Points[0];
+                var pe = p.TargetPos ?? p.Points[p.Points.Count - 1];
+                double s1 = D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe);
+                double s2 = D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
+                double score = Math.Min(s1, s2);
+                if (score < bestScore) { bestScore = score; best = p; }
+            }
+            return (best != null && bestScore <= tol) ? best : null;
+        }
+
+        static double D(double x, double y, double z, Pt3 p)
+        {
+            double dx = x - p.X, dy = y - p.Y, dz = z - p.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
         }
     }
 }

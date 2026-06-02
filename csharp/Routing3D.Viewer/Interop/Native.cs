@@ -86,6 +86,9 @@ namespace Routing3D.Viewer.Interop
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
 
+        // 학습된 회랑 셀(ijk 삼중항×n) 설정 — w_corridor>0 일 때 route_multi 가 시드로 사용(L2b). n<=0=초기화.
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_corridor_cells(IntPtr e, int[]? ijk, int n);
+
         // 진행 콜백(cdecl) — phase=0(탐색 진행)/1(배관 완료). UnmanagedFunctionPointer 로 마샬링.
         // pathIjk 는 phase==1 성공 시 경로 셀((i,j,k)×pathLen) 포인터(콜백 동안만 유효 → 즉시 복사).
         [UnmanagedFunctionPointer(Cdecl)]
