@@ -59,6 +59,7 @@ namespace Routing3D.Viewer.Diagnostics
             var g = sd.Grid;
             double cell = g.CellMm;
             int[]? rackLevels = null;   // L3a 랙 z-셀(측정에 재사용 위해 try 밖 선언).
+            int stubMatched = 0;        // 스텁 라우팅으로 처리된 작업 수(매칭 배관 있는 것).
             Engine eng;
             try
             {
@@ -232,8 +233,34 @@ namespace Routing3D.Viewer.Diagnostics
                     return (x, y, z);
                 }
 
+                // 스텁 라우팅(GUI UseStubRouting 미러) — R3D_STUB=on 이면 매칭 기존배관 스텁 끝~끝으로 A*.
+                bool useStub = string.Equals(Environment.GetEnvironmentVariable("R3D_STUB"), "on",
+                                             StringComparison.OrdinalIgnoreCase);
                 foreach (var t in rows)
                 {
+                    if (useStub)
+                    {
+                        var pipe = MatchPipe(sd, t, cell);
+                        if (pipe != null)
+                        {
+                            var (srcStub, tgtStub) = StubExtractor.ForPipe(pipe);
+                            var ps = pipe.SourcePos ?? pipe.Points[0];
+                            var pe = pipe.TargetPos ?? pipe.Points[pipe.Points.Count - 1];
+                            bool fwd = D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe)
+                                       <= D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
+                            var ss = fwd ? srcStub : tgtStub;
+                            var es = fwd ? tgtStub : srcStub;
+                            if (ss.Count >= 2 && es.Count >= 2)
+                            {
+                                var se = ss[ss.Count - 1]; var ee = es[es.Count - 1];
+                                var (bx, by, bz) = SnapFree(se.X, se.Y, se.Z, null);
+                                var (cx, cy, cz) = SnapFree(ee.X, ee.Y, ee.Z, null);
+                                eng.AddTask(bx, by, bz, cx, cy, cz, t.Utility, t.Group);
+                                stubMatched++;
+                                continue;   // 스텁 끝~끝으로 A* — PoC 직접 라우팅 분기 스킵.
+                            }
+                        }
+                    }
                     double sx = t.Sx, sy = t.Sy, sz = t.Sz;
                     if (drop)
                     {
@@ -330,7 +357,8 @@ namespace Routing3D.Viewer.Diagnostics
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
             string rk = (rackSet != null && horizCells > 0)
                 ? $" rackZ={rackCells * 100.0 / horizCells:0.0}% (z셀 {string.Join(",", rackLevels!)})" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}";
+            string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.

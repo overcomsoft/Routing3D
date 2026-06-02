@@ -205,6 +205,10 @@ namespace Routing3D.Viewer.ViewModels
         // rack_levels(= w_corridor 면제 z-셀)로 준다. 같은 그룹 새 배관이 공용 랙 높이에 뭉친다(사람 설계다움).
         // rack_levels 는 w_corridor>0 일 때만 효력(랙 밖 가산) → ON 시 BuildEngineForRows 가 가벼운 w_corridor 부여.
         private bool _useRackBundling;
+        // 스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 '고정 설계 구간'으로 깔고, A* 는 스텁 끝~끝
+        // (랙 위 자유공간)만 탐색한다. 표시 경로 = [출발 스텁] + [A* 중간] + [종단 스텁]. 매칭 배관 없으면 PoC
+        // 직접 라우팅으로 폴백. 학습 스텁과 자동설계를 일치시킨다(기존엔 PoC 에서 A* 가 스텁을 무시하고 재탐색).
+        private bool _useStubRouting = true;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -376,6 +380,14 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _useRackBundling;
             set { if (Set(ref _useRackBundling, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고 A* 는
+        /// 스텁 끝~끝만 탐색(표시 = 스텁+중간+스텁). 매칭 없으면 PoC 직접 라우팅으로 폴백. 기본 ON.</summary>
+        public bool UseStubRouting
+        {
+            get => _useStubRouting;
+            set { Set(ref _useStubRouting, value); }
         }
 
         /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
@@ -982,18 +994,46 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pos in rowPositions)
             {
                 var row = Tasks[pos];
-                // 시작 PoC 가 메인 장비 내부면 수직 하단(장비 바닥 한 셀 아래)으로 빼낸 뒤(배관이 장비 아래로
-                // 빠져나가는 물리적 동작), 남은 덕트/레터럴 솔리드도 표면으로 투영.
-                // 학습된 진출/진입 면(있으면) — 장비(EQUIP)·덕트(DUCT) 키로 조회. 최근접 면 대신 사용.
+                row.StartStub = null; row.EndStub = null;
+                double sx, sy, sz, gx, gy, gz;
+
+                // 스텁 라우팅: 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고, A* 는 스텁
+                // 끝(랙 위 자유공간)에서 시작/종료한다. 그러면 결과가 학습 스텁을 따른다(PoC 재탐색 문제 해소).
+                var stubPipe = _useStubRouting ? FindMatchingExistingPipe(row) : null;
+                if (stubPipe != null)
+                {
+                    var (srcStub, tgtStub) = StubExtractor.ForPipe(stubPipe);   // 배관 source/target 쪽 스텁.
+                    // 방향 정합 — 작업 start 가 배관 source 에 가까우면 정방향, 아니면 역방향(스텁 스왑).
+                    Pt3 ps = stubPipe.SourcePos ?? stubPipe.Points[0];
+                    Pt3 pe = stubPipe.TargetPos ?? stubPipe.Points[stubPipe.Points.Count - 1];
+                    var ts = new Pt3(row.Sx, row.Sy, row.Sz); var te = new Pt3(row.Gx, row.Gy, row.Gz);
+                    bool forward = Dist(ts, ps) + Dist(te, pe) <= Dist(ts, pe) + Dist(te, ps);
+                    var startStub = forward ? srcStub : tgtStub;
+                    var endStub = forward ? tgtStub : srcStub;
+                    if (startStub.Count >= 2 && endStub.Count >= 2)
+                    {
+                        // 표시 경로가 실제 작업 PoC 에서 시작/끝나도록 스텁 양 끝점을 작업 PoC 로 고정.
+                        startStub[0] = new Pt3(row.Sx, row.Sy, row.Sz);
+                        endStub[0] = new Pt3(row.Gx, row.Gy, row.Gz);
+                        row.StartStub = startStub; row.EndStub = endStub;
+                        var se = startStub[startStub.Count - 1];   // 출발 스텁 끝(랙) = A* 시작.
+                        var ee = endStub[endStub.Count - 1];       // 종단 스텁 끝(랙) = A* 목표.
+                        (sx, sy, sz) = SnapPocToFreeCell(se.X, se.Y, se.Z, null);
+                        (gx, gy, gz) = SnapPocToFreeCell(ee.X, ee.Y, ee.Z, null);
+                        _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
+                        added.Add(pos);
+                        continue;
+                    }
+                }
+
+                // 폴백(매칭 배관 없음/스텁 라우팅 OFF): 기존 PoC 직접 라우팅 — 학습 면으로 PoC 를 표면 투영.
                 string? startFace = LearnedFace("EQUIP", row.Group, row.Utility);
-                // DUCT 종단 면은 검색증강(L3b) — 다중면 키에서 PoC 위치·접근방향별 ANN 분기(단일면은 집계와 동일).
                 string? endFace = LearnedDuctFace(row.Group, row.Utility, row.Gx, row.Gy, row.Gz,
                                                   row.Sx, row.Sy, row.Sz);
-                var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
+                (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
                 (sx, sy, sz) = LiftPocToSurface(sx, sy, sz, startFace);
                 (sx, sy, sz) = SnapPocToFreeCell(sx, sy, sz, startFace);   // 파묻힌 시작 PoC → 최근접 자유 셀.
-                // 종단 PoC(덕트 상부 등)도 솔리드 면 바로 바깥으로 투영 → 덕트 표면에 연결, 본체 관통 방지.
-                var (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz, endFace);
+                (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz, endFace);
                 (gx, gy, gz) = SnapPocToFreeCell(gx, gy, gz, endFace);     // 파묻힌 종단 PoC → 최근접 자유 셀.
                 _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
@@ -1811,7 +1851,14 @@ namespace Routing3D.Viewer.ViewModels
                         mb = new MeshBuilder(false, false);
                         perUtil[label] = mb;
                     }
-                    var pts = row.Path.Select(c => CellToWorld(grid, c)).ToList();
+                    // 표시 경로 = [출발 스텁] + [A* 중간] + [reverse(종단 스텁)]. 스텁이 없으면 A* 경로만.
+                    var pts = new List<Point3D>();
+                    if (row.StartStub != null)
+                        pts.AddRange(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)));
+                    pts.AddRange(row.Path.Select(c => CellToWorld(grid, c)));
+                    if (row.EndStub != null)
+                        for (int k = row.EndStub.Count - 1; k >= 0; k--)
+                            pts.Add(new Point3D(row.EndStub[k].X, row.EndStub[k].Y, row.EndStub[k].Z));
                     if (pts.Count >= 2) mb.AddTube(pts, tubeDia, 8, false);
                     mb.AddSphere(pts[0], markerR);
                     mb.AddSphere(pts[^1], markerR);

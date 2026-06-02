@@ -39,6 +39,11 @@ namespace Routing3D.Viewer.ViewModels
         public PathCell[] Path { get; set; } = Array.Empty<PathCell>();
         public PathCell[] Visited { get; set; } = Array.Empty<PathCell>();
 
+        // 스텁 라우팅: 출발/종단 스텁(고정 설계 구간, 월드 mm). A* 는 스텁 끝~끝만 탐색하고, 표시 경로는
+        // [StartStub] + [A* 경로] + [reverse(EndStub)] 로 합성한다. null/빈 = 스텁 미적용(PoC 직접 라우팅).
+        public System.Collections.Generic.List<Model.Pt3>? StartStub { get; set; }
+        public System.Collections.Generic.List<Model.Pt3>? EndStub { get; set; }
+
         private double _sx, _sy, _sz, _gx, _gy, _gz;
         public double Sx { get => _sx; set => Set(ref _sx, value); }
         public double Sy { get => _sy; set => Set(ref _sy, value); }
