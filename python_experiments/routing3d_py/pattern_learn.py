@@ -282,6 +282,65 @@ def learn_project(source_file: str, config: PgConnConfig | None = None,
             conn.close()
 
 
+# ------------------------------------------------------------------ 랙 레벨 학습 (L3a)
+#
+# 사람이 설계한 기존배관은 긴 '수평 런'을 특정 z-높이(파이프 랙)에 모아 깐다. 같은 유틸그룹의
+# 수평 세그먼트 길이를 z-버킷으로 누적하면 그 그룹의 주 랙 높이가 드러난다. 자동라우팅에서
+# 이 z-레벨을 엔진 rack_levels(= w_corridor 면제 z-셀)로 주면 같은 그룹 배관이 공용 랙에 뭉친다.
+
+RACK_HORIZ_MIN_MM = 800.0   # 랙으로 인정할 최소 수평 런 길이(짧은 연결/엘보 제외).
+RACK_BIN_MM = 100.0         # z 버킷 크기(mm) — 같은 랙 높이로 묶을 해상도.
+
+
+def _is_horizontal(a: Vec3, b: Vec3, tol: float = 0.34) -> bool:
+    """세그먼트가 수평(주 이동이 xy 평면)인가 — |dz| <= tol × 수평거리."""
+    horiz = math.hypot(b[0] - a[0], b[1] - a[1])
+    return horiz > 1e-6 and abs(b[2] - a[2]) <= tol * horiz
+
+
+def learn_rack_levels(pipes: list[ExistingPipe], *, bin_mm: float = RACK_BIN_MM,
+                      min_run_mm: float = RACK_HORIZ_MIN_MM,
+                      ) -> dict[str | None, list[tuple[float, float, int]]]:
+    """기존배관 수평 런의 z-레벨별 누적 길이(유틸그룹별 랙 높이)를 학습한다.
+
+    [알고리즘]
+      각 폴리라인 세그먼트에서 수평(_is_horizontal)이고 min_run_mm 이상인 것만 채택,
+      중점 z 를 bin_mm 버킷으로 양자화해 그룹별로 (누적 런 길이, 세그먼트 수)를 누적한다.
+
+    반환값:
+        dict[utility_group] -> [(z_mm, run_mm, n_seg), …]  (run_mm 내림차순).
+    """
+    from collections import defaultdict
+    acc: dict[str | None, dict[float, list]] = defaultdict(lambda: defaultdict(lambda: [0.0, 0]))
+    for p in pipes:
+        for i in range(1, len(p.points)):
+            a, b = p.points[i - 1], p.points[i]
+            seglen = _dist(a, b)
+            if seglen < min_run_mm or not _is_horizontal(a, b):
+                continue
+            zbin = round(((a[2] + b[2]) / 2) / bin_mm) * bin_mm
+            slot = acc[p.group][zbin]
+            slot[0] += seglen
+            slot[1] += 1
+    out: dict[str | None, list[tuple[float, float, int]]] = {}
+    for g, zmap in acc.items():
+        out[g] = sorted(((z, rn, n) for z, (rn, n) in zmap.items()), key=lambda t: -t[1])
+    return out
+
+
+def rack_report(levels: dict[str | None, list[tuple[float, float, int]]], top: int = 5) -> str:
+    """랙 레벨 학습 결과를 유틸그룹별 상위 z-레벨 표로 요약한다(검수용)."""
+    lines = [f"학습 랙 레벨: {len(levels)} 그룹", ""]
+    lines.append(f"  {'group':16} {'z_mm':>9} {'run_mm':>10} {'n':>4}  {'share':>6}")
+    for g in sorted(levels, key=lambda k: -sum(r for _, r, _ in levels[k])):
+        rows = levels[g]
+        tot = sum(r for _, r, _ in rows) or 1.0
+        for z, run, n in rows[:top]:
+            lines.append(f"  {(g or '')[:16]:16} {z:9.0f} {run:10.0f} {n:4d}  {run / tot * 100:5.1f}%")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
 # ------------------------------------------------------------------ 리포트
 
 def report(rows: list[StubSampleRow]) -> str:
@@ -330,6 +389,8 @@ def _main(argv: list[str] | None = None) -> int:
     ap.add_argument("--project", type=int, default=None, help="project_id")
     ap.add_argument("--source", default=None, help="SOURCE_FILE 직접 지정")
     ap.add_argument("--report", action="store_true", help="검수 리포트 출력")
+    ap.add_argument("--rack-report", action="store_true",
+                    help="유틸그룹별 랙 레벨(수평 런 z-높이) 학습 리포트(L3a)")
     ap.add_argument("--write-db", action="store_true",
                     help="pgvector 저장소 적재(기존 표본 정리 후). --apply-schema 자동")
     ap.add_argument("--dbname", default=None, help="DB 이름 덮어쓰기")
@@ -350,6 +411,15 @@ def _main(argv: list[str] | None = None) -> int:
             ap.error("--project 또는 --source 가 필요합니다.")
             return 2
         print(f"source_file = {sf}")
+
+        if args.rack_report:   # 랙 레벨(L3a) 만 — 스텁 학습과 독립.
+            bbox = route_db.project_xy_bbox(sf, conn=conn)
+            pipes = route_db.load_existing_pipes(sf, conn=conn, xy_bbox=bbox)
+            print(f"기존배관 {len(pipes)}개")
+            print()
+            print(rack_report(learn_rack_levels(pipes)))
+            return 0
+
         rows = learn_project(sf, conn=conn)
         print(f"추출 스텁 표본 {len(rows)}건")
 

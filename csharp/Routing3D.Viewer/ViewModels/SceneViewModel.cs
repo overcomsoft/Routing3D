@@ -199,6 +199,10 @@ namespace Routing3D.Viewer.ViewModels
         // w_corridor 로 회랑 밖을 가산 → 새 경로가 사람 설계를 부드럽게 따라간다(충돌은 여전히 회피).
         // 경로 '모양'을 바꾸므로 기본 OFF(옵트인). ON 시 BuildEngineForRows 가 회랑 셀 주입 + w_corridor>0.
         private bool _useDesignCorridor;
+        // 유틸그룹 랙 번들링(L3a) — 기존배관의 수평 런이 모이는 z-높이(랙)를 그룹별로 학습해 엔진
+        // rack_levels(= w_corridor 면제 z-셀)로 준다. 같은 그룹 새 배관이 공용 랙 높이에 뭉친다(사람 설계다움).
+        // rack_levels 는 w_corridor>0 일 때만 효력(랙 밖 가산) → ON 시 BuildEngineForRows 가 가벼운 w_corridor 부여.
+        private bool _useRackBundling;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -357,6 +361,14 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _useDesignCorridor;
             set { if (Set(ref _useDesignCorridor, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>유틸그룹 랙 번들링(L3a) — 기존배관 수평 런이 모이는 z-높이(랙)를 그룹별로 학습해 같은
+        /// 그룹 새 배관을 공용 랙 높이에 뭉치게 한다(엔진 rack_levels + 가벼운 w_corridor). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        public bool UseRackBundling
+        {
+            get => _useRackBundling;
+            set { if (Set(ref _useRackBundling, value)) OnChanged(nameof(PatternStatus)); }
         }
 
         /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
@@ -940,11 +952,17 @@ namespace Routing3D.Viewer.ViewModels
             // 작은 데모 격자(<300k셀)는 표준 A*(1.0, 최적). 골든 정확도는 C++ ctest 가 별도 검증(이 경로 무관).
             bool weighted = (long)g.Nx * g.Ny * g.Nz > 300_000;
             double wHeur = weighted ? 2.0 : 1.0;
-            // 기존설계 회랑(L2b) ON 이면 회랑 밖 셀당 가산(=½칸 비용)으로 부드럽게 설계 경로를 유도.
-            // w_heur=2.0 이 회랑 비용장을 휴리스틱에 반영해 탐색 폭을 억제 → L2b 가 OFF 와 거의 동일 속도로
-            // 동작(이전 ~47s 폭증의 원인 해소). corridor_radius=2 는 회랑 튜브 폭(±2셀).
-            double wCorr = _useDesignCorridor ? g.CellMm * 0.5 : 0.0;
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2, wHeur: wHeur);
+            // 기존설계 회랑(L2b)/랙 번들링(L3a) ON 이면 회랑·랙 밖 셀당 가산(=½칸 비용)으로 부드럽게 유도.
+            // w_heur=2.0 이 회랑 비용장을 휴리스틱에 반영해 탐색 폭을 억제 → OFF 와 거의 동일 속도로 동작
+            // (이전 ~47s 폭증의 원인 해소). corridor_radius=2 는 회랑 튜브 폭(±2셀).
+            // 랙 번들링(L3a): 학습된 그룹 랙 z-셀을 rack_levels(면제)로 주면 같은 그룹 배관이 공용 랙에 뭉친다.
+            // 랙 페널티는 회랑(0.5)보다 부드러운 0.2(실측: project6 c100 200/208·랙 집중도 17→21%·길이↓.
+            // 0.5 는 한 배관을 막아 198 로 떨어짐). 회랑+랙 동시 ON 이면 회랑의 0.5 가 우선(강한 설계추종).
+            int[]? rackLevels = _useRackBundling ? BuildRackLevels(rowPositions) : null;
+            double wCorr = _useDesignCorridor ? g.CellMm * 0.5
+                         : _useRackBundling ? g.CellMm * 0.2 : 0.0;
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
+                              rackLevels: rackLevels, wHeur: wHeur);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -1012,6 +1030,57 @@ namespace Routing3D.Viewer.ViewModels
             int n = 0;
             foreach (var (i, j, k) in set) { arr[n++] = i; arr[n++] = j; arr[n++] = k; }
             return arr;
+        }
+
+        // 유틸그룹 랙 번들링(L3a) — 라우팅할 행들의 그룹에 속한 기존배관 수평 런이 모이는 z-셀(랙 높이)을
+        // 학습해 엔진 rack_levels(면제 z-셀, 최대 8)로 만든다. Python pattern_learn.learn_rack_levels 와 동일 로직:
+        //   수평(|dz| <= 0.34×수평거리)이고 800mm 이상인 세그먼트의 z-셀에 런 길이를 누적 → 그룹별 지배 랙 선정.
+        private int[]? BuildRackLevels(IReadOnlyList<int> rowPositions)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm;
+            if (s.ExistingPipes.Count == 0) return null;
+            const double MinRunMm = 800.0, HorizTol = 0.34, GroupShare = 0.15;
+
+            // 이번 라우팅에 등장하는 유틸그룹 집합.
+            var groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pos in rowPositions)
+                if (!string.IsNullOrEmpty(Tasks[pos].Group)) groups.Add(Tasks[pos].Group!);
+            if (groups.Count == 0) return null;
+
+            // 그룹 → (z셀 → 누적 런 mm). 기존배관 수평 런을 z-셀에 누적.
+            var byGroup = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pipe in s.ExistingPipes)
+            {
+                if (pipe.Group == null || !groups.Contains(pipe.Group) || pipe.Points.Count < 2) continue;
+                if (!byGroup.TryGetValue(pipe.Group, out var zmap))
+                    byGroup[pipe.Group] = zmap = new Dictionary<int, double>();
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double horiz = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+                    if (horiz <= 1e-6 || Math.Abs(b.Z - a.Z) > HorizTol * horiz) continue;   // 수직/사선 제외.
+                    double len = Math.Sqrt(horiz * horiz + (b.Z - a.Z) * (b.Z - a.Z));
+                    if (len < MinRunMm) continue;
+                    int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - g.Oz) / cell);
+                    if (zk < 0 || zk >= g.Nz) continue;
+                    zmap[zk] = (zmap.TryGetValue(zk, out var v) ? v : 0.0) + len;
+                }
+            }
+            if (byGroup.Count == 0) return null;
+
+            // 그룹마다 전체 런의 GroupShare 이상을 차지하는 z-셀을 채택(지배 랙). 전 그룹 합집합 → 런 큰 순 8개.
+            var picked = new Dictionary<int, double>();   // z셀 → 누적 런(여러 그룹 합산, 정렬용).
+            foreach (var (_, zmap) in byGroup)
+            {
+                double tot = 0; foreach (var v in zmap.Values) tot += v;
+                if (tot <= 0) continue;
+                foreach (var (zk, run) in zmap)
+                    if (run >= GroupShare * tot)
+                        picked[zk] = (picked.TryGetValue(zk, out var p) ? p : 0.0) + run;
+            }
+            if (picked.Count == 0) return null;
+            var top = picked.OrderByDescending(kv => kv.Value).Take(8).Select(kv => kv.Key).ToArray();
+            return top.Length > 0 ? top : null;
         }
 
         // 기존설계 패턴에서 학습된 진출/진입 면(예: EQUIP=-z, DUCT=+z)을 조회한다. 패턴 OFF/미적재/미스면 null.

@@ -57,6 +57,7 @@ namespace Routing3D.Viewer.Diagnostics
         {
             var g = sd.Grid;
             double cell = g.CellMm;
+            int[]? rackLevels = null;   // L3a 랙 z-셀(측정에 재사용 위해 try 밖 선언).
             Engine eng;
             try
             {
@@ -73,8 +74,15 @@ namespace Routing3D.Viewer.Diagnostics
                 double wcMul = ParseEnv("R3D_WCORR", 0.5);
                 double wHeur = ParseEnv("R3D_WHEUR", 2.0);   // L2b 속도튜닝: 1.5→2.0(회랑 47s→6.3s, +1성공)
                 int corrRad = (int)ParseEnv("R3D_CORRRAD", 2);
-                double wCorr = useCorr ? cell * wcMul : 0.0;
-                eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad, wHeur: wHeur);
+                // 유틸그룹 랙 번들링(L3a) — R3D_RACK=on 이면 학습된 그룹 랙 z-셀을 rack_levels(면제)로.
+                bool useRack = string.Equals(Environment.GetEnvironmentVariable("R3D_RACK"), "on",
+                                             StringComparison.OrdinalIgnoreCase);
+                rackLevels = BuildRackLevels(sd, rows);   // 항상 학습(집중도 지표에 재사용). 적용은 useRack 일 때만.
+                // 회랑은 cell*0.5(R3D_WCORR), 랙-단독은 부드러운 cell*0.2(GUI 와 동일). 동시 ON 이면 회랑 우선.
+                double wCorr = useCorr ? cell * wcMul
+                             : useRack ? cell * ParseEnv("R3D_WCORR", 0.2) : 0.0;
+                eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad,
+                              rackLevels: useRack ? rackLevels : null, wHeur: wHeur);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -275,15 +283,77 @@ namespace Routing3D.Viewer.Diagnostics
             sw.Stop();
 
             int ok = 0; double tot = 0;
+            // 랙 집중도(L3a) — 성공 경로의 수평 이동 셀 중 학습된 랙 z-셀에 놓인 비율. 번들링 강화 시 증가.
+            var rackSet = rackLevels != null ? new HashSet<int>(rackLevels) : null;
+            long horizCells = 0, rackCells = 0;
             for (int i = 0; i < rows.Count; i++)
             {
-                try { var r = eng.GetResult(i); if (r.Success) { ok++; tot += r.LengthMm; } }
+                try
+                {
+                    var r = eng.GetResult(i);
+                    if (!r.Success) continue;
+                    ok++; tot += r.LengthMm;
+                    if (rackSet != null)
+                        for (int p = 1; p < r.Path.Length; p++)
+                        {
+                            var a = r.Path[p - 1]; var b = r.Path[p];
+                            if (a.K != b.K) continue;            // 수직 이동(라이저) 제외 — 수평 셀만 집계.
+                            horizCells++;
+                            if (rackSet.Contains(b.K)) rackCells++;
+                        }
+                }
                 catch { }
             }
             eng.Dispose();
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}";
+            string rk = (rackSet != null && horizCells > 0)
+                ? $" rackZ={rackCells * 100.0 / horizCells:0.0}% (z셀 {string.Join(",", rackLevels!)})" : "";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}";
+        }
+
+        // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
+        // (GUI SceneViewModel.BuildRackLevels 미러). 반환: 런 큰 순 최대 8개 z-셀 인덱스, 없으면 null.
+        static int[]? BuildRackLevels(SceneData sd, List<TaskInfo> rows)
+        {
+            var g = sd.Grid; double cell = g.CellMm;
+            if (sd.ExistingPipes.Count == 0) return null;
+            const double MinRunMm = 800.0, HorizTol = 0.34, GroupShare = 0.15;
+            var groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in rows) if (!string.IsNullOrEmpty(t.Group)) groups.Add(t.Group!);
+            if (groups.Count == 0) return null;
+
+            var byGroup = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pipe in sd.ExistingPipes)
+            {
+                if (pipe.Group == null || !groups.Contains(pipe.Group) || pipe.Points.Count < 2) continue;
+                if (!byGroup.TryGetValue(pipe.Group, out var zmap))
+                    byGroup[pipe.Group] = zmap = new Dictionary<int, double>();
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double horiz = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+                    if (horiz <= 1e-6 || Math.Abs(b.Z - a.Z) > HorizTol * horiz) continue;
+                    double len = Math.Sqrt(horiz * horiz + (b.Z - a.Z) * (b.Z - a.Z));
+                    if (len < MinRunMm) continue;
+                    int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - g.Oz) / cell);
+                    if (zk < 0 || zk >= g.Nz) continue;
+                    zmap[zk] = (zmap.TryGetValue(zk, out var v) ? v : 0.0) + len;
+                }
+            }
+            if (byGroup.Count == 0) return null;
+            var picked = new Dictionary<int, double>();
+            foreach (var kv in byGroup)
+            {
+                double totRun = 0; foreach (var v in kv.Value.Values) totRun += v;
+                if (totRun <= 0) continue;
+                foreach (var zr in kv.Value)
+                    if (zr.Value >= GroupShare * totRun)
+                        picked[zr.Key] = (picked.TryGetValue(zr.Key, out var p) ? p : 0.0) + zr.Value;
+            }
+            if (picked.Count == 0) return null;
+            var top = picked.OrderByDescending(kv => kv.Value).Take(8).Select(kv => kv.Key).ToArray();
+            return top.Length > 0 ? top : null;
         }
 
         // 작업(TaskInfo) ↔ 기존 설계배관(TB_ROUTE_PATH) 매칭 — 양 끝 PoC 거리 합 최소(양방향), 임계 내. (GUI FindMatchingExistingPipe 미러)

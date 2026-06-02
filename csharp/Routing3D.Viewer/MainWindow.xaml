@@ -253,6 +253,10 @@
                                       IsChecked="{Binding UseDesignCorridor}"
                                       Margin="0,0,12,0"
                                       ToolTip="기존설계 회랑 — 매칭되는 기존배관(TB_ROUTE_PATH) 폴리라인을 회랑으로 주입하고 회랑 밖을 비용 가산(w_corridor)해, 새 경로가 사람 설계를 부드럽게 따라가게 합니다(충돌은 여전히 회피). 경로 모양을 바꾸므로 기본 OFF."/>
+                            <CheckBox Content="랙 번들 (L3a)"
+                                      IsChecked="{Binding UseRackBundling}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="유틸그룹 랙 번들링 — 기존배관의 수평 런이 모이는 z-높이(파이프 랙)를 유틸리티 그룹별로 학습해, 같은 그룹의 새 배관을 공용 랙 높이에 뭉치게 합니다(엔진 rack_levels + 가벼운 비용 가산). 사람 설계다운 정돈된 레이아웃. 경로 모양을 바꾸므로 기본 OFF."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>

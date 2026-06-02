@@ -287,6 +287,72 @@ def nearest_stubs(anchor_kind: str, utility_group: str | None, utility: str | No
             conn.close()
 
 
+@dataclass
+class StubSuggestion:
+    """검색증강(ANN) 추론 결과 — K개 최근접 스텁의 가중 투표 합의.
+
+    필드:
+        face       : 거리가중 투표 1위 면(+x..-z). 없으면 None.
+        face_conf  : face 의 투표 점유율(0~1) — 합의 신뢰도.
+        rise_mm    : 최근접 K개의 거리가중 평균 rise(면 법선 상승량).
+        offset_mm  : 거리가중 평균 offset.
+        k          : 실제 사용된 이웃 수.
+        dist0      : 1위 이웃의 feat L2 거리(작을수록 형상 유사).
+    """
+
+    face: str | None
+    face_conf: float
+    rise_mm: float
+    offset_mm: float
+    k: int
+    dist0: float
+
+
+def suggest_stub(anchor_kind: str, utility_group: str | None, utility: str | None,
+                 feat: list[float], k: int = 8, *, strict_category: bool = False,
+                 config: PgConnConfig | None = None, conn=None) -> StubSuggestion | None:
+    """검색증강 스텁 추론 — 범주로 거른 K개 최근접 스텁을 거리가중 투표/평균해 합의를 낸다.
+
+    [집계뷰(route_stub_template)와의 차이]
+      route_stub_template 은 (kind, group, utility) 키마다 '전역' mode/percentile 한 답을 준다.
+      suggest_stub 은 질의 feat(=PoC 컨텍스트)에 가까운 표본만 골라 투표하므로, 한 키 안에
+      여러 패턴(예: PoC 위치별 다른 진입면)이 섞여 있어도 컨텍스트에 맞는 답을 낸다(HNSW ANN).
+
+    [가중] 이웃 i 의 가중 = 1/(dist_i + eps). 가까운 표본일수록 투표·평균에 크게 기여.
+
+    매개변수/반환은 StubSuggestion 참조. 후보가 없으면 None.
+    """
+    rows = nearest_stubs(anchor_kind, utility_group, utility, feat, k=k,
+                         strict_category=strict_category, config=config, conn=conn)
+    if not rows:
+        return None
+    # rows: (id, face, dir_seq, rise_mm, offset_mm, poc_pos, anchor_min, anchor_max, dist)
+    eps = 1e-6
+    face_vote: dict[str, float] = {}
+    wsum = rise_acc = off_acc = 0.0
+    for r in rows:
+        face, rise, off, dist = r[1], r[3], r[4], r[8]
+        w = 1.0 / (float(dist) + eps)
+        wsum += w
+        if face:
+            face_vote[face] = face_vote.get(face, 0.0) + w
+        rise_acc += w * float(rise or 0.0)
+        off_acc += w * float(off or 0.0)
+    best_face, best_w = (None, 0.0)
+    for f, w in face_vote.items():
+        if w > best_w:
+            best_face, best_w = f, w
+    total_face_w = sum(face_vote.values()) or 1.0
+    return StubSuggestion(
+        face=best_face,
+        face_conf=best_w / total_face_w,
+        rise_mm=rise_acc / wsum if wsum else 0.0,
+        offset_mm=off_acc / wsum if wsum else 0.0,
+        k=len(rows),
+        dist0=float(rows[0][8]),
+    )
+
+
 # ------------------------------------------------------------------ CLI
 
 def _main(argv: list[str] | None = None) -> int:

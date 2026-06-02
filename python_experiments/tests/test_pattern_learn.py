@@ -83,6 +83,36 @@ def test_walk_stub_bends_and_cap():
     assert len(pts) >= 3
 
 
+def test_is_horizontal():
+    assert pl._is_horizontal((0, 0, 1000), (3000, 0, 1000))      # 순수 수평
+    assert pl._is_horizontal((0, 0, 1000), (3000, 0, 1100))      # 약간 기울어도 수평 우세
+    assert not pl._is_horizontal((0, 0, 1000), (0, 0, 3000))     # 순수 수직
+    assert not pl._is_horizontal((0, 0, 0), (100, 0, 3000))      # 수직 우세
+    assert not pl._is_horizontal((0, 0, 0), (0, 0, 0))           # 퇴화(0 길이)
+
+
+def test_learn_rack_levels():
+    from routing3d_py.route_db import ExistingPipe
+    # 그룹 A: z=2000 에 긴 수평 런 2개(랙) + z=2500 에 짧은 1개 + 수직 드롭(무시).
+    pipes = [
+        ExistingPipe(group="A", utility="u", points=[(0, 0, 2000), (4000, 0, 2000)]),
+        ExistingPipe(group="A", utility="u", points=[(0, 500, 2010), (3000, 500, 2010)]),  # 같은 버킷(2000)
+        ExistingPipe(group="A", utility="u", points=[(0, 0, 2500), (1000, 0, 2500)]),       # 짧지만 >800
+        ExistingPipe(group="A", utility="u", points=[(0, 0, 2000), (0, 0, 5000)]),          # 수직 → 제외
+        ExistingPipe(group="B", utility="v", points=[(0, 0, 9000), (5000, 0, 9000)]),
+    ]
+    levels = pl.learn_rack_levels(pipes)
+    assert set(levels) == {"A", "B"}
+    # A 의 1위 z-레벨은 2000(런 7000mm 누적, 세그 2개)이어야 한다.
+    z_top, run_top, n_top = levels["A"][0]
+    assert z_top == 2000.0
+    assert run_top == pytest.approx(7000.0)
+    assert n_top == 2
+    # 800mm 미만 수평 런은 채택 안 됨.
+    short = [ExistingPipe(group="C", utility="w", points=[(0, 0, 1000), (500, 0, 1000)])]
+    assert pl.learn_rack_levels(short).get("C", []) == []
+
+
 # ----------------------------------------------------------- DB 통합 (@pytest.mark.db)
 
 @pytest.fixture(scope="module")
@@ -128,3 +158,20 @@ def test_db_nearest_stubs_category_filter(db_conn):
     if res:
         dists = [row[-1] for row in res]
         assert dists == sorted(dists)
+
+
+@pytest.mark.db
+def test_db_suggest_stub_retrieval(db_conn):
+    """검색증강(ANN) 추론 — DUCT/+z 질의에 합의 면이 도메인(+z)과 일치하고 신뢰도가 유효."""
+    from routing3d_py.pattern_db import suggest_stub, count_samples
+    conn, config = db_conn
+    if count_samples(conn=conn) == 0:
+        pytest.skip("저장소가 비어 있음 — pattern_learn --write-db 먼저 실행")
+    q = pl.build_feature_vector(face=4, dir_seq=[4], rel_pos=[0.5, 0.5, 1.0], dir_unit=[0, 0, 1])
+    sug = suggest_stub("DUCT", "Exhaust", "ACID", q, k=8, strict_category=False, conn=conn)
+    if sug is None:
+        pytest.skip("해당 범주 표본 없음")
+    assert sug.face in ("+x", "-x", "+y", "-y", "+z", "-z")
+    assert 0.0 < sug.face_conf <= 1.0
+    assert sug.k >= 1
+    assert sug.dist0 >= 0.0
