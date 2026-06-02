@@ -222,6 +222,9 @@
                             <CheckBox Content="PoC 마커"
                                       IsChecked="{Binding ShowPocMarkers}" Margin="0,0,12,0"
                                       ToolTip="모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시. 유틸 필터·선택 그룹을 동일 적용."/>
+                            <CheckBox Content="스텁"
+                                      IsChecked="{Binding ShowStubs}" Margin="0,0,12,0"
+                                      ToolTip="기존 설계배관의 출발(빨강)·종단(파랑) 스텁 = 수직배관 + 엘보(수직→수평 전환)를 굵은 색 튜브로 강조합니다. 학습 파이프라인과 동일 로직으로 잘라내 학습 스텁과 일치. 유틸리티 그룹/유틸을 선택하면 그 그룹의 기존배관 스텁만 보입니다."/>
                             <CheckBox Content="충돌"
                                       IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"
                                       ToolTip="충돌 셀 (≥2 배관이 공유하는 셀, 빨간 큐브)"/>
