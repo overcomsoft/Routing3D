@@ -263,6 +263,10 @@
                                       IsChecked="{Binding UseRackBundling}"
                                       Margin="0,0,12,0"
                                       ToolTip="유틸그룹 랙 번들링 — 기존배관의 수평 런이 모이는 z-높이(파이프 랙)를 유틸리티 그룹별로 학습해, 같은 그룹의 새 배관을 공용 랙 높이에 뭉치게 합니다(엔진 rack_levels + 가벼운 비용 가산). 사람 설계다운 정돈된 레이아웃. 경로 모양을 바꾸므로 기본 OFF."/>
+                            <CheckBox Content="스텁 라우팅"
+                                      IsChecked="{Binding UseStubRouting}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="스텁 라우팅 — 매칭되는 기존배관의 출발/종단 스텁(수직배관+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료합니다. 표시 경로 = 출발 스텁 + A* 중간 + 종단 스텁. 자동설계가 학습 스텁을 그대로 따라가게 합니다(PoC에서 재탐색하지 않음). 매칭 배관 없으면 PoC 직접 라우팅으로 폴백. 기본 ON."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
