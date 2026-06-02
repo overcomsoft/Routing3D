@@ -44,7 +44,8 @@ namespace Routing3D.Viewer.Diagnostics
             bool usePat = !string.Equals(Environment.GetEnvironmentVariable("R3D_PATTERNS"), "off",
                                          StringComparison.OrdinalIgnoreCase);
             PatternStore? patterns = usePat ? PatternStore.TryLoad(cfg) : null;
-            sb.AppendLine($"기존설계 패턴: {(patterns == null ? (usePat ? "없음(기하 폴백)" : "OFF") : patterns.Count + "키")}");
+            sb.AppendLine($"기존설계 패턴: {(patterns == null ? (usePat ? "없음(기하 폴백)" : "OFF") : patterns.Count + "키")}"
+                          + (patterns != null ? $" (검색증강 다중면 {patterns.AnnKeyCount}키)" : ""));
 
             sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 10, mode: "multi",
                               "G route_multi +facilities+drop clearON(Implicit 온디맨드)", patterns));
@@ -146,6 +147,25 @@ namespace Routing3D.Viewer.Diagnostics
                 string? Face(string kind, TaskInfo t) =>
                     patterns != null && patterns.TryGet(kind, t.Group, t.Utility, out var tp) ? tp.Face : null;
 
+                // 검색증강(L3b) — DUCT 종단 면을 PoC 컨텍스트별 ANN 으로 분기(GUI LearnedDuctFace 미러).
+                // R3D_ANN=off 면 비활성(집계 Face 로 폴백, A/B 비교용). 기본 ON.
+                bool useAnn = !string.Equals(Environment.GetEnvironmentVariable("R3D_ANN"), "off",
+                                             StringComparison.OrdinalIgnoreCase);
+                string? DuctFace(TaskInfo t)
+                {
+                    if (useAnn && patterns != null)
+                    {
+                        var d = NearestDuct(sd, t.Gx, t.Gy, t.Gz);
+                        if (d != null)
+                        {
+                            var rel = new[] { Rel(t.Gx, d.MinX, d.MaxX), Rel(t.Gy, d.MinY, d.MaxY), Rel(t.Gz, d.MinZ, d.MaxZ) };
+                            var dir = Unit3(t.Sx - t.Gx, t.Sy - t.Gy, t.Sz - t.Gz);
+                            if (patterns.TryGetFaceAnn("DUCT", t.Group, t.Utility, rel, dir, out var f)) return f;
+                        }
+                    }
+                    return Face("DUCT", t);
+                }
+
                 // 접근불가 PoC 전처리(GUI SnapPocToFreeCell 와 동일) — R3D_SNAP=off 면 비활성(A/B).
                 bool useSnap = !string.Equals(Environment.GetEnvironmentVariable("R3D_SNAP"), "off",
                                               StringComparison.OrdinalIgnoreCase);
@@ -226,8 +246,9 @@ namespace Routing3D.Viewer.Diagnostics
                     }
                     (sx, sy, sz) = Lift(sx, sy, sz, Face("EQUIP", t));
                     (sx, sy, sz) = SnapFree(sx, sy, sz, Face("EQUIP", t));
-                    var (gx, gy, gz) = Lift(t.Gx, t.Gy, t.Gz, Face("DUCT", t));
-                    (gx, gy, gz) = SnapFree(gx, gy, gz, Face("DUCT", t));
+                    string? ductFace = DuctFace(t);   // L3b ANN(다중면 키) 또는 집계 폴백.
+                    var (gx, gy, gz) = Lift(t.Gx, t.Gy, t.Gz, ductFace);
+                    (gx, gy, gz) = SnapFree(gx, gy, gz, ductFace);
                     eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
                 }
 
@@ -379,6 +400,32 @@ namespace Routing3D.Viewer.Diagnostics
         {
             double dx = x - p.X, dy = y - p.Y, dz = z - p.Z;
             return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 검색증강(L3b) 보조 — 종단 PoC 를 포함/최근접(3000mm) 덕트. (GUI NearestDuctAnchor 미러)
+        static DuctLateral? NearestDuct(SceneData sd, double x, double y, double z)
+        {
+            const double eps = 1.0, maxMm = 3000.0;
+            foreach (var d in sd.DuctsLaterals)
+                if (x >= d.MinX - eps && x <= d.MaxX + eps && y >= d.MinY - eps && y <= d.MaxY + eps &&
+                    z >= d.MinZ - eps && z <= d.MaxZ + eps) return d;
+            DuctLateral? best = null; double bd = maxMm;
+            foreach (var d in sd.DuctsLaterals)
+            {
+                double cx = (d.MinX + d.MaxX) / 2, cy = (d.MinY + d.MaxY) / 2, cz = (d.MinZ + d.MaxZ) / 2;
+                double dist = Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
+                if (dist < bd) { bd = dist; best = d; }
+            }
+            return best;
+        }
+
+        static double Rel(double v, double lo, double hi)
+            => hi - lo <= 1e-6 ? 0.5 : Math.Min(1.0, Math.Max(0.0, (v - lo) / (hi - lo)));
+
+        static double[] Unit3(double x, double y, double z)
+        {
+            double n = Math.Sqrt(x * x + y * y + z * z);
+            return n < 1e-9 ? new double[3] : new[] { x / n, y / n, z / n };
         }
 
         // 환경변수를 double 로 파싱(미설정/형식오류면 기본값). L2b 속도 튜닝 노브용.
