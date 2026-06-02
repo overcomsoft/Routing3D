@@ -83,6 +83,21 @@ def test_walk_stub_bends_and_cap():
     assert len(pts) >= 3
 
 
+def test_walk_stub_includes_elbow_filters_jitter():
+    # 스텁은 '수직배관 + 엘보(수직→수평 전환)'까지여야 한다. PoC 에서 -z 하강(중간 미세 -y 지터 100mm)
+    # 후 +x 엘보로 랙에 진입 → 지터는 흡수되고 엘보(+x)가 포함돼 dir_seq = [-z, +x].
+    seg = [(0, 0, 5000), (0, 0, 4000), (0, -100, 3990), (0, 0, 3000), (2000, 0, 3000)]
+    _, dirs = pl._walk_stub(seg)
+    assert dirs == [5, 0]                        # -z(수직), +x(엘보) — 미세 -y 지터 흡수
+
+
+def test_merge_short_runs_absorbs_jitter():
+    # 같은 방향 사이의 짧은 이탈 런은 흡수되어 사라진다.
+    runs = pl._merge_short_runs([[5, 1000.0], [3, 100.0], [5, 995.0], [0, 2000.0]])
+    assert [r[0] for r in runs] == [5, 0]        # -z(병합), +x
+    assert runs[0][1] == pytest.approx(2095.0)   # 1000 + 100 + 995
+
+
 def test_is_horizontal():
     assert pl._is_horizontal((0, 0, 1000), (3000, 0, 1000))      # 순수 수평
     assert pl._is_horizontal((0, 0, 1000), (3000, 0, 1100))      # 약간 기울어도 수평 우세

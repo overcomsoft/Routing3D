@@ -162,6 +162,7 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 | 단계 | 내용 | 산출물 | 효과(project6 c100 ALL 208작업, **w_heur=2.0**) |
 |---|---|---|---|
 | **L1** | pgvector 학습 저장소 + Python 학습 파이프라인 | `db/schema/route_stub_pattern.sql`(feat `vector(24)`·dir_unit `vector(3)`·HNSW + 집계뷰 `route_stub_template`) · `routing3d_py/{route_db,pattern_learn,pattern_db}.py` | 405표본/38키, 도메인규칙 입증(EQUIP면=−z·DUCT면=+z), pytest 9/9 |
+| **L1′ 엘보** | 스텁을 '수직배관까지'가 아니라 '수직 + 첫 엘보(수직→수평 전환)'까지로 — 방향 런 압축 + 짧은 런(<250mm) 지터 흡수 + 엘보 포함(`_dir_runs`·`_merge_short_runs`, `STUB_LEADIN_MM=800`) | `pattern_learn._walk_stub` 재작성 | 예) EQUIP `-z,-y,-z`→`-z,+x` · DUCT `+z,-z,+z`→`+z,-x`(엘보 방향이 dir2 에 인코딩). 라우팅 199 불변, pytest +2 |
 | **L2a** | 학습면 PoC 투영(C#만, 엔진변경 0) | `Model/PatternStore.cs` + `SceneViewModel.LiftPocToSurface(preferFace)` | 기하 187 · 38s→23s(헛탐색 0) |
 | **전처리** | 접근불가(파묻힌) PoC→최근접 자유셀 스냅 | `SceneViewModel.SnapPocToFreeCell`(학습면 행진+반경확장) | 187→**199** · 23s→6.3s |
 | **L2b** | 기존설계 회랑 소프트바이어스(옵트인) | C ABI `r3d_set_corridor_cells` + corridor 키 `long long` 확장 + `SceneViewModel.{UseDesignCorridor,BuildDesignCorridorCells}` | 199(동일성공)·**설계추종**(totalLen↓)·6.4s |
