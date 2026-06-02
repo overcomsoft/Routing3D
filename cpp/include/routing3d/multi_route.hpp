@@ -160,7 +160,7 @@ void mark_pipe(Occ& occ, const std::vector<Cell>& path, int radius) {
 // 경로 셀 + radius 6-이웃(격자 내)을 회랑(occ.lin 인덱스) 집합에 추가한다(Python _add_corridor 와 1:1).
 // 이후 배관이 이 곁을 '싸게'(w_corridor 면제) 지나가 공용 랙으로 뭉친다 → 기존 설계 유사.
 template <class Occ>
-void add_corridor_cells(const Occ& occ, std::unordered_set<int>& corridor,
+void add_corridor_cells(const Occ& occ, std::unordered_set<long long>& corridor,
                         const std::vector<Cell>& path, int radius) {
     std::vector<Cell> frontier;
     for (const Cell& c : path) {
@@ -193,7 +193,7 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
     std::vector<RouteTask> ordered = order_tasks(occ, tasks, priority);
 
     // 회랑 인력(w_corridor>0)이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다.
-    std::unordered_set<int> corridor;
+    std::unordered_set<long long> corridor;
     const bool use_corridor = params.w_corridor > 0.0;
 
     std::vector<PipeResult> pipes;

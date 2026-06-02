@@ -23,6 +23,7 @@ using HelixToolkit.Wpf;
 using Microsoft.Win32;
 using Routing3D.Viewer.Interop;
 using Routing3D.Viewer.Model;
+using Routing3D.Viewer.Views;
 
 namespace Routing3D.Viewer.ViewModels
 {
@@ -189,13 +190,27 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
+        private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
+        // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
+        private PatternStore? _patterns;
+        private bool _patternsTried;                    // DB 1회만 조회(미스도 캐시).
+        private bool _usePatterns = true;               // 기존설계 패턴 활용 토글(기본 ON, 미스 시 자동 기하 폴백).
+        // 기존설계 회랑(L2b) — 매칭되는 기존 설계배관(TB_ROUTE_PATH) 폴리라인을 회랑 시드로 주입하고
+        // w_corridor 로 회랑 밖을 가산 → 새 경로가 사람 설계를 부드럽게 따라간다(충돌은 여전히 회피).
+        // 경로 '모양'을 바꾸므로 기본 OFF(옵트인). ON 시 BuildEngineForRows 가 회랑 셀 주입 + w_corridor>0.
+        private bool _useDesignCorridor;
+        // 유틸그룹 랙 번들링(L3a) — 기존배관의 수평 런이 모이는 z-높이(랙)를 그룹별로 학습해 엔진
+        // rack_levels(= w_corridor 면제 z-셀)로 준다. 같은 그룹 새 배관이 공용 랙 높이에 뭉친다(사람 설계다움).
+        // rack_levels 는 w_corridor>0 일 때만 효력(랙 밖 가산) → ON 시 BuildEngineForRows 가 가벼운 w_corridor 부여.
+        private bool _useRackBundling;
+        private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
 
         // DB 접속 설정(환경변수 우선) + 선택된 프로젝트 / 격자 셀 크기.
         private readonly DbConfig _dbConfig = DbConfig.FromEnv();
         private ProjectInfo? _selectedProject;
-        private double _cellMm = 100.0;
+        private double _cellMm = 25.0;   // 라우팅 격자 셀 크기(mm). 작을수록 정밀하지만 셀 수가 (비율)³ 으로 폭증.
         private bool _suppressProjectAutoLoad;
 
         // 경로 탐색 범위(모두/그룹별/유틸별) + 선택 대상(그룹/유틸 1개).
@@ -208,6 +223,13 @@ namespace Routing3D.Viewer.ViewModels
         private Model3D? _selectionModel;   // 선택 PoC 강조(시작/끝 마커) 오버레이.
         private Model3D? _searchModel;      // A* 단계별 탐색(방문 셀 점진 표시) 오버레이.
         private Model3D? _highlightModel;   // 3D 클릭으로 선택한 객체 강조(노란 박스) 오버레이.
+
+        // ── 기존설계 비교(선택 배관) ────────────────────────────────────
+        // 선택 배관에 매칭된 기존 설계경로(주황)와 개발 경로(시안)를 동시에 그려 정량 비교한다.
+        private Model3D? _compareModel;        // 비교 오버레이(기존=주황 / 개발=시안 굵은 튜브).
+        private string? _comparisonReport;     // 우측 '기존설계 비교 분석' 패널 텍스트.
+        private bool _compareMode;             // 비교 포커스: true 면 나머지 기존배관 레이어 숨김.
+        private ExistingPipe? _comparePipe;    // 현재 선택에 매칭된 기존 경로(없으면 null).
         private bool _hidePathsForAnim;     // 단계별 탐색 중 최종 경로를 숨겼다가 끝에 드러내기.
         private bool _animating;            // 단계별 탐색 진행 중(중복 실행 방지).
 
@@ -222,6 +244,9 @@ namespace Routing3D.Viewer.ViewModels
             RerouteSelectedCommand = new RelayCommand(
                 () => { if (_selectedTask != null) _ = RouteRowsAsync(new List<int> { _selectedTask.Index }, $"선택 #{_selectedTask.Index}", corridor: false); },
                 () => _selectedTask != null);
+            CompareSelectedCommand = new RelayCommand(
+                () => _ = CompareSelectedAsync(),
+                () => _selectedTask != null && _scene != null);
             AnimateSelectedCommand = new RelayCommand(
                 () => _ = AnimateSelectedAsync(),
                 () => _selectedTask != null && _scene != null && !_animating);
@@ -235,6 +260,21 @@ namespace Routing3D.Viewer.ViewModels
             LoadDbCommand = new RelayCommand(
                 () => { if (_selectedProject != null) _ = LoadFromDbAsync(_selectedProject.ProjectId); },
                 () => _selectedProject != null);
+            // 좌측 드릴다운 선택을 한꺼번에 라우팅 — 선택 그룹/유틸리티의 모든 PoC를 부분집합 충돌회피 라우팅.
+            RouteGroupCommand = new RelayCommand(
+                () => { if (!string.IsNullOrEmpty(_selectedGroup))
+                            _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup),
+                                               $"그룹 '{_selectedGroup}'", corridor: false, showProgress: true); },
+                () => _scene != null && !string.IsNullOrEmpty(_selectedGroup));
+            RouteUtilityCommand = new RelayCommand(
+                () => { if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
+                            _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup &&
+                                                              UtilityKey(t.Utility) == _selectedUtility),
+                                               $"유틸리티 '{_selectedUtility}'", corridor: false, showProgress: true); },
+                () => _scene != null && !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility));
+            // 자동설계된(라우팅된) 모든 경로 삭제 — 결과 캐시 초기화 + 라이브 오버레이 제거 + 재렌더.
+            ClearRoutesCommand = new RelayCommand(ClearAllRoutes,
+                () => _scene != null && Tasks.Any(t => t.Success));
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
@@ -278,7 +318,14 @@ namespace Routing3D.Viewer.ViewModels
         public TaskRowVM? SelectedTask
         {
             get => _selectedTask;
-            set { if (Set(ref _selectedTask, value)) UpdateSelectionHighlight(); }
+            set
+            {
+                if (!Set(ref _selectedTask, value)) return;
+                bool wasCompare = _compareMode;
+                _compareMode = false;            // 새 배관 선택 → 비교 포커스 해제(숨겼던 기존배관 복원).
+                UpdateSelectionHighlight();      // → UpdateComparison(): 새 배관 매칭 오버레이/분석.
+                if (wasCompare && _scene != null && _engine != null) BuildModel();
+            }
         }
         public PickMode PickMode { get => _pickMode; private set => Set(ref _pickMode, value); }
 
@@ -293,6 +340,42 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowLaterals { get => _showLaterals; set { if (Set(ref _showLaterals, value)) RebuildIfReady(); } }
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
+
+        /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
+        /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
+        /// getter 전용이라 UI 에서 끌 수 없다(체크박스는 켜진 채 비활성).</summary>
+        public bool IncludeFacilities => _includeFacilities;   // _includeFacilities 는 항상 true(고정).
+
+        /// <summary>기존설계 패턴 활용 — 학습된 진출/진입 면(장비=-z·덕트=+z 등)으로 시작/종단 PoC 를
+        /// 투영해 자동라우팅을 사람 설계에 맞춘다. 패턴 저장소(pgvector route_stub_pattern)가 비었거나
+        /// 키 미스면 자동으로 기존 최근접-면 규칙으로 폴백(무해). 기본 ON.</summary>
+        public bool UsePatterns
+        {
+            get => _usePatterns;
+            set { if (Set(ref _usePatterns, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>기존설계 회랑(L2b) — 매칭 기존배관 폴리라인을 회랑으로 주입해 새 경로가 사람 설계를
+        /// 부드럽게 따라가게 한다(w_corridor 소프트 바이어스, 충돌은 여전히 회피). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        public bool UseDesignCorridor
+        {
+            get => _useDesignCorridor;
+            set { if (Set(ref _useDesignCorridor, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>유틸그룹 랙 번들링(L3a) — 기존배관 수평 런이 모이는 z-높이(랙)를 그룹별로 학습해 같은
+        /// 그룹 새 배관을 공용 랙 높이에 뭉치게 한다(엔진 rack_levels + 가벼운 w_corridor). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        public bool UseRackBundling
+        {
+            get => _useRackBundling;
+            set { if (Set(ref _useRackBundling, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
+        public string PatternStatus =>
+            !_usePatterns ? "기존설계 패턴: OFF"
+            : _patterns == null ? "기존설계 패턴: 없음(기하 폴백)"
+            : $"기존설계 패턴: {_patterns.Count}키";
 
         /// <summary>점유맵 해상도. true=원본(전체 셀 표시, 느릴 수 있음), false=다운샘플(상한까지만).</summary>
         public bool OccupancyFullRes
@@ -382,6 +465,18 @@ namespace Routing3D.Viewer.ViewModels
         private Model3D? _stepHighlightModel;
         /// <summary>선택한 경로 단계(구간) 강조 오버레이 — 카메라 이동 없이 해당 구간만 흰색으로.</summary>
         public Model3D? StepHighlightModel { get => _stepHighlightModel; private set => Set(ref _stepHighlightModel, value); }
+
+        /// <summary>기존설계 비교 오버레이(기존 경로=주황 / 개발 경로=시안 굵은 튜브 + 시작/끝 마커).</summary>
+        public Model3D? CompareModel { get => _compareModel; private set => Set(ref _compareModel, value); }
+
+        // 진행 다이얼로그 라우팅 중 '배관 완료마다' 점진 표시하는 라이브 오버레이(유틸 색 튜브).
+        // 라우팅이 끝나면 비우고 BuildModel 의 최종 렌더로 대체한다(중복 방지).
+        private Model3D? _liveRouteModel;
+        public Model3D? LiveRouteModel { get => _liveRouteModel; private set => Set(ref _liveRouteModel, value); }
+        private Model3DGroup? _liveGroup;
+
+        /// <summary>우측 '기존설계 비교 분석' 패널 텍스트(매칭 상태 + 길이/꺾임/종단점/간섭 지표). null=비활성.</summary>
+        public string? ComparisonReport { get => _comparisonReport; private set => Set(ref _comparisonReport, value); }
 
         /// <summary>선택 경로의 직선 구간(단계) 목록. 방향이 바뀌는 지점마다 한 항목.</summary>
         public ObservableCollection<PathStep> PathSteps { get; } = new();
@@ -500,6 +595,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand RunRouteCommand { get; }
         public RelayCommand RerouteCorridorCommand { get; }
         public RelayCommand RerouteSelectedCommand { get; }
+        public RelayCommand CompareSelectedCommand { get; }
         public RelayCommand PickStartCommand { get; }
         public RelayCommand PickEndCommand { get; }
         public RelayCommand FitViewCommand { get; }
@@ -509,6 +605,9 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand UtilityClearCommand { get; }
         public RelayCommand LoadProjectsCommand { get; }
         public RelayCommand LoadDbCommand { get; }
+        public RelayCommand RouteGroupCommand { get; }
+        public RelayCommand RouteUtilityCommand { get; }
+        public RelayCommand ClearRoutesCommand { get; }
 
         // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
         public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
@@ -641,6 +740,13 @@ namespace Routing3D.Viewer.ViewModels
                 Status = "DB 장면 로드 중…";
                 var sd = await Task.Run(() => ObstacleDbLoader.LoadScene(_dbConfig, projectId, _cellMm));
                 _scene = sd;
+                // 기존설계 패턴 저장소(pgvector)를 1회 로드(미스도 캐시) — 학습된 진출/진입 면으로 PoC 투영(L2a).
+                if (!_patternsTried)
+                {
+                    _patternsTried = true;
+                    _patterns = await Task.Run(() => PatternStore.TryLoad(_dbConfig));
+                    OnChanged(nameof(PatternStatus));
+                }
                 ResetEngine();
                 var g = sd.Grid;
                 _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
@@ -834,20 +940,413 @@ namespace Routing3D.Viewer.ViewModels
             ResetEngine();
             var g = scene.Grid;
             _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6);
+            // 클리어런스 항상 활성. 대형 격자(25mm/10mm)는 네이티브가 ImplicitOccupancy(복셀화 없는
+            // 박스 색인) + '온디맨드 클리어런스'(박스 최근접 질의)로 전환 → 전역 거리맵(배관당 size×4B
+            // ~520MB BFS) 없이 저렴하게 계산. 따라서 더는 대형 격자에서 클리어런스를 끄지 않는다(품질 유지).
+            // 대형 격자는 weighted A*(w_heur=1.5) — 솔리드 설비/덕트를 우회하는 어려운 경로를 탐색상한(12M)
+            // 내에 찾도록 목표 지향 탐색(약간 비최적 허용). 작은 격자(데모 등)는 표준 A*(1.0, 최적).
+            // weighted A* — 실데이터처럼 솔리드 설비/덕트가 많은 혼잡 격자는 목표지향 탐색(w_heur=2.0)으로
+            // 어려운 우회 경로를 탐색상한(12M) 내에 빠르게 찾는다(약간 비최적 허용). 측정(project6 c100,
+            // 1.39M셀·208작업): w_heur 1.5→2.0 으로 회랑 OFF 194→199, 회랑 ON 47s→6.3s(약 7.5× 단축, +1).
+            // 임계를 5M→300k 로 낮춰 실데이터 격자가 weighted A* 를 받게 한다(이전엔 1.39M<5M 라 1.0 였음).
+            // 작은 데모 격자(<300k셀)는 표준 A*(1.0, 최적). 골든 정확도는 C++ ctest 가 별도 검증(이 경로 무관).
+            bool weighted = (long)g.Nx * g.Ny * g.Nz > 300_000;
+            double wHeur = weighted ? 2.0 : 1.0;
+            // 기존설계 회랑(L2b)/랙 번들링(L3a) ON 이면 회랑·랙 밖 셀당 가산(=½칸 비용)으로 부드럽게 유도.
+            // w_heur=2.0 이 회랑 비용장을 휴리스틱에 반영해 탐색 폭을 억제 → OFF 와 거의 동일 속도로 동작
+            // (이전 ~47s 폭증의 원인 해소). corridor_radius=2 는 회랑 튜브 폭(±2셀).
+            // 랙 번들링(L3a): 학습된 그룹 랙 z-셀을 rack_levels(면제)로 주면 같은 그룹 배관이 공용 랙에 뭉친다.
+            // 랙 페널티는 회랑(0.5)보다 부드러운 0.2(실측: project6 c100 200/208·랙 집중도 17→21%·길이↓.
+            // 0.5 는 한 배관을 막아 198 로 떨어짐). 회랑+랙 동시 ON 이면 회랑의 0.5 가 우선(강한 설계추종).
+            int[]? rackLevels = _useRackBundling ? BuildRackLevels(rowPositions) : null;
+            double wCorr = _useDesignCorridor ? g.CellMm * 0.5
+                         : _useRackBundling ? g.CellMm * 0.2 : 0.0;
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
+                              rackLevels: rackLevels, wHeur: wHeur);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 else
                     _engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            // 충돌확장: 설비·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 장애물로 추가(자기 자신 제외).
+            AddFacilityObstacles(_engine, new HashSet<int>(rowPositions));
             var added = new List<int>(rowPositions.Count);
             foreach (var pos in rowPositions)
             {
                 var row = Tasks[pos];
-                _engine.AddTask(row.Sx, row.Sy, row.Sz, row.Gx, row.Gy, row.Gz, row.Utility, row.Group);
+                // 시작 PoC 가 메인 장비 내부면 수직 하단(장비 바닥 한 셀 아래)으로 빼낸 뒤(배관이 장비 아래로
+                // 빠져나가는 물리적 동작), 남은 덕트/레터럴 솔리드도 표면으로 투영.
+                // 학습된 진출/진입 면(있으면) — 장비(EQUIP)·덕트(DUCT) 키로 조회. 최근접 면 대신 사용.
+                string? startFace = LearnedFace("EQUIP", row.Group, row.Utility);
+                string? endFace = LearnedFace("DUCT", row.Group, row.Utility);
+                var (sx, sy, sz) = DropStartBelowEquipment(row.Sx, row.Sy, row.Sz);
+                (sx, sy, sz) = LiftPocToSurface(sx, sy, sz, startFace);
+                (sx, sy, sz) = SnapPocToFreeCell(sx, sy, sz, startFace);   // 파묻힌 시작 PoC → 최근접 자유 셀.
+                // 종단 PoC(덕트 상부 등)도 솔리드 면 바로 바깥으로 투영 → 덕트 표면에 연결, 본체 관통 방지.
+                var (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz, endFace);
+                (gx, gy, gz) = SnapPocToFreeCell(gx, gy, gz, endFace);     // 파묻힌 종단 PoC → 최근접 자유 셀.
+                _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
             }
+            // 기존설계 회랑(L2b) — 매칭 기존배관 폴리라인 셀을 회랑 시드로 주입(w_corridor>0 일 때 효력).
+            _engine.SetCorridorCells(_useDesignCorridor ? BuildDesignCorridorCells(rowPositions, 2) : null);
             return added;
+        }
+
+        // 지정 행들의 매칭 기존 설계배관(TB_ROUTE_PATH) 폴리라인을 격자 셀로 복셀화(±dilate 팽창)해
+        // 회랑 시드(ijk 평탄 배열)로 만든다. 새 경로가 이 회랑 안을 '싸게' 지나 사람 설계를 따라가게 한다.
+        private int[] BuildDesignCorridorCells(IReadOnlyList<int> rowPositions, int dilate)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm;
+            var set = new HashSet<(int, int, int)>();
+            foreach (var pos in rowPositions)
+            {
+                var pipe = FindMatchingExistingPipe(Tasks[pos]);
+                if (pipe == null || pipe.Points.Count < 2) continue;
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                    double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                    for (int sIdx = 0; sIdx <= steps; sIdx++)
+                    {
+                        double tt = (double)sIdx / steps;
+                        int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                        int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                        int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                        for (int di = -dilate; di <= dilate; di++)
+                            for (int dj = -dilate; dj <= dilate; dj++)
+                                for (int dk = -dilate; dk <= dilate; dk++)
+                                {
+                                    int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                    if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                    set.Add((ii, jj, kk));
+                                }
+                    }
+                }
+            }
+            var arr = new int[set.Count * 3];
+            int n = 0;
+            foreach (var (i, j, k) in set) { arr[n++] = i; arr[n++] = j; arr[n++] = k; }
+            return arr;
+        }
+
+        // 유틸그룹 랙 번들링(L3a) — 라우팅할 행들의 그룹에 속한 기존배관 수평 런이 모이는 z-셀(랙 높이)을
+        // 학습해 엔진 rack_levels(면제 z-셀, 최대 8)로 만든다. Python pattern_learn.learn_rack_levels 와 동일 로직:
+        //   수평(|dz| <= 0.34×수평거리)이고 800mm 이상인 세그먼트의 z-셀에 런 길이를 누적 → 그룹별 지배 랙 선정.
+        private int[]? BuildRackLevels(IReadOnlyList<int> rowPositions)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm;
+            if (s.ExistingPipes.Count == 0) return null;
+            const double MinRunMm = 800.0, HorizTol = 0.34, GroupShare = 0.15;
+
+            // 이번 라우팅에 등장하는 유틸그룹 집합.
+            var groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pos in rowPositions)
+                if (!string.IsNullOrEmpty(Tasks[pos].Group)) groups.Add(Tasks[pos].Group!);
+            if (groups.Count == 0) return null;
+
+            // 그룹 → (z셀 → 누적 런 mm). 기존배관 수평 런을 z-셀에 누적.
+            var byGroup = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pipe in s.ExistingPipes)
+            {
+                if (pipe.Group == null || !groups.Contains(pipe.Group) || pipe.Points.Count < 2) continue;
+                if (!byGroup.TryGetValue(pipe.Group, out var zmap))
+                    byGroup[pipe.Group] = zmap = new Dictionary<int, double>();
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double horiz = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+                    if (horiz <= 1e-6 || Math.Abs(b.Z - a.Z) > HorizTol * horiz) continue;   // 수직/사선 제외.
+                    double len = Math.Sqrt(horiz * horiz + (b.Z - a.Z) * (b.Z - a.Z));
+                    if (len < MinRunMm) continue;
+                    int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - g.Oz) / cell);
+                    if (zk < 0 || zk >= g.Nz) continue;
+                    zmap[zk] = (zmap.TryGetValue(zk, out var v) ? v : 0.0) + len;
+                }
+            }
+            if (byGroup.Count == 0) return null;
+
+            // 그룹마다 전체 런의 GroupShare 이상을 차지하는 z-셀을 채택(지배 랙). 전 그룹 합집합 → 런 큰 순 8개.
+            var picked = new Dictionary<int, double>();   // z셀 → 누적 런(여러 그룹 합산, 정렬용).
+            foreach (var (_, zmap) in byGroup)
+            {
+                double tot = 0; foreach (var v in zmap.Values) tot += v;
+                if (tot <= 0) continue;
+                foreach (var (zk, run) in zmap)
+                    if (run >= GroupShare * tot)
+                        picked[zk] = (picked.TryGetValue(zk, out var p) ? p : 0.0) + run;
+            }
+            if (picked.Count == 0) return null;
+            var top = picked.OrderByDescending(kv => kv.Value).Take(8).Select(kv => kv.Key).ToArray();
+            return top.Length > 0 ? top : null;
+        }
+
+        // 기존설계 패턴에서 학습된 진출/진입 면(예: EQUIP=-z, DUCT=+z)을 조회한다. 패턴 OFF/미적재/미스면 null.
+        private string? LearnedFace(string anchorKind, string? group, string? utility)
+        {
+            if (!_usePatterns || _patterns == null) return null;
+            return _patterns.TryGet(anchorKind, group, utility, out var tpl) ? tpl.Face : null;
+        }
+
+        // 시작점이 설비 AABB 내부면 그 설비(들) 중 가장 낮은 바닥(MinZ) 한 셀 아래로 Z 를 내려, 장비 밖
+        // 첫 셀을 라우팅 시작점으로 만든다. XY 는 유지. 충돌확장 OFF(설비 비충돌)이거나 설비 밖이면 원점 유지.
+        private (double x, double y, double z) DropStartBelowEquipment(double x, double y, double z)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            const double eps = 1.0;
+            double lowestBottom = double.NaN;
+            foreach (var e in s.Equipment)
+            {
+                if (x < e.MinX - eps || x > e.MaxX + eps) continue;
+                if (y < e.MinY - eps || y > e.MaxY + eps) continue;
+                if (z < e.MinZ - eps || z > e.MaxZ + eps) continue;
+                if (double.IsNaN(lowestBottom) || e.MinZ < lowestBottom) lowestBottom = e.MinZ;
+            }
+            if (double.IsNaN(lowestBottom)) return (x, y, z);   // 설비 안이 아님 → 그대로.
+            double cell = s.Grid.CellMm;
+            double nz = lowestBottom - cell * 0.5;              // 설비 바닥 한 셀 아래.
+            double gridBottom = s.Grid.Oz + cell * 0.5;
+            if (nz < gridBottom) nz = gridBottom;               // 격자 하한 밖이면 클램프.
+            return (x, y, nz);
+        }
+
+        // PoC 가 설비/덕트/레터럴 '솔리드 내부'에 있으면 가장 가까운 면 바로 바깥(+½셀)으로 빼낸다.
+        // 덕트 상부 PoC → 윗면 위 한 셀(자유)로 투영 → 배관이 덕트 표면에 닿아 연결되고 본체를 관통하지 않는다.
+        // (충돌확장이 항상 ON 이라 설비/덕트가 솔리드이므로, 표면 투영이 없으면 PoC 셀이 막혀 라우팅이 실패하거나
+        //  엔진 snap(반경 2)이 엉뚱한 옆 셀로 새어 관통/우회한다.) 여러 박스에 걸치면 몇 번 반복해 탈출.
+        private (double x, double y, double z) LiftPocToSurface(double x, double y, double z,
+                                                                string? preferFace = null)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            double cell = s.Grid.CellMm, eps = 1.0, m = cell * 0.5;
+            for (int iter = 0; iter < 4; iter++)
+            {
+                bool moved = false;
+                // 한 박스 안이면 탈출 면을 고른다. preferFace(학습된 진출/진입 면)가 주어지고 그 면으로 나갈
+                // 수 있으면 그 면으로(사람 설계 관례: 덕트=+z 상부, 장비=-z 하부) — 없으면 침투가 가장 얕은 면.
+                void TryBox(double bMinX, double bMinY, double bMinZ, double bMaxX, double bMaxY, double bMaxZ)
+                {
+                    if (x <= bMinX - eps || x >= bMaxX + eps) return;
+                    if (y <= bMinY - eps || y >= bMaxY + eps) return;
+                    if (z <= bMinZ - eps || z >= bMaxZ + eps) return;
+                    if (preferFace != null)
+                    {
+                        switch (preferFace)
+                        {
+                            case "+z": z = bMaxZ + m; moved = true; return;
+                            case "-z": z = bMinZ - m; moved = true; return;
+                            case "+x": x = bMaxX + m; moved = true; return;
+                            case "-x": x = bMinX - m; moved = true; return;
+                            case "+y": y = bMaxY + m; moved = true; return;
+                            case "-y": y = bMinY - m; moved = true; return;
+                        }
+                    }
+                    double dxn = x - bMinX, dxp = bMaxX - x;
+                    double dyn = y - bMinY, dyp = bMaxY - y;
+                    double dzn = z - bMinZ, dzp = bMaxZ - z;
+                    double mn = Math.Min(Math.Min(Math.Min(dxn, dxp), Math.Min(dyn, dyp)), Math.Min(dzn, dzp));
+                    if (mn == dzp) z = bMaxZ + m;        // 윗면(덕트 상부 PoC 의 일반적 경우)
+                    else if (mn == dzn) z = bMinZ - m;   // 아랫면
+                    else if (mn == dxp) x = bMaxX + m;
+                    else if (mn == dxn) x = bMinX - m;
+                    else if (mn == dyp) y = bMaxY + m;
+                    else y = bMinY - m;
+                    moved = true;
+                }
+                foreach (var e in s.Equipment) TryBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                foreach (var d in s.DuctsLaterals) TryBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                if (!moved) break;
+            }
+            double zMin = s.Grid.Oz + m;
+            if (z < zMin) z = zMin;
+            return (x, y, z);
+        }
+
+        // 접근불가 PoC 전처리 — Lift 후에도 시작/종단 셀이 솔리드에 막혀 있으면(파묻힌 PoC: 여러 솔리드에
+        // 둘러싸여 면 투영이 다시 솔리드 안으로 떨어지거나, 엔진 snap(반경 2)으로도 못 빠져나오는 경우)
+        // 가장 가까운 '자유 셀'로 옮긴다. ① 학습된 면 법선으로 바깥 행진(도메인 방향 우선: 덕트=+z 상부 등)
+        // → ② 실패 시 체비셰프 반경을 넓혀가며 최근접 자유 셀. 끝내 못 찾으면(진짜 접근불가) 원점 유지.
+        // 이미 자유 셀이면 그대로 반환(이미 성공하는 작업엔 영향 0 = 회귀 없음).
+        private const int SnapMarchCells = 16;   // 학습면 방향 최대 행진(셀).
+        private const int SnapMaxRadius = 6;     // 반경 확장 탐색 상한(셀).
+
+        private (double x, double y, double z) SnapPocToFreeCell(double x, double y, double z, string? preferFace)
+        {
+            var s = _scene;
+            if (s == null || !_includeFacilities) return (x, y, z);
+            double cell = s.Grid.CellMm;
+            if (!CellBlocked(x, y, z)) return (x, y, z);   // 이미 자유 → 변경 없음.
+
+            // ① 학습된 진출/진입 면 방향으로 바깥 행진(있으면) — 도메인에 맞는 방향으로 먼저 탈출 시도.
+            if (preferFace != null)
+            {
+                var (dx, dy, dz) = FaceNormal(preferFace);
+                if (dx != 0 || dy != 0 || dz != 0)
+                    for (int k = 1; k <= SnapMarchCells; k++)
+                    {
+                        double nx = x + dx * cell * k, ny = y + dy * cell * k, nz = z + dz * cell * k;
+                        if (InGrid(nx, ny, nz) && !CellBlocked(nx, ny, nz)) return (nx, ny, nz);
+                    }
+            }
+            // ② 체비셰프 반경 확장 — 셸 단위로 넓혀가며 가장 가까운 자유 셀.
+            for (int r = 1; r <= SnapMaxRadius; r++)
+            {
+                (double, double, double)? best = null; double bestD = double.MaxValue;
+                for (int di = -r; di <= r; di++)
+                    for (int dj = -r; dj <= r; dj++)
+                        for (int dk = -r; dk <= r; dk++)
+                        {
+                            if (Math.Max(Math.Max(Math.Abs(di), Math.Abs(dj)), Math.Abs(dk)) != r) continue; // 셸만.
+                            double nx = x + di * cell, ny = y + dj * cell, nz = z + dk * cell;
+                            if (!InGrid(nx, ny, nz) || CellBlocked(nx, ny, nz)) continue;
+                            double d = di * di + dj * dj + dk * dk;
+                            if (d < bestD) { bestD = d; best = (nx, ny, nz); }
+                        }
+                if (best != null) return best.Value;
+            }
+            return (x, y, z);  // 진짜 접근불가 → 엔진 snap 에 맡김(여전히 실패할 수 있음).
+        }
+
+        private static (double dx, double dy, double dz) FaceNormal(string face) => face switch
+        {
+            "+x" => (1, 0, 0),
+            "-x" => (-1, 0, 0),
+            "+y" => (0, 1, 0),
+            "-y" => (0, -1, 0),
+            "+z" => (0, 0, 1),
+            "-z" => (0, 0, -1),
+            _ => (0, 0, 0),
+        };
+
+        private bool InGrid(double x, double y, double z)
+        {
+            var g = _scene!.Grid;
+            return x >= g.Ox && y >= g.Oy && z >= g.Oz
+                && x <= g.Ox + g.Nx * g.CellMm && y <= g.Oy + g.Ny * g.CellMm && z <= g.Oz + g.Nz * g.CellMm;
+        }
+
+        // 점이 속한 셀(반열린 [lo, lo+cell))이 어떤 솔리드(장애물 비통과 + 설비/덕트, 얇은 축은 minT 팽창)와
+        // 겹치면 막힘. 엔진 복셀화(box↔cell overlap, 동일 minT)와 같은 기준 → 엔진 is_blocked 근사.
+        private bool CellBlocked(double x, double y, double z)
+        {
+            var s = _scene!; var g = s.Grid; double cell = g.CellMm, minT = cell;
+            int ci = (int)Math.Floor((x - g.Ox) / cell);
+            int cj = (int)Math.Floor((y - g.Oy) / cell);
+            int ck = (int)Math.Floor((z - g.Oz) / cell);
+            double clx = g.Ox + ci * cell, chx = clx + cell;
+            double cly = g.Oy + cj * cell, chy = cly + cell;
+            double clz = g.Oz + ck * cell, chz = clz + cell;
+
+            bool Overlap(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                if (mxx - mnx < minT) { double c = (mnx + mxx) / 2; mnx = c - minT / 2; mxx = c + minT / 2; }
+                if (mxy - mny < minT) { double c = (mny + mxy) / 2; mny = c - minT / 2; mxy = c + minT / 2; }
+                if (mxz - mnz < minT) { double c = (mnz + mxz) / 2; mnz = c - minT / 2; mxz = c + minT / 2; }
+                return clx < mxx && chx > mnx && cly < mxy && chy > mny && clz < mxz && chz > mnz;
+            }
+            foreach (var o in s.Obstacles)
+                if (!o.IsPassThrough && Overlap(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ)) return true;
+            foreach (var e in s.Equipment)
+                if (Overlap(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ)) return true;
+            foreach (var d in s.DuctsLaterals)
+                if (Overlap(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ)) return true;
+            return false;
+        }
+
+        // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
+        //   · 설비(TB_BIM_EQUIPMENT) — 메인 장비 포함 전체
+        //   · 덕트/레터럴(TB_DUCT_LATERAL)
+        //   · 이미 우리 알고리즘으로 설계된(라우팅 성공) 다른 배관의 경로(currentRows 의 자기 자신은 제외)
+        // 시작/끝 PoC 가 이들 표면(특히 메인 장비)에 닿아 막히면 엔진의 snap_to_free_cell(반경 2) 이
+        // 인접 빈 셀로 옮겨 시작점을 확보한다.
+        private void AddFacilityObstacles(Engine engine, HashSet<int> currentRows)
+        {
+            if (!_includeFacilities || _scene == null) return;
+            var s = _scene;
+            double cell = s.Grid.CellMm;
+            double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
+
+            // ★ 설비·덕트·레터럴을 '항상 솔리드 장애물'로 추가한다(제외 없음). 예전에는 종단 PoC 를 포함하는
+            //   덕트/설비 박스를 통째로 제외했는데, 그러면 그 덕트가 비충돌이 되어 배관이 덕트를 '관통'했다.
+            //   대신 종단/시작 PoC 가 솔리드에 갇히는 문제는 LiftPocToSurface 로 PoC 를 표면 바로 바깥으로
+            //   투영해 해결한다(BuildEngineForRows) → 배관이 덕트 표면에 닿아 연결되고 본체는 관통하지 않는다.
+            foreach (var e in s.Equipment)        // 메인 장비 포함 전체 설비.
+                AddBoxObstacle(engine, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ, minT);
+            foreach (var d in s.DuctsLaterals)     // 덕트/레터럴(부대장비 포함).
+                AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
+
+            // 이미 설계된(라우팅 성공) 다른 배관의 경로를 점유로 추가 — 새 배관이 이를 피하도록.
+            double r = cell * 0.6;   // 경로 셀 폴리라인을 약 1셀 두께 튜브로 점유.
+            for (int i = 0; i < Tasks.Count; i++)
+            {
+                if (currentRows.Contains(i)) continue;          // 지금 라우팅하는(=자기) 배관은 제외.
+                var row = Tasks[i];
+                if (!row.Success || row.Path.Length < 2) continue;
+                AddPathObstacle(engine, row.Path, s.Grid, r);
+            }
+        }
+
+        // AABB 장애물 추가 — 두께 0 축은 minT 로 팽창해 반드시 셀을 점유하게 한다.
+        private static void AddBoxObstacle(Engine engine, double mnx, double mny, double mnz,
+                                           double mxx, double mxy, double mxz, double minT)
+        {
+            if (mxx - mnx < minT) { double c = (mnx + mxx) / 2; mnx = c - minT / 2; mxx = c + minT / 2; }
+            if (mxy - mny < minT) { double c = (mny + mxy) / 2; mny = c - minT / 2; mxy = c + minT / 2; }
+            if (mxz - mnz < minT) { double c = (mnz + mxz) / 2; mnz = c - minT / 2; mxz = c + minT / 2; }
+            engine.AddObstacle(mnx, mny, mnz, mxx, mxy, mxz);
+        }
+
+        // 경로(셀 폴리라인)를 직선 구간별 AABB(반경 r 팽창) 로 장애물에 추가(호출 수 절감).
+        private static void AddPathObstacle(Engine engine, PathCell[] path, GridMeta g, double r)
+        {
+            (int dx, int dy, int dz) Dir(PathCell a, PathCell b) =>
+                (Math.Sign(b.I - a.I), Math.Sign(b.J - a.J), Math.Sign(b.K - a.K));
+            int n = path.Length, seg = 0;
+            var cur = Dir(path[0], path[1]);
+            for (int i = 2; i <= n; i++)
+            {
+                var d = (i < n) ? Dir(path[i - 1], path[i]) : (int.MinValue, 0, 0);
+                if (d != cur)
+                {
+                    var pa = CellToWorld(g, path[seg]); var pb = CellToWorld(g, path[i - 1]);
+                    engine.AddObstacle(
+                        Math.Min(pa.X, pb.X) - r, Math.Min(pa.Y, pb.Y) - r, Math.Min(pa.Z, pb.Z) - r,
+                        Math.Max(pa.X, pb.X) + r, Math.Max(pa.Y, pb.Y) + r, Math.Max(pa.Z, pb.Z) + r);
+                    seg = i - 1;
+                    if (i < n) cur = Dir(path[i - 1], path[i]);
+                }
+            }
+        }
+
+        // 지정 행들의 자동설계 결과(경로/성공/길이/방문)를 초기화한다 — '기존설계 삭제' / 재설계 전 초기화에 사용.
+        private void ClearRouteResults(IEnumerable<int> rowPositions)
+        {
+            foreach (var pos in rowPositions)
+            {
+                var r = Tasks[pos];
+                r.Success = false;
+                r.LengthMm = 0;
+                r.Path = System.Array.Empty<PathCell>();
+                r.Visited = System.Array.Empty<PathCell>();
+            }
+        }
+
+        // 자동설계된 '모든' 경로 삭제(버튼) — 전체 작업 결과 초기화 + 라이브 오버레이 제거 + 재렌더.
+        private void ClearAllRoutes()
+        {
+            if (_scene == null) return;
+            var all = new List<int>(Tasks.Count);
+            for (int i = 0; i < Tasks.Count; i++) all.Add(i);
+            ClearRouteResults(all);
+            _compareMode = false;
+            ResetLiveRoute();
+            BuildModel();
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested();  // 버튼 비활성 즉시 반영.
+            Status = "자동설계된 경로를 모두 삭제했습니다.";
         }
 
         // 엔진 결과(엔진 인덱스 e ↔ added[e] 행)를 행 캐시에 기록. 부분집합 라우팅 후 호출.
@@ -884,11 +1383,18 @@ namespace Routing3D.Viewer.ViewModels
 
         /// <summary>지정 행들만 부분집합으로 라우팅(무거운 네이티브 호출은 백그라운드 → UI 비차단).
         /// 범위에 없는 행의 경로 캐시는 보존된다(그룹/유틸을 차례로 눌러 누적 표시 가능).</summary>
-        private async Task RouteRowsAsync(IReadOnlyList<int> rowPositions, string label, bool corridor)
+        private async Task RouteRowsAsync(IReadOnlyList<int> rowPositions, string label, bool corridor,
+                                          bool showProgress = false)
         {
             if (_scene == null || rowPositions.Count == 0) return;
+            RoutingProgressWindow? dlg = null;
             try
             {
+                // 동일 대상(동일 Start PoC)을 다시 자동설계할 때 — 기존 설계 데이터를 먼저 지우고 진행한다.
+                // (대상 행만 초기화; 다른 그룹/유틸의 누적 경로는 보존 → 충돌 회피·표시 유지.)
+                ClearRouteResults(rowPositions);
+                BuildModel();   // 지운 상태를 즉시 3D에 반영(라이브 오버레이 위에 옛 경로가 남지 않도록).
+
                 var added = BuildEngineForRows(rowPositions);
                 Status = $"경로 탐색 중… {label} (작업 {added.Count})";
                 var engine = _engine!;
@@ -899,15 +1405,88 @@ namespace Routing3D.Viewer.ViewModels
                 double wCorridor = cor ? cellMm * 2.0 : 0.0;
                 int[] rackLevels = cor ? ComputeRackLevels() : System.Array.Empty<int>();
                 string priority = _priority;
+                // 계층 corridor 사용 여부('회랑 비용' 모드(cor)는 route_multi 로 랙 번들링 유지).
+                bool hier = _useHierarchicalCorridor && !cor;
+                // coarse 셀 ≈ 160mm 가 되도록 factor 산출(4~24 클램프), 통로 반경 2 coarse 셀.
+                int factor = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
+
+                // 진행 다이얼로그 — 표준 route_multi 경로(cor/hier 아님)에서만 배관별 콜백을 받아 실시간 표시.
+                bool useProgress = showProgress && !cor && !hier;
+                var grid = _scene.Grid;
+                // 엔진 작업 인덱스(=added 순서)별 메타/색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
+                // Brush(.Color)·컬렉션 접근이 불가). 콜백은 이 값 배열만 참조 → 스레드 안전.
+                var meta = new (string grp, string util, string sp, string ep, Color col)[added.Count];
+                for (int k = 0; k < added.Count; k++)
+                {
+                    var tr = Tasks[added[k]];
+                    string sp = string.IsNullOrEmpty(tr.PocName) ? $"({tr.Sx:0},{tr.Sy:0},{tr.Sz:0})" : tr.PocName!;
+                    string ep = string.IsNullOrEmpty(tr.EndName) ? $"({tr.Gx:0},{tr.Gy:0},{tr.Gz:0})" : tr.EndName!;
+                    Color col = (tr.Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
+                    meta[k] = (tr.Group ?? "", tr.Utility ?? "", sp, ep, col);
+                }
+                if (useProgress)
+                {
+                    ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
+                    dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
+                    dlg.Begin(label, added.Count);
+                    dlg.Show();
+                }
+                var disp = System.Windows.Application.Current?.Dispatcher;
+
                 await Task.Run(() =>
                 {
-                    if (cor) engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
-                    engine.RouteMulti(priority);
+                    if (cor)
+                    {
+                        engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
+                        engine.RouteMulti(priority);
+                    }
+                    else if (hier)
+                    {
+                        // Sparse + astar_hashed: 셀 수 배열을 안 잡아 10mm 대형 격자도 안전.
+                        // priority 순차 + mark_pipe 로 배관 간 충돌 0.
+                        engine.RouteCorridorMulti(factor, 2, priority, 0);
+                    }
+                    else if (useProgress)
+                    {
+                        var d = dlg!;
+                        engine.RouteMultiProgress(priority, p =>
+                        {
+                            int ti = p.TaskIndex;
+                            var m = (ti >= 0 && ti < meta.Length)
+                                ? meta[ti]
+                                : (grp: "", util: "", sp: "", ep: "", col: Colors.Cyan);
+                            d.ReportPipe(p, m.grp, m.util, m.sp, m.ep);
+                            // 배관 완료(성공) 시 즉시 3D 라이브 오버레이에 그 경로를 추가.
+                            if (p.Phase == 1 && p.Success && p.Path.Length >= 1)
+                            {
+                                var path = p.Path; var col = m.col;
+                                disp?.BeginInvoke(new Action(() => AppendLivePipe(path, col, grid)));
+                            }
+                        });
+                    }
+                    else
+                    {
+                        engine.RouteMulti(priority);
+                    }
                 });
+                dlg?.Complete();
                 CacheResults(added);
-                BuildModel();
+                ResetLiveRoute();   // 라이브 오버레이 제거 → 아래 BuildModel 의 최종 렌더로 대체(중복 방지).
+                BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
+                // 이번 배치 결과를 명확히 덮어쓴다 — "성공 16/113"(전체 대비)이 실패로 오해되지 않도록
+                // "이번 라우팅 16/16"을 앞세우고 전체 누적은 괄호로 부기한다.
+                int batchOk = 0;
+                foreach (var pos in added) if (Tasks[pos].Success) batchOk++;
+                int sceneOk = 0;
+                foreach (var t in Tasks) if (t.Success) sceneOk++;
+                string fail = batchOk < added.Count ? $" · 실패 {added.Count - batchOk}" : "";
+                Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}   |   전체 누적 {sceneOk}/{Tasks.Count}";
             }
-            catch (Exception ex) { Status = "경로 탐색 오류: " + ex.Message; }
+            catch (Exception ex)
+            {
+                Status = "경로 탐색 오류: " + ex.Message;
+                dlg?.Complete(failedToRun: true, error: ex.Message);
+            }
         }
 
         // ---- 단계별 탐색(선택 배관 A* 진행 애니메이션) ----
@@ -1224,7 +1803,8 @@ namespace Routing3D.Viewer.ViewModels
 
             // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
             //   각 배관은 DB 의 실제 관경(SOURCE_SIZE→DiameterMm)으로 그린다(겹침 방지). 유틸 필터도 동일 적용.
-            if (ShowExistingPipes && scene.ExistingPipes.Count > 0)
+            // 비교 포커스(_compareMode)에서는 나머지 기존배관을 숨긴다(선택 배관의 기존 경로만 CompareModel 로 강조).
+            if (ShowExistingPipes && !_compareMode && scene.ExistingPipes.Count > 0)
             {
                 double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
@@ -1290,8 +1870,8 @@ namespace Routing3D.Viewer.ViewModels
                     double s = grid.CellMm * 0.9;
                     foreach (var (ci, cj, ck) in cells)
                         cmb.AddBox(CellToWorld(grid, new PathCell(ci, cj, ck)), s, s, s);
-                    group.Children.Add(Geometry(cmb, Colors.Red, 235));
-                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Colors.Red), Label = $"충돌(collision) {cells.Count}" });
+                    group.Children.Add(Geometry(cmb, Colors.Magenta, 235));
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Colors.Magenta), Label = $"충돌(collision) {cells.Count}" });
                 }
             }
 
@@ -1304,6 +1884,28 @@ namespace Routing3D.Viewer.ViewModels
         private static Point3D CellToWorld(GridMeta g, PathCell c) =>
             new(g.Ox + (c.I + 0.5) * g.CellMm, g.Oy + (c.J + 0.5) * g.CellMm, g.Oz + (c.K + 0.5) * g.CellMm);
 
+        // 라이브 오버레이 초기화(배치 라우팅 시작 시). UI 스레드에서 호출.
+        private void ResetLiveRoute()
+        {
+            _liveGroup = null;
+            LiveRouteModel = null;
+        }
+
+        // 배관 1개(경로 셀)를 유틸 색 튜브로 라이브 오버레이에 추가(완료 즉시 3D 갱신). UI 스레드에서 호출.
+        private void AppendLivePipe(PathCell[] path, Color color, GridMeta grid)
+        {
+            if (path.Length < 1) return;
+            if (_liveGroup == null) { _liveGroup = new Model3DGroup(); LiveRouteModel = _liveGroup; }
+            var mb = new MeshBuilder(false, false);
+            var pts = path.Select(c => CellToWorld(grid, c)).ToList();
+            double dia = grid.CellMm * 0.7, mr = grid.CellMm * 0.9;
+            if (pts.Count >= 2) mb.AddTube(pts, dia, 8, false);
+            mb.AddSphere(pts[0], mr);
+            mb.AddSphere(pts[^1], mr);
+            // Model3DGroup 의 Children 변경은 바인딩된 ModelVisual3D 를 즉시 다시 렌더(재대입 불필요).
+            _liveGroup.Children.Add(Geometry(mb, color, 235));
+        }
+
         // 선택 PoC 의 시작(초록)·끝(노랑) 점을 강조 구로 그린다. 라우팅과 무관 — 선택 즉시 갱신,
         // 전체 모델을 다시 만들지 않고 별도 오버레이(SelectionModel)만 교체한다(대형 장면에서도 가볍게).
         private void UpdateSelectionHighlight()
@@ -1313,21 +1915,309 @@ namespace Routing3D.Viewer.ViewModels
             _suppressStepNav = false;
             StepHighlightModel = null;   // 새 배관 선택 → 이전 구간 강조 제거.
             var t = _selectedTask;
-            if (t == null || _scene == null) { SelectionModel = null; return; }
+            if (t == null || _scene == null)
+            {
+                SelectionModel = null;
+                CompareModel = null; ComparisonReport = null; _comparePipe = null;
+                return;
+            }
             var g = _scene.Grid;
             double r = Math.Max(g.CellMm * 1.6, 80);
             var grp = new Model3DGroup();
             var s = new MeshBuilder(false, false);
             s.AddSphere(new Point3D(t.Sx, t.Sy, t.Sz), r);
-            grp.Children.Add(Geometry(s, Color.FromRgb(80, 255, 120), 235));   // 시작 = 초록.
+            grp.Children.Add(Geometry(s, Color.FromRgb(255, 45, 45), 235));    // 시작 PoC = 빨강.
             var e = new MeshBuilder(false, false);
             e.AddSphere(new Point3D(t.Gx, t.Gy, t.Gz), r);
-            grp.Children.Add(Geometry(e, Color.FromRgb(255, 225, 60), 235));   // 끝 = 노랑.
+            grp.Children.Add(Geometry(e, Color.FromRgb(50, 120, 255), 235));   // 종단 PoC = 파랑.
 
             // 경로가 있으면 방향 전환(꺾임) 지점을 마젠타 구로 표시 + 구간 단계 리스트 구성.
             BuildPathSteps(g, t.Path, grp);
 
             SelectionModel = grp;
+            UpdateComparison();   // 선택 배관 ↔ 기존 설계경로 매칭 오버레이 + 비교 분석 갱신.
+        }
+
+        // ---- 기존설계 비교(선택 배관) ----
+        /// <summary>'🔬 기존설계 비교' — 선택 배관을 단일 라우팅(개발 경로)하고 비교 포커스 모드로 진입한다.
+        /// 비교 포커스에서는 나머지 기존 설계배관 레이어를 숨겨(선택 1개만) 두 경로를 또렷이 대조한다.</summary>
+        private async Task CompareSelectedAsync()
+        {
+            if (_selectedTask == null || _scene == null) return;
+            int idx = _selectedTask.Index;
+            _compareMode = true;   // BuildModel 가드 → 나머지 기존배관 숨김.
+            // RouteRowsAsync 가 단일 충돌회피 라우팅 후 BuildModel→UpdateComparison 까지 수행
+            // (개발 경로 포함 전체 분석: 길이·꺾임·종단점·장애물 간섭/여유).
+            await RouteRowsAsync(new List<int> { idx }, $"기존설계 비교 #{idx}", corridor: false);
+            if (!_selectedTask.Success)
+                Status = $"#{idx}: 라우팅 실패 — 개발 경로 없이 기존 경로만 비교합니다.";
+        }
+
+        // 선택 배관에 매칭되는 기존 설계경로를 찾아 오버레이/분석을 갱신한다.
+        // (UpdateSelectionHighlight 끝과 CompareSelectedAsync→BuildModel 끝에서 호출됨.)
+        private void UpdateComparison()
+        {
+            var t = _selectedTask;
+            if (t == null || _scene == null || _scene.ExistingPipes.Count == 0)
+            {
+                _comparePipe = null;
+                CompareModel = null;
+                ComparisonReport = _scene == null ? null
+                    : "기존 설계배관 데이터가 없습니다(scene.txt 로드 또는 TB_ROUTE_PATH 부재).";
+                return;
+            }
+            _comparePipe = FindMatchingExistingPipe(t);
+            BuildComparison(t, _comparePipe);
+        }
+
+        // 선택 배관(시작/끝 PoC 좌표)과 가장 잘 맞는 기존 설계경로를 찾는다.
+        //   점수 = 양방향 중 작은 (시작↔SOURCE_POS 거리 + 끝↔TARGET_POS 거리). SourcePos/TargetPos 가
+        //   없는 행은 폴리라인 양 끝점으로 폴백. 종단점 합산 거리가 임계 초과면 매칭 없음(null).
+        private ExistingPipe? FindMatchingExistingPipe(TaskRowVM t)
+        {
+            var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return null;
+            var ts = new Pt3(t.Sx, t.Sy, t.Sz);
+            var te = new Pt3(t.Gx, t.Gy, t.Gz);
+            double tol = Math.Max(3 * s.Grid.CellMm, 1500.0);   // 종단점당 허용 거리(mm).
+            ExistingPipe? best = null; double bestScore = double.MaxValue;
+            foreach (var p in s.ExistingPipes)
+            {
+                if (p.Points.Count < 2) continue;
+                Pt3 ps = p.SourcePos ?? p.Points[0];
+                Pt3 pe = p.TargetPos ?? p.Points[p.Points.Count - 1];
+                double score = Math.Min(Dist(ts, ps) + Dist(te, pe), Dist(ts, pe) + Dist(te, ps));
+                if (score < bestScore) { bestScore = score; best = p; }
+            }
+            return (best != null && bestScore <= tol * 2) ? best : null;   // 시작+끝 합산이므로 *2.
+        }
+
+        // 매칭된 기존 경로(ex)와 선택 배관(t)의 개발 경로를 정량 비교해 ComparisonReport + CompareModel 갱신.
+        private void BuildComparison(TaskRowVM t, ExistingPipe? ex)
+        {
+            var s = _scene!; var g = s.Grid;
+            var devPts = t.Path.Length >= 2 ? t.Path.Select(c => CellToWorld(g, c)).ToList() : new List<Point3D>();
+            bool devRouted = t.Success && devPts.Count >= 2;
+
+            if (ex == null)
+            {
+                ComparisonReport =
+                    "매칭되는 기존 설계경로 없음.\n(이 PoC에 해당하는 TB_ROUTE_PATH 가 없거나 종단점이 너무 멉니다.)"
+                    + (devRouted ? $"\n\n개발 경로: {t.LengthMm:0} mm · 꺾임 {CountBends(t.Path).Text}" : "");
+                CompareModel = BuildCompareOverlay(null, devRouted ? devPts : null);
+                return;
+            }
+
+            var exPts = ex.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
+            double exLen = PolylineLength(exPts);
+            BendStats exBends = CountBends(exPts);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"매칭: {ex.Label}");
+            sb.AppendLine($"관경: {(ex.DiameterMm > 0 ? ex.DiameterMm.ToString("0") + " mm" : "미상")}");
+
+            // 종단점 정합 — 양방향 중 가까운 쪽으로 매칭(역방향이면 표기).
+            var ts = new Pt3(t.Sx, t.Sy, t.Sz); var te = new Pt3(t.Gx, t.Gy, t.Gz);
+            Pt3 ps = ex.SourcePos ?? new Pt3(exPts[0].X, exPts[0].Y, exPts[0].Z);
+            Pt3 pe = ex.TargetPos ?? new Pt3(exPts[exPts.Count - 1].X, exPts[exPts.Count - 1].Y, exPts[exPts.Count - 1].Z);
+            bool rev = (Dist(ts, pe) + Dist(te, ps)) < (Dist(ts, ps) + Dist(te, pe));
+            double sg = rev ? Dist(ts, pe) : Dist(ts, ps);
+            double eg = rev ? Dist(te, ps) : Dist(te, pe);
+            sb.AppendLine($"종단점 정합: 시작 {sg:0}mm · 끝 {eg:0}mm{(rev ? " (역방향)" : "")}");
+            sb.AppendLine();
+
+            sb.AppendLine("─ 경로 길이 ─");
+            if (devRouted)
+            {
+                double diff = t.LengthMm - exLen;
+                double pct = exLen > 1 ? diff / exLen * 100 : 0;
+                sb.AppendLine($"  기존 {exLen:0} / 개발 {t.LengthMm:0} mm");
+                sb.AppendLine($"  차이 {(diff >= 0 ? "+" : "")}{diff:0} mm ({(pct >= 0 ? "+" : "")}{pct:0.0}%) — 개발 {(diff < 0 ? "짧음" : "긺")}");
+            }
+            else sb.AppendLine($"  기존 {exLen:0} mm / 개발 (미라우팅)");
+
+            sb.AppendLine();
+            sb.AppendLine("─ 꺾임(엘보) 수 ─");
+            sb.AppendLine($"  기존 {exBends.Text}");
+            if (devRouted)
+            {
+                var devBends = CountBends(t.Path);
+                sb.AppendLine($"  개발 {devBends.Text}");
+            }
+            else sb.AppendLine("  개발 —");
+
+            sb.AppendLine();
+            sb.AppendLine("─ 장애물 간섭 / 여유 ─");
+            int exHit = CountObstacleHits(exPts, out double exClr, out int exSamples);
+            sb.AppendLine($"  기존: 간섭 {exHit}/{exSamples}점 · 최소여유 {exClr:0} mm");
+            if (devRouted)
+            {
+                int devHit = CountObstacleHits(devPts, out double devClr, out int devSamples);
+                sb.AppendLine($"  개발: 간섭 {devHit}/{devSamples}점 · 최소여유 {devClr:0} mm");
+                if (exHit > 0 && devHit == 0)
+                    sb.AppendLine("  → 개발 경로가 기존의 장애물 간섭을 해소");
+            }
+            else sb.AppendLine("  개발: (미라우팅 — '🔬 기존설계 비교' 실행)");
+
+            ComparisonReport = sb.ToString().TrimEnd();
+            CompareModel = BuildCompareOverlay(exPts, devRouted ? devPts : null);
+        }
+
+        // 비교 오버레이: 기존 경로(주황) + 개발 경로(시안) 굵은 튜브 + 시작/끝 구 마커.
+        private Model3D? BuildCompareOverlay(List<Point3D>? exPts, List<Point3D>? devPts)
+        {
+            if (_scene == null) return null;
+            bool hasEx = exPts != null && exPts.Count >= 2;
+            bool hasDev = devPts != null && devPts.Count >= 2;
+            if (!hasEx && !hasDev) return null;
+            double cell = _scene.Grid.CellMm;
+            double dia = Math.Max(cell * 0.9, 60);   // 일반 경로보다 굵게(눈에 띄게).
+            double mr = Math.Max(cell * 1.1, 70);
+            var grp = new Model3DGroup();
+            if (hasEx)
+            {
+                var mb = new MeshBuilder(false, false);
+                mb.AddTube(exPts, dia, 12, false);
+                mb.AddSphere(exPts![0], mr); mb.AddSphere(exPts[exPts.Count - 1], mr);
+                grp.Children.Add(Geometry(mb, Color.FromRgb(255, 144, 48), 245));   // 기존 = 주황.
+            }
+            if (hasDev)
+            {
+                var mb = new MeshBuilder(false, false);
+                mb.AddTube(devPts, dia, 12, false);
+                mb.AddSphere(devPts![0], mr); mb.AddSphere(devPts[devPts.Count - 1], mr);
+                grp.Children.Add(Geometry(mb, Color.FromRgb(48, 208, 255), 245));   // 개발 = 시안.
+            }
+            return grp;
+        }
+
+        // 폴리라인을 step 간격으로 샘플해 비통과 장애물 AABB 와의 간섭(내부 점 수)과 최소 여유(mm)를 잰다.
+        //   간섭 = 장애물 내부에 든 샘플 점 수. 여유 = 외부 점에서 가장 가까운 장애물 표면까지 최소 거리.
+        private int CountObstacleHits(List<Point3D> pts, out double minClearance, out int sampleCount)
+        {
+            minClearance = double.MaxValue; sampleCount = 0;
+            var s = _scene;
+            if (s == null || pts.Count < 2) { minClearance = 0; return 0; }
+            double step = Math.Max(s.Grid.CellMm * 0.5, 25);
+            int hits = 0;
+            var samples = SamplePolyline(pts, step);
+            sampleCount = samples.Count;
+            foreach (var pt in samples)
+            {
+                double nearest = double.MaxValue; bool inside = false;
+                foreach (var o in s.Obstacles)
+                {
+                    if (o.IsPassThrough) continue;
+                    double d = DistToAabb(pt, o, out bool ins);
+                    if (ins) { inside = true; break; }
+                    if (d < nearest) nearest = d;
+                }
+                if (inside) hits++;
+                else if (nearest < minClearance) minClearance = nearest;
+            }
+            if (minClearance == double.MaxValue) minClearance = 0;
+            return hits;
+        }
+
+        // 점에서 AABB 까지의 외부(유클리드) 거리. 점이 박스 내부면 0 이고 inside=true.
+        private static double DistToAabb(Point3D p, ObstacleBox o, out bool inside)
+        {
+            double dx = Math.Max(Math.Max(o.MinX - p.X, p.X - o.MaxX), 0);
+            double dy = Math.Max(Math.Max(o.MinY - p.Y, p.Y - o.MaxY), 0);
+            double dz = Math.Max(Math.Max(o.MinZ - p.Z, p.Z - o.MaxZ), 0);
+            inside = dx == 0 && dy == 0 && dz == 0;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 폴리라인을 step(mm) 간격 점열로 균등 샘플(각 구간 시작점 포함, 끝점 포함).
+        private static List<Point3D> SamplePolyline(List<Point3D> pts, double step)
+        {
+            var outp = new List<Point3D>();
+            if (pts.Count == 0) return outp;
+            outp.Add(pts[0]);
+            for (int i = 1; i < pts.Count; i++)
+            {
+                Point3D a = pts[i - 1], b = pts[i];
+                double len = (b - a).Length;
+                int n = Math.Max(1, (int)(len / step));
+                for (int k = 1; k <= n; k++)
+                {
+                    double f = (double)k / n;
+                    outp.Add(new Point3D(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f, a.Z + (b.Z - a.Z) * f));
+                }
+            }
+            return outp;
+        }
+
+        private static double PolylineLength(List<Point3D> pts)
+        {
+            double L = 0;
+            for (int i = 1; i < pts.Count; i++) L += (pts[i] - pts[i - 1]).Length;
+            return L;
+        }
+
+        private static double Dist(Pt3 a, Pt3 b)
+        {
+            double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        /// <summary>꺾임(엘보) 통계 — 전체 수와 수평/수직 분류. 수직 = 인접 구간 중 하나라도 Z(상하)
+        /// 방향인 꺾임(층 전환 엘보), 수평 = XY 평면 내 방향 전환.</summary>
+        private readonly struct BendStats
+        {
+            public readonly int Total, Horiz, Vert;
+            public BendStats(int total, int horiz, int vert) { Total = total; Horiz = horiz; Vert = vert; }
+            /// <summary>"N회 (수평 H · 수직 V)" 표기.</summary>
+            public string Text => $"{Total}회 (수평 {Horiz} · 수직 {Vert})";
+        }
+
+        // 격자 경로(셀)의 방향 전환(꺾임) 통계 — BuildPathSteps 의 Dir 부호 비교 규약과 동일.
+        //   꺾임 직전/직후 구간 중 하나라도 Z 성분(dz≠0)이면 수직 꺾임, 아니면 수평 꺾임으로 센다.
+        private static BendStats CountBends(PathCell[] path)
+        {
+            if (path.Length < 3) return new BendStats(0, 0, 0);
+            (int dx, int dy, int dz) Dir(PathCell a, PathCell b) =>
+                (Math.Sign(b.I - a.I), Math.Sign(b.J - a.J), Math.Sign(b.K - a.K));
+            int total = 0, horiz = 0, vert = 0;
+            var cur = Dir(path[0], path[1]);
+            for (int i = 2; i < path.Length; i++)
+            {
+                var d = Dir(path[i - 1], path[i]);
+                if (d != cur)
+                {
+                    total++;
+                    if (cur.dz != 0 || d.dz != 0) vert++; else horiz++;
+                    cur = d;
+                }
+            }
+            return new BendStats(total, horiz, vert);
+        }
+
+        // 월드 폴리라인의 방향 전환(꺾임) 통계 — 인접 구간 단위벡터 내적이 ~1 미만이면 한 번 꺾인 것으로.
+        //   꺾임 직전/직후 구간 중 하나라도 |Z| 성분이 지배적(>0.7≈45°↑)이면 수직 꺾임, 아니면 수평 꺾임.
+        private static BendStats CountBends(List<Point3D> pts)
+        {
+            if (pts.Count < 3) return new BendStats(0, 0, 0);
+            int total = 0, horiz = 0, vert = 0;
+            Vector3D? prev = null;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                Vector3D d = pts[i] - pts[i - 1];
+                if (d.Length < 1e-6) continue;
+                d.Normalize();
+                if (prev.HasValue)
+                {
+                    var p = prev.Value;
+                    double dot = p.X * d.X + p.Y * d.Y + p.Z * d.Z;
+                    if (dot < 0.999)   // ~2.6° 이상 차이 → 꺾임.
+                    {
+                        total++;
+                        if (Math.Abs(p.Z) > 0.7 || Math.Abs(d.Z) > 0.7) vert++; else horiz++;
+                    }
+                }
+                prev = d;
+            }
+            return new BendStats(total, horiz, vert);
         }
 
         // 경로 단계(구간) 강조 — 카메라는 그대로 두고(현재 화면 유지), 선택 구간만 흰색 굵은 튜브로 덧그린다.

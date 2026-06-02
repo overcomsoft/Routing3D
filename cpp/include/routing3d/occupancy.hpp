@@ -13,10 +13,13 @@
 // =============================================================================
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
+#include "routing3d/box_index.hpp"
 #include "routing3d/geometry.hpp"
 
 namespace routing3d {
@@ -48,7 +51,7 @@ public:
 
     // 선형 인덱스 (i + nx*(j + ny*k)). A* 의 g/closed 키로 사용.
     int lin(const Cell& c) const { return c.i + shape_.i * (c.j + shape_.j * c.k); }
-    Cell unlin(int idx) const;
+    Cell unlin(long long idx) const;  // 64비트 인자(A* state_of/7 가 long long) — Dense 는 항상 int 범위.
 
     const std::vector<uint8_t>& raw() const { return grid_; }
 
@@ -87,7 +90,7 @@ public:
 
     // A* 의 g/closed 키(Dense 와 동일 공식, int). 초대형 격자에서는 호출 금지.
     int lin(const Cell& c) const { return c.i + shape_.i * (c.j + shape_.j * c.k); }
-    Cell unlin(int idx) const;
+    Cell unlin(long long idx) const;  // 64비트 인자(astar_weighted 호환). Sparse 는 int 범위 내 사용.
 
     SparseOccupancy copy() const { return *this; }
 
@@ -102,6 +105,98 @@ private:
     Vec3 origin_;
     double cell_;
     std::unordered_set<uint64_t> blocked_;
+};
+
+// 암시적 점유맵 — 장애물을 '복셀화하지 않고' AABB 그대로 SpatialBoxIndex 에 보관하고,
+// 동적으로 깔린 배관 셀만 해시셋(marked_)에 담는다. 메모리 = O(장애물 수) + O(깔린 셀 수)로
+// **셀 크기와 무관**(근본 sparse 해법). 질의 인터페이스는 Dense/Sparse 와 동일(불변식 O1).
+//   - is_blocked(cell)  : 셀 AABB 와 겹치는 장애물이 있으면(또는 marked_) 점유.
+//                         겹침 판정은 DenseOccupancy.add_box 의 복셀화와 사실상 동일(과소차단 없음).
+//   - lin/unlin         : **64비트**(10mm·20억셀에서도 오버플로 없음). astar_weighted 가 사용.
+//   - clearance_cells   : 온디맨드 클리어런스(전역 거리변환 대신 박스 최근접 질의). CostModel 이
+//                         HasClearanceQuery 컨셉으로 감지해 distance transform 배열을 만들지 않는다.
+//   - copy()            : 장애물 인덱스는 불변이라 shared_ptr 공유, marked_ 만 깊은 복사(M2: 원본 불변).
+// 주의: w_corridor>0(배관 번들링)은 corridor 셀 키를 unordered_set<int> 로 받는 기존 API 와 64비트
+//       lin 이 맞지 않으므로 이 백엔드에서는 사용하지 않는다(대형 격자 라우팅은 w_corridor=0).
+class ImplicitOccupancy {
+public:
+    ImplicitOccupancy(Cell shape, Vec3 origin, double cell_mm)
+        : shape_(shape), origin_(origin), cell_(cell_mm),
+          index_(std::make_shared<SpatialBoxIndex>(std::max(cell_mm * 16.0, 500.0))) {}
+
+    // ---- 질의 (Dense/Sparse 와 동일 계약) ----
+    bool in_bounds(const Cell& c) const { return grid_in_bounds(c, shape_); }
+    bool is_blocked(const Cell& c) const {
+        if (!in_bounds(c)) return true;  // 격자 밖 = 점유(G1).
+        if (marked_.find(pack(c)) != marked_.end()) return true;
+        Vec3 lo{origin_.x + c.i * cell_, origin_.y + c.j * cell_, origin_.z + c.k * cell_};
+        Vec3 hi{lo.x + cell_, lo.y + cell_, lo.z + cell_};
+        return index_->overlaps(lo, hi);
+    }
+    Vec3 to_world(const Cell& c) const { return grid_cell_to_world(c, origin_, cell_); }
+    Cell to_cell(const Vec3& w) const { return grid_world_to_cell(w, origin_, cell_); }
+
+    // ---- 변경 ----
+    void block_cell(const Cell& c) {
+        if (in_bounds(c)) marked_.insert(pack(c));
+    }
+    // 복셀화하지 않고 장애물 AABB 를 색인에 추가(반환 0 — '신규 점유 셀 수' 개념 없음).
+    int add_box(const AABB& box) {
+        index_->add(box.lo, box.hi);
+        return 0;
+    }
+
+    // ---- 메타/통계 ----
+    long long count_blocked() const { return static_cast<long long>(marked_.size()); }
+    Cell shape() const { return shape_; }
+    Vec3 origin() const { return origin_; }
+    double cell_mm() const { return cell_; }
+    long long size() const {
+        return static_cast<long long>(shape_.i) * shape_.j * shape_.k;
+    }
+
+    // 64비트 선형 인덱스(astar_weighted state_of 의 키). 10mm 거대격자에서도 오버플로 없음.
+    long long lin(const Cell& c) const {
+        return static_cast<long long>(c.i) +
+               static_cast<long long>(shape_.i) *
+                   (static_cast<long long>(c.j) + static_cast<long long>(shape_.j) * c.k);
+    }
+    Cell unlin(long long idx) const {
+        long long nx = shape_.i, ny = shape_.j;
+        int i = static_cast<int>(idx % nx);
+        int j = static_cast<int>((idx / nx) % ny);
+        int k = static_cast<int>(idx / (nx * ny));
+        return Cell{i, j, k};
+    }
+
+    // 장애물 인덱스 공유(불변), marked_ 만 깊은 복사 → 원본 점유 불변(계약 M2).
+    ImplicitOccupancy copy() const { return *this; }
+
+    // ---- S4: 온디맨드 클리어런스 ----
+    // 셀 c 중심에서 가장 가까운 장애물 표면까지 거리를 '셀 단위'로 반환(상한 max_radius).
+    // 전역 distance transform(vector<int>(N))을 대체 → 메모리 = O(탐색 셀), 셀 크기 무관.
+    int clearance_cells(const Cell& c, int max_radius) const {
+        if (max_radius <= 0) return max_radius;
+        Vec3 ctr = grid_cell_to_world(c, origin_, cell_);
+        double cap = static_cast<double>(max_radius) * cell_;  // 검사 반경(mm).
+        double d = index_->nearest_dist(ctr, cap + cell_);
+        int dc = static_cast<int>(std::floor(d / cell_));
+        return dc < max_radius ? dc : max_radius;
+    }
+
+private:
+    // 깔린 배관 셀 저장용 64비트 패킹 키(축당 21비트). 8,000m/4mm 까지 커버.
+    static uint64_t pack(const Cell& c) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(c.i)) << 42) |
+               (static_cast<uint64_t>(static_cast<uint32_t>(c.j)) << 21) |
+               static_cast<uint64_t>(static_cast<uint32_t>(c.k));
+    }
+
+    Cell shape_;
+    Vec3 origin_;
+    double cell_;
+    std::shared_ptr<SpatialBoxIndex> index_;  // 장애물(불변, 사본끼리 공유).
+    std::unordered_set<uint64_t> marked_;      // 동적 점유(깔린 배관). 사본마다 독립.
 };
 
 }  // namespace routing3d

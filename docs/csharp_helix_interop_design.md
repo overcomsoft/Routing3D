@@ -157,6 +157,8 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine*, int32_t task,
 /* 라우팅 */
 R3D_API R3dStatus r3d_route_multi(R3dEngine*, const char* priority);     /* 전체 순차 */
 R3D_API R3dStatus r3d_route_task (R3dEngine*, int32_t task, R3dResult*); /* 단일(원본 장애물) */
+/* 학습된 회랑 셀(ijk 삼중항×n) 설정(P3j L2b). w_corridor>0 일 때 route_multi 가 시드로 사용. n<=0=초기화 */
+R3D_API R3dStatus r3d_set_corridor_cells(R3dEngine*, const int32_t* ijk, int32_t n);
 
 /* 결과/경로 조회 — 2단계 패턴: 먼저 R3dResult.path_len 확인 후 버퍼 제공 */
 R3D_API R3dStatus r3d_get_result(const R3dEngine*, int32_t task, R3dResult*);
@@ -388,6 +390,7 @@ cmake --build cpp/build --config Release --target routing3d_capi
 | **P3g (워크플로 재설계)** | **시작 시 창 즉시 표시 + DB 비동기 로드**(무거운 라우팅을 `Task.Run` 으로 → UI 비차단; 이전엔 첫 프로젝트 라우팅이 끝날 때까지 창이 안 떴음). **프로젝트 선택 시 장애물만 로드·전체화면 표시**(자동 라우팅 제거) → 사용자가 **탐색 범위(모두/유틸리티그룹별/유틸리티별)** 를 골라 실행. **좌측 패널 드릴다운**(유틸리티 그룹 → 유틸리티 → 개별 PoC, PoC 선택 시 3D 시작/끝 강조). | 뷰어 UX | **완료 2026-05-30** |
 | **P3h (DB 레이어 확장)** | SOURCE_FILE 기준 추가 레이어: **장비**(`TB_BIM_EQUIPMENT` MIN~MAX, 메인/서브 색 구분 큐브) · **레터럴/덕트**(`TB_DUCT_LATERAL`, `CATEGORY=LATERAL\|DUCT` 별 토글·색) · **공간 영역**(`TB_BIM_SPACE_INFO.LEVEL_NAME` = CR/A/F/CSF 와이어프레임 + BillboardText 라벨). 작업에 **PoC 이름**(`POC_LIST.name/endName`) 로드. 점유맵 **빈틈 없는 셀 크기 큐브** + **원본/샘플 해상도 토글**. **바닥격자를 씬 좌표에 맞춰 객체 중앙 정렬**(ZoomExtents 오정렬 수정). 레이어 토글 라벨 단축. | 가시화 레이어 | **완료 2026-05-30** |
 | **P3i (탐색 시각화)** | 선택 배관 **단계별 A\* 탐색 애니메이션**: 방문 셀을 `r3d_copy_visited` 의 **확장 순서대로** 점진 표시(점유맵 회피 과정), 종료 후 최종 경로 드러냄. 경로 **방향 전환(꺾임) 지점 마젠타 마커** + 우측 패널 **구간(단계) 리스트**(방향 수직/수평·길이, 클릭 시 해당 위치로 카메라 이동). | 탐색 가시화 | **완료 2026-05-30** |
+| **P3j (기존설계 패턴 학습)** | 사람이 설계한 기존배관(`TB_ROUTE_PATH`)의 양 끝 **스텁**(장비 출발·덕트 진입)을 **pgvector** 저장소(`route_stub_pattern`, `feat vector(24)`·`dir_unit vector(3)`·HNSW)에 학습 적재(Python `pattern_learn`)하고 자동라우팅에 적용: **① 학습면 PoC 투영**(`PatternStore`+`LiftPocToSurface(preferFace)`, 엔진변경 0) · **② 접근불가 PoC 최근접 자유셀 스냅**(`SnapPocToFreeCell`) · **③ 기존설계 회랑 소프트바이어스**(신규 C ABI **`r3d_set_corridor_cells`** + corridor 키 `long long` 확장 + `UseDesignCorridor`, 옵트인). UI 토글 2종. 헤드리스 A/B(`--dbroute` + env `R3D_PATTERNS`/`R3D_SNAP`/`R3D_CORRIDOR`). | 설계 정합·실패 감소 | **완료 2026-06-02** (project6 c100 185→198/208) |
 | P3b' (선택) | VDB 백엔드 capi(`USE_OPENVDB` 빌드 + openvdb/tbb DLL 동봉) — Sparse 로 목표 충족되어 보류. | (선택) | 미착수 |
 | DB 전환(보류) | `DDW_AI_DB`(스키마 전면 재설계: `TB_BIM_OBSTACLE`/`TB_EQUIPMENTS`/`TB_LATERAL_PIPE`/`TB_DUCT`, POC 평행 텍스트 배열, source_file 없음) 로 전환 요청 → 로더 재작성 필요로 **보류**. 현재 AUTOROUTINGV7 사용. | — | 보류 |
 

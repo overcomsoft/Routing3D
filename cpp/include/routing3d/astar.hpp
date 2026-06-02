@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -155,10 +156,15 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 
 // ------------------------------------------------------------- 비용함수 A*
 // 상태 = (셀, 진입방향 dir). dir ∈ [-1,5] → state = lin*7 + (dir+1).
+// on_progress(expanded, progress01): 탐색 중 진행율 콜백(뷰어 진행 다이얼로그의 '처리상태 %').
+//   progress01 = 1 - h_min/h_start (목표까지 남은 최소 휴리스틱의 감소율, [0,0.99] 클램프).
+//   progress_every>0 이고 on_progress 가 유효하면 그 간격(확장 수)마다 호출. 결과/결정성에는 영향 없음.
 template <class Occ>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
                            long long max_expansions = -1, bool collect_visited = false,
-                           const std::unordered_set<int>* corridor = nullptr) {
+                           const std::unordered_set<long long>* corridor = nullptr,
+                           const std::function<void(long long, double)>* on_progress = nullptr,
+                           long long progress_every = 0) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
@@ -170,48 +176,58 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     }
 
     CostModel<Occ> model(occ, params, corridor);
-    auto state_of = [&](int lin, int dir) -> long long {
-        return static_cast<long long>(lin) * 7 + (dir + 1);
-    };
+    // 상태키 = lin*7 + (dir+1). lin 은 백엔드 키 타입(Dense/Sparse=int, Implicit=long long)을
+    // long long 으로 받아 곱한다 → 10mm 거대격자(20억 셀)에서도 int 오버플로 없음(S2).
+    auto state_of = [&](long long lin, int dir) -> long long { return lin * 7 + (dir + 1); };
 
     std::priority_queue<detail::PQItem, std::vector<detail::PQItem>, detail::PQCmp> open;
     std::unordered_map<long long, double> g;
     std::unordered_map<long long, long long> came;  // state → 직전 state
-    std::vector<uint8_t> closed(static_cast<size_t>(occ.size()) * 7, 0);
-    // 셀 단위 방문 표시(collect_visited 일 때만 사용). 같은 셀이 여러 진입방향으로 expand 돼도
-    // 시각화는 한 번만. 가중 A* 라 state ≠ cell — 별도 셀 비트맵으로 dedupe.
-    std::vector<uint8_t> visited_seen;
-    if (collect_visited) visited_seen.assign(static_cast<size_t>(occ.size()), 0);
+    // 확정(closed) state 집합 — 해시 기반(메모리 ∝ 탐색 셀). dense 배열(occ.size()*7)로 잡으면
+    // 대형/정밀 격자(예 360x577x626 ≈ 1.3억 셀 → 910MB)에서 메모리 폭발/크래시. 결정성은 PQ
+    // (f, counter) 가 보장하므로 closed 자료구조 교체는 결과/expanded_nodes 에 영향 없음.
+    std::unordered_set<long long> closed;
+    // 셀 단위 방문 dedupe(collect_visited 일 때만). 같은 셀이 여러 진입방향으로 expand 돼도 시각화는 한 번.
+    std::unordered_set<int> visited_seen;
 
     long long counter = 0;
     long long s0 = state_of(occ.lin(start), -1);
     g[s0] = 0.0;
-    open.push({model.heuristic(start, goal), counter++, start, -1});
+    const double h_start = model.heuristic(start, goal);  // 진행율 기준(시작→목표 휴리스틱).
+    double h_min = h_start;                                // 지금까지 본 목표 최근접 휴리스틱.
+    open.push({h_start, counter++, start, -1});
     long long expanded = 0;
 
     while (!open.empty()) {
         detail::PQItem cur = open.top();
         open.pop();
         long long st = state_of(occ.lin(cur.cell), cur.dir);
-        if (closed[static_cast<size_t>(st)]) continue;
-        closed[static_cast<size_t>(st)] = 1;
+        if (!closed.insert(st).second) continue;   // 이미 확정된 state면 skip.
         ++expanded;
         if (collect_visited) {
             int cl = occ.lin(cur.cell);
-            if (!visited_seen[static_cast<size_t>(cl)]) {
-                visited_seen[static_cast<size_t>(cl)] = 1;
-                R.visited.push_back(cur.cell);
+            if (visited_seen.insert(cl).second) R.visited.push_back(cur.cell);
+        }
+        // 진행율 보고(처리상태 %): 목표까지 남은 최소 휴리스틱의 감소율.
+        if (on_progress && progress_every > 0) {
+            double hc = model.heuristic(cur.cell, goal);
+            if (hc < h_min) h_min = hc;
+            if (expanded % progress_every == 0) {
+                double prog = (h_start > 0.0) ? 1.0 - h_min / h_start : 0.0;
+                if (prog < 0.0) prog = 0.0;
+                if (prog > 0.99) prog = 0.99;
+                (*on_progress)(expanded, prog);
             }
         }
 
         if (cur.cell == goal) {
             std::vector<Cell> path;
             long long s = st;
-            path.push_back(occ.unlin(static_cast<int>(s / 7)));
+            path.push_back(occ.unlin(s / 7));  // unlin 은 long long 인자(백엔드 무관, S2).
             auto it = came.find(s);
             while (it != came.end()) {
                 s = it->second;
-                path.push_back(occ.unlin(static_cast<int>(s / 7)));
+                path.push_back(occ.unlin(s / 7));
                 it = came.find(s);
             }
             for (size_t a = 0, b = path.size() - 1; a < b; ++a, --b) std::swap(path[a], path[b]);
@@ -233,7 +249,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             Cell nb{cur.cell.i + d.i, cur.cell.j + d.j, cur.cell.k + d.k};
             if (!occ.in_bounds(nb) || occ.is_blocked(nb)) continue;
             long long ns = state_of(occ.lin(nb), nidx);
-            if (closed[static_cast<size_t>(ns)]) continue;
+            if (closed.count(ns)) continue;
             double t = g_cur + model.move_cost(nb, prev_off, d);
             auto git = g.find(ns);
             if (git == g.end() || t < git->second) {

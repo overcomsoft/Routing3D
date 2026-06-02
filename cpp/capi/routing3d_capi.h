@@ -73,6 +73,7 @@ typedef struct {
 typedef struct {
     double cell_mm, w_turn, w_clear;
     double w_corridor;               // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작). >0=기존설계 유사 번들링.
+    double w_heur;                   // 휴리스틱 가중(weighted A*). 0/1=표준. >1=목표 지향(확장 급감, 약간 비최적).
     int32_t clearance_radius, clearance_connectivity;  // connectivity 6 또는 26
     int32_t corridor_radius;         // 회랑 성장 반경(셀). 기본 1.
     int32_t rack_level_count;        // rack_levels 사용 개수(0~8).
@@ -114,6 +115,32 @@ R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
 R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(원본 장애물)
 
+// 학습된 회랑 셀(ijk 삼중항 배열, 길이 n)을 설정한다(L2b 소프트 바이어스). w_corridor>0(set_params)일 때
+// route_multi 가 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도(기존설계 스텁/랙 형상 따라가기).
+// n<=0 또는 ijk==NULL 이면 회랑을 비운다(기존 동작). 셀 좌표는 현재 격자(set_grid) 기준 (i,j,k).
+R3D_API R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32_t n);
+
+// 라우팅 진행 콜백(cdecl). 뷰어 진행 다이얼로그용 — 처리 순서·단계별 진행율·성공/실패·지표·경로를
+// 실시간 표시한다. ABI 안전: 라우팅과 같은 스레드에서 동기 호출. 콜백 예외는 경계를 넘기지 말 것.
+//   user         : 호스트 컨텍스트 포인터(그대로 전달).
+//   phase        : 0=탐색 진행(처리상태 %), 1=배관 완료(결과 지표 + 경로).
+//   order_index  : 처리 순서(0부터, priority 정렬 기준).
+//   task_index   : 원본 작업 인덱스(get_result 와 동일 매핑).
+//   success      : phase==1 에서만 유효(1/0).
+//   length_mm/turns/expanded_nodes/elapsed_ms : phase==1 의 결과 지표(phase==0 은 expanded 만 유효).
+//   done/total   : 진행률(done = 완료 배관 수, total = 전체).
+//   progress01   : phase==0 의 탐색 진행율(0~1, 휴리스틱 근접 기반). phase==1 은 1.0.
+//   path_ijk/path_len : phase==1 성공 시 경로 셀((i,j,k) 연속, path_len 개). 그 외 NULL/0.
+//                       포인터는 콜백 호출 동안만 유효 — 즉시 복사할 것.
+typedef void(__cdecl* R3dProgressFn)(void* user, int32_t phase, int32_t order_index,
+                                     int32_t task_index, int32_t success, double length_mm,
+                                     int32_t turns, int64_t expanded_nodes, double elapsed_ms,
+                                     int32_t done, int32_t total, double progress01,
+                                     const int32_t* path_ijk, int32_t path_len);
+// r3d_route_multi 와 동일(순차·충돌없음)하되 배관마다 cb 를 호출한다. cb 가 널이면 콜백 없이 동작.
+R3D_API R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
+                                           void* user);
+
 // rip-up & reroute(Step 3.8): 순차 베이스라인 후, 막힌 배관을 '가로막는 기존 배관'을
 // 뜯어내고 재배치해 해소한다. 무손실(채택 시 성공 +1) 결정적 알고리즘. 결과는 원본 작업
 // 인덱스별로 저장(get_result/copy_path 매핑 보존). 0=실패 작업 없음 의미 아님(상태코드만).
@@ -126,6 +153,15 @@ R3D_API R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t ma
 //   factor : coarse/fine 셀 비율(예 16).  radius : corridor 팽창 반경(coarse 셀).
 // 비용함수(회전/클리어런스)는 미적용(균일 비용). 결과는 작업 인덱스별로 저장.
 R3D_API R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius);
+
+// 순차 계층 corridor 라우팅(대형/정밀 격자 + 배관 간 충돌 회피). r3d_route_corridor 와 동일한
+// Sparse + astar_hashed(해시 기반, 셀 수 배열 미할당)이되, priority 순서로 한 배관씩 라우팅하고
+// 깔린 경로를 mark_pipe(pipe_radius) 로 점유 추가해 다음 배관이 피하도록 한다(충돌 0).
+//   factor : coarse/fine 셀 비율.  radius : corridor 팽창 반경(coarse 셀).
+//   priority : "longest"|"shortest"|"utility"|"original".  pipe_radius : 깔린 배관 팽창 반경(fine 셀).
+// 비용함수(회전/클리어런스)는 미적용(균일 비용). 결과는 작업 인덱스별로 저장.
+R3D_API R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int32_t radius,
+                                           const char* priority, int32_t pipe_radius);
 
 // 결과/경로 조회.
 R3D_API R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out);

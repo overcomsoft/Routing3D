@@ -41,7 +41,8 @@ namespace Routing3D.Viewer.Interop
         }
 
         public void SetParams(double cellMm, double wTurn, double wClear, int clearanceRadius, int clearanceConnectivity,
-                              double wCorridor = 0.0, int corridorRadius = 1, int[]? rackLevels = null)
+                              double wCorridor = 0.0, int corridorRadius = 1, int[]? rackLevels = null,
+                              double wHeur = 1.0)
         {
             var rack = new int[8];
             int rackCount = 0;
@@ -52,7 +53,7 @@ namespace Routing3D.Viewer.Interop
             }
             var p = new Native.R3dParams
             {
-                cell_mm = cellMm, w_turn = wTurn, w_clear = wClear, w_corridor = wCorridor,
+                cell_mm = cellMm, w_turn = wTurn, w_clear = wClear, w_corridor = wCorridor, w_heur = wHeur,
                 clearance_radius = clearanceRadius, clearance_connectivity = clearanceConnectivity,
                 corridor_radius = corridorRadius, rack_level_count = rackCount, rack_levels = rack
             };
@@ -81,6 +82,37 @@ namespace Routing3D.Viewer.Interop
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
+        /// <summary>학습된 회랑 셀(ijk 삼중항 평탄 배열)을 설정한다(L2b 소프트 바이어스). w_corridor>0 일 때
+        /// route_multi 가 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도. null/빈 배열이면 회랑을 비운다.</summary>
+        public void SetCorridorCells(int[]? ijk)
+            => Check(Native.r3d_set_corridor_cells(H, ijk, ijk == null ? 0 : ijk.Length / 3), "set_corridor_cells");
+
+        /// <summary>라우팅 진행 이벤트. Phase 0=탐색 진행(Progress01), 1=배관 완료(지표+Path).</summary>
+        public readonly record struct RouteProgress(int Phase, int OrderIndex, int TaskIndex,
+            bool Success, double LengthMm, int Turns, long ExpandedNodes, double ElapsedMs,
+            int Done, int Total, double Progress01, PathCell[] Path);
+
+        /// <summary>route_multi 와 동일(순차·충돌없음)하되 배관마다 onPipe 를 호출(처리순서·진행율·경로 실시간).
+        /// 콜백은 라우팅 스레드에서 동기 호출되므로, UI 갱신은 호출자가 Dispatcher 로 마샬링한다.</summary>
+        public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe)
+        {
+            // 델리게이트는 네이티브 호출이 끝날 때까지 살아 있어야 한다(지역 변수로 GC 보호).
+            Native.R3dProgressFn cb = (user, phase, oi, ti, ok, len, turns, exp, ms, done, total, prog, pathPtr, pathLen) =>
+            {
+                var path = Array.Empty<PathCell>();
+                if (phase == 1 && pathLen > 0 && pathPtr != IntPtr.Zero)
+                {
+                    var buf = new int[pathLen * 3];
+                    System.Runtime.InteropServices.Marshal.Copy(pathPtr, buf, 0, buf.Length);  // 즉시 복사.
+                    path = new PathCell[pathLen];
+                    for (int i = 0; i < pathLen; i++) path[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+                }
+                onPipe(new RouteProgress(phase, oi, ti, ok != 0, len, turns, exp, ms, done, total, prog, path));
+            };
+            try { Check(Native.r3d_route_multi_progress(H, Native.Utf8(priority), cb, IntPtr.Zero), "route_multi_progress"); }
+            finally { GC.KeepAlive(cb); }
+        }
+
         // 단일 작업 재라우팅(원본 장애물 기준, 다른 배관 무시). 결과는 엔진에 저장된다.
         public RouteResult RouteTask(int task)
         {
@@ -91,6 +123,12 @@ namespace Routing3D.Viewer.Interop
         // 대형 장면용 계층 corridor 라우팅(Sparse + coarse→fine). 작업별 독립(충돌 회피 없음).
         public void RouteCorridor(int factor = 16, int radius = 2)
             => Check(Native.r3d_route_corridor(H, factor, radius), "route_corridor");
+
+        // 순차 계층 corridor(Sparse + astar_hashed, 셀 수 배열 미할당 → 10mm 등 대형/정밀 격자 안전).
+        // priority 순서로 한 배관씩 라우팅하고 mark_pipe(pipeRadius)로 점유 추가 → 배관 간 충돌 0.
+        public void RouteCorridorMulti(int factor, int radius, string priority = "longest", int pipeRadius = 0)
+            => Check(Native.r3d_route_corridor_multi(H, factor, radius, Native.Utf8(priority), pipeRadius),
+                     "route_corridor_multi");
 
         // ---- 결과 조회 ----
         public RouteResult GetResult(int task)

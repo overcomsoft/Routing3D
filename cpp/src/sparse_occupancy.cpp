@@ -37,10 +37,10 @@ int SparseOccupancy::add_box(const AABB& box) {
     return newly;
 }
 
-Cell SparseOccupancy::unlin(int idx) const {
-    int i = idx % shape_.i;
-    int j = (idx / shape_.i) % shape_.j;
-    int k = idx / (shape_.i * shape_.j);
+Cell SparseOccupancy::unlin(long long idx) const {
+    int i = static_cast<int>(idx % shape_.i);
+    int j = static_cast<int>((idx / shape_.i) % shape_.j);
+    int k = static_cast<int>(idx / (static_cast<long long>(shape_.i) * shape_.j));
     return Cell{i, j, k};
 }
 

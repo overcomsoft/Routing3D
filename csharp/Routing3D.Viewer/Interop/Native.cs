@@ -32,6 +32,7 @@ namespace Routing3D.Viewer.Interop
         {
             public double cell_mm, w_turn, w_clear;
             public double w_corridor;            // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작).
+            public double w_heur;                // 휴리스틱 가중(weighted A*). 0/1=표준, >1=목표 지향.
             public int clearance_radius, clearance_connectivity;
             public int corridor_radius;          // 회랑 성장 반경(셀).
             public int rack_level_count;         // rack_levels 사용 개수(0~8).
@@ -84,8 +85,25 @@ namespace Routing3D.Viewer.Interop
                                                        double sz, double gx, double gy, double gz);
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
+
+        // 학습된 회랑 셀(ijk 삼중항×n) 설정 — w_corridor>0 일 때 route_multi 가 시드로 사용(L2b). n<=0=초기화.
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_corridor_cells(IntPtr e, int[]? ijk, int n);
+
+        // 진행 콜백(cdecl) — phase=0(탐색 진행)/1(배관 완료). UnmanagedFunctionPointer 로 마샬링.
+        // pathIjk 는 phase==1 성공 시 경로 셀((i,j,k)×pathLen) 포인터(콜백 동안만 유효 → 즉시 복사).
+        [UnmanagedFunctionPointer(Cdecl)]
+        public delegate void R3dProgressFn(IntPtr user, int phase, int orderIndex, int taskIndex,
+                                           int success, double lengthMm, int turns, long expandedNodes,
+                                           double elapsedMs, int done, int total, double progress01,
+                                           IntPtr pathIjk, int pathLen);
+        [DllImport(Dll, CallingConvention = Cdecl)]
+        public static extern int r3d_route_multi_progress(IntPtr e, byte[] priorityUtf8,
+                                                          R3dProgressFn cb, IntPtr user);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_task(IntPtr e, int task, out R3dResult outRes);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_corridor(IntPtr e, int factor, int radius);
+        [DllImport(Dll, CallingConvention = Cdecl)]
+        public static extern int r3d_route_corridor_multi(IntPtr e, int factor, int radius,
+                                                          byte[] priorityUtf8, int pipeRadius);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_get_result(IntPtr e, int task, out R3dResult outRes);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);

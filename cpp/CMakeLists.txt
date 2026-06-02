@@ -68,6 +68,11 @@ add_executable(test_corridor tests/test_corridor.cpp)
 target_link_libraries(test_corridor PRIVATE routing3d_core)
 add_test(NAME corridor COMMAND test_corridor)
 
+# ImplicitOccupancy(sparse S1~S4): Dense==Implicit 동등성 + 10mm 거대격자 오버플로/저장폭발 무.
+add_executable(test_implicit tests/test_implicit.cpp)
+target_link_libraries(test_implicit PRIVATE routing3d_core)
+add_test(NAME implicit COMMAND test_implicit)
+
 # rip-up & reroute(Step 3.8): 합성 혼잡 시나리오에서 순차 1/2 → rip-up 2/2(Python 일치).
 add_executable(test_ripup tests/test_ripup.cpp)
 target_link_libraries(test_ripup PRIVATE routing3d_core)

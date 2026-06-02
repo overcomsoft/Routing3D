@@ -20,6 +20,24 @@ namespace Routing3D.Viewer
             base.OnStartup(e);
             var args = e.Args;
 
+            // 헤드리스 DB 라우팅 진단: --dbroute <projectId> <cellMm> <utility> <outPath>
+            int dr = Array.FindIndex(args, a => a == "--dbroute");
+            if (dr >= 0 && dr + 4 < args.Length)
+            {
+                try
+                {
+                    int pid = int.Parse(args[dr + 1]);
+                    double cell = double.Parse(args[dr + 2], System.Globalization.CultureInfo.InvariantCulture);
+                    string util = args[dr + 3];
+                    string outp = args[dr + 4];
+                    string report = Diagnostics.DbRouteDiag.Run(pid, cell, util);
+                    File.WriteAllText(outp, report);
+                }
+                catch (Exception ex) { File.WriteAllText(args[dr + 4], "DIAG ERROR: " + ex); }
+                Shutdown(0);
+                return;
+            }
+
             int st = Array.FindIndex(args, a => a == "--selftest");
             if (st >= 0 && st + 2 < args.Length)
             {

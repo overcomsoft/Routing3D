@@ -105,6 +105,11 @@
                                       ItemsSource="{Binding GroupList}"
                                       SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                       ToolTip="유틸리티 그룹 선택 → 아래 유틸리티 목록이 나오고, 상단 '탐색 범위'가 이 그룹으로 설정됩니다."/>
+                            <Button Content="▶ 이 그룹 전체 라우팅"
+                                    Command="{Binding RouteGroupCommand}"
+                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"
+                                    HorizontalContentAlignment="Center"
+                                    ToolTip="선택한 유틸리티 그룹의 모든 PoC를 한꺼번에 충돌회피 라우팅합니다(충돌확장 ON이면 설비·덕트·기설계 배관도 회피)."/>
                         </StackPanel>
                     </Border>
 
@@ -119,6 +124,16 @@
                                          SelectedItem="{Binding SelectedUtility, Mode=TwoWay}"
                                          ToolTip="유틸리티 선택 → 아래 개별 PoC 목록이 나오고, 상단 '탐색 범위'가 이 유틸리티로 설정됩니다."/>
                             </Border>
+                            <Button Content="▶ 이 유틸리티 전체 라우팅"
+                                    Command="{Binding RouteUtilityCommand}"
+                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"
+                                    HorizontalContentAlignment="Center"
+                                    ToolTip="선택한 유틸리티의 모든 PoC를 한꺼번에 충돌회피 라우팅합니다."/>
+                            <Button Content="🗑 자동설계 경로 삭제"
+                                    Command="{Binding ClearRoutesCommand}"
+                                    Margin="0,6,0,0" Background="#5a3a3a" BorderBrush="#8a5a5a"
+                                    HorizontalContentAlignment="Center"
+                                    ToolTip="자동설계된(라우팅된) 모든 경로를 삭제합니다. 동일 대상을 다시 라우팅하면 그 대상의 기존 설계는 자동으로 지워지고 진행됩니다."/>
                         </StackPanel>
                     </Border>
 
@@ -173,6 +188,8 @@
                     <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
                     <ModelVisual3D Content="{Binding StepHighlightModel}"/> <!-- 선택 경로 구간 강조(흰색) -->
+                    <ModelVisual3D Content="{Binding CompareModel}"/>     <!-- 기존설계 비교(주황=기존/시안=개발) -->
+                    <ModelVisual3D Content="{Binding LiveRouteModel}"/>   <!-- 진행 다이얼로그 라우팅 라이브(배관 완료마다 점진) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
 
@@ -196,9 +213,9 @@
                             <CheckBox Content="덕트"
                                       IsChecked="{Binding ShowDucts}" Margin="0,0,12,0"
                                       ToolTip="TB_DUCT_LATERAL 의 CATEGORY=DUCT 을 청색 박스로 표시"/>
-                            <CheckBox Content="경로"
+                            <CheckBox Content="자동경로"
                                       IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"
-                                      ToolTip="라우팅 경로 (유틸리티별 색 튜브)"/>
+                                      ToolTip="자동 라우팅 경로 (유틸리티별 색 튜브)"/>
                             <CheckBox Content="기존배관"
                                       IsChecked="{Binding ShowExistingPipes}" Margin="0,0,12,0"
                                       ToolTip="기존 설계배관 — TB_ROUTE_PATH(메인 장비 PoC→종단)을 유틸리티 색의 가는 튜브로 표시"/>
@@ -224,6 +241,22 @@
                             <CheckBox Content="공간"
                                       IsChecked="{Binding ShowSpaces}" Margin="0,0,12,0"
                                       ToolTip="공간 영역 — TB_BIM_SPACE_INFO 의 구역(CR/A/F/CSF)을 선형 와이어프레임 + 텍스트 라벨로 표시"/>
+                            <CheckBox Content="충돌확장 (항상 ON)"
+                                      IsChecked="{Binding IncludeFacilities, Mode=OneWay}" IsEnabled="False"
+                                      Margin="0,0,12,0"
+                                      ToolTip="라우팅 충돌 대상 확장 — 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅된) 다른 배관을 항상 장애물로 취급해 회피합니다(표준 동작, 끌 수 없음)."/>
+                            <CheckBox Content="{Binding PatternStatus}"
+                                      IsChecked="{Binding UsePatterns}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="기존설계 패턴 활용 — 사람이 그린 기존배관에서 학습한 진출/진입 면(장비=아래·덕트=상부 등)으로 시작/종단 PoC를 투영해 자동라우팅을 사람 설계에 맞춥니다. 저장소가 비었거나 키 미스면 기존 최근접-면 규칙으로 자동 폴백."/>
+                            <CheckBox Content="기존설계 회랑 (L2b)"
+                                      IsChecked="{Binding UseDesignCorridor}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="기존설계 회랑 — 매칭되는 기존배관(TB_ROUTE_PATH) 폴리라인을 회랑으로 주입하고 회랑 밖을 비용 가산(w_corridor)해, 새 경로가 사람 설계를 부드럽게 따라가게 합니다(충돌은 여전히 회피). 경로 모양을 바꾸므로 기본 OFF."/>
+                            <CheckBox Content="랙 번들 (L3a)"
+                                      IsChecked="{Binding UseRackBundling}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="유틸그룹 랙 번들링 — 기존배관의 수평 런이 모이는 z-높이(파이프 랙)를 유틸리티 그룹별로 학습해, 같은 그룹의 새 배관을 공용 랙 높이에 뭉치게 합니다(엔진 rack_levels + 가벼운 비용 가산). 사람 설계다운 정돈된 레이아웃. 경로 모양을 바꾸므로 기본 OFF."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
@@ -260,11 +293,11 @@
                         <StackPanel>
                             <TextBlock Text="마커 안내 (선택 배관)" FontWeight="Bold" Margin="0,0,0,4"/>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#50FF78" Stroke="#888" StrokeThickness="0.5"/>
+                                <Ellipse Width="14" Height="14" Fill="#FF2D2D" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="● 시작점 (시작 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#FFE13C" Stroke="#888" StrokeThickness="0.5"/>
+                                <Ellipse Width="14" Height="14" Fill="#3278FF" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="● 끝점 (종단 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
@@ -280,7 +313,7 @@
                                 <TextBlock Text="■ A* 탐색 셀 (단계별 탐색)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="Red" Stroke="#888" StrokeThickness="0.5"/>
+                                <Rectangle Width="14" Height="14" Fill="Magenta" Stroke="#888" StrokeThickness="0.5"/>
                                 <TextBlock Text="■ 충돌 셀 (≥2 배관 공유)" Margin="6,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <TextBlock Text="경로·장애물·장비·레터럴·덕트 등 레이어 색은 위 '범례'를 참고하세요."
@@ -337,12 +370,35 @@
                             <Button Content="▶ 선택 배관 재라우팅 (단일)"
                                     Command="{Binding RerouteSelectedCommand}"
                                     Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"/>
+                            <Button Content="🔬 기존설계 비교 (선택 배관)"
+                                    Command="{Binding CompareSelectedCommand}"
+                                    Margin="0,4,0,0" Background="#7a4e2a" FontWeight="SemiBold"
+                                    ToolTip="선택 배관을 개발 경로로 라우팅하고, 해당 시작/끝 PoC의 기존 설계경로(주황)와 나란히 그려 비교합니다. 나머지 기존배관은 숨겨집니다. 결과는 아래 '기존설계 비교 분석'에 표시됩니다."/>
                             <Button Content="🔎 단계별 탐색 (선택 배관)"
                                     Command="{Binding AnimateSelectedCommand}"
                                     Margin="0,4,0,0" Background="#3a4e7a" FontWeight="SemiBold"
                                     ToolTip="점유맵을 켜고, A* 가 시작 PoC 부터 점유를 회피해 종단 PoC 로 탐색하는 과정(방문 셀)을 순서대로 애니메이션으로 보여준 뒤 최종 경로를 드러냅니다."/>
                             <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. '단계별 탐색'은 A* 진행 과정을 재생."
                                        TextWrapping="Wrap" Foreground="#9aa3b8" FontSize="11" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 기존설계 비교 분석 — 선택 배관의 기존 경로 vs 개발 경로 정량 비교 -->
+                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
+                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock Text="기존설계 비교 분석" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                <Rectangle Width="14" Height="14" Fill="#FF9030" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="━ 기존 설계경로 (TB_ROUTE_PATH)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,1,0,4">
+                                <Rectangle Width="14" Height="14" Fill="#30D0FF" Stroke="#888" StrokeThickness="0.5"/>
+                                <TextBlock Text="━ 개발 경로 (A* 엔진)" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding ComparisonReport, TargetNullValue='배관(PoC)을 선택하면 매칭된 기존 설계경로(주황)를 표시합니다. ‘🔬 기존설계 비교’ 를 누르면 개발 경로(시안)와 나란히 비교합니다.'}"
+                                       Foreground="#cdd6f4" TextWrapping="Wrap"
+                                       FontFamily="Consolas" FontSize="11"/>
                         </StackPanel>
                     </Border>
 

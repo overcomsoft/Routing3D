@@ -94,7 +94,7 @@ namespace Routing3D.Viewer.Model
         ///   4) 장애물 BBOX 로 격자(origin/shape/cell_mm) 산출
         /// connectedOnly=true 면 PoC 의 isConnected=true 인 것만 작업으로 만든다.
         /// </summary>
-        public static SceneData LoadScene(DbConfig config, int projectId, double cellMm = 100.0,
+        public static SceneData LoadScene(DbConfig config, int projectId, double cellMm = 25.0,
                                           bool connectedOnly = true)
         {
             using var conn = new NpgsqlConnection(config.ConnectionString);
@@ -329,6 +329,9 @@ namespace Routing3D.Viewer.Model
                         ? (Pt3?)null : new Pt3(r.GetDouble(9), r.GetDouble(10), r.GetDouble(11));
                     curEnd = (r.IsDBNull(12) || r.IsDBNull(13) || r.IsDBNull(14))
                         ? (Pt3?)null : new Pt3(r.GetDouble(12), r.GetDouble(13), r.GetDouble(14));
+                    // 선택 배관(Task) ↔ 기존 설계경로 매칭 키로 종단 PoC 좌표를 보존.
+                    cur.SourcePos = curStart;
+                    cur.TargetPos = curEnd;
                 }
                 AddPt(new Pt3(r.GetDouble(3), r.GetDouble(4), r.GetDouble(5)));
                 AddPt(new Pt3(r.GetDouble(6), r.GetDouble(7), r.GetDouble(8)));
