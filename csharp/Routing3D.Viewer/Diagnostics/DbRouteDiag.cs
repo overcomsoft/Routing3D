@@ -84,6 +84,10 @@ namespace Routing3D.Viewer.Diagnostics
                 //   R3D_CORRRAD= 회랑 팽창 반경(셀, 튜브 폭). 넓을수록 경로가 회랑 안에 머물러 가산 회피.
                 double wcMul = ParseEnv("R3D_WCORR", 0.5);
                 double wHeur = ParseEnv("R3D_WHEUR", 2.0);   // L2b 속도튜닝: 1.5→2.0(회랑 47s→6.3s, +1성공)
+                //   R3D_WHEUR_NEAR = 동적(수렴) 가중 목표근처 값. (0,wHeur) 면 거리비 보간(먼곳=wHeur·근처=이값).
+                //                    목표 근처 혼잡/막다른길의 그리디 함정 완화·준최적 상한은 wHeur. 기본 1.0
+                //                    (=목표서 표준 A*, GUI 와 동일·스텁ON 206→208). 0=정적으로 끔(A/B). 거대격자 자동 비활성.
+                double wHeurNear = ParseEnv("R3D_WHEUR_NEAR", 1.0);
                 int corrRad = (int)ParseEnv("R3D_CORRRAD", 2);
                 // 유틸그룹 랙 번들링(L3a) — R3D_RACK=on 이면 학습된 그룹 랙 z-셀을 rack_levels(면제)로.
                 bool useRack = string.Equals(Environment.GetEnvironmentVariable("R3D_RACK"), "on",
@@ -102,7 +106,7 @@ namespace Routing3D.Viewer.Diagnostics
                              : (useRack || hasRack) ? cell * ParseEnv("R3D_WCORR", 0.2) : 0.0;
                 wCorrUsed = wCorr;
                 eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad,
-                              rackLevels: appliedRack, wHeur: wHeur);
+                              rackLevels: appliedRack, wHeur: wHeur, wHeurNear: wHeurNear);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);

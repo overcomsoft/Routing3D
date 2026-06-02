@@ -1013,6 +1013,19 @@ namespace Routing3D.Viewer.ViewModels
             // 작은 데모 격자(<300k셀)는 표준 A*(1.0, 최적). 골든 정확도는 C++ ctest 가 별도 검증(이 경로 무관).
             bool weighted = (long)g.Nx * g.Ny * g.Nz > 300_000;
             double wHeur = weighted ? 2.0 : 1.0;
+            // 동적(수렴) 가중 A* — 목표까지 거리비로 가중을 보간한다(먼 곳=wHeur 공격적·빠름, 목표 근처=
+            // wHeurNear 신중·정확). 목표/PoC 근처의 혼잡·막다른길에서 순수 그리디(w=2.0) 함정을 피해 마지막
+            // 접근 경로를 찾아낸다. 준최적 상한은 여전히 wHeur. 측정(project6 c100): 스텁ON 206→208(완전),
+            // 스텁OFF 199→203, 시간 동일. 엔진이 거대격자(예산-게이트 hier)에선 자동 비활성 → cell≤25 무영향.
+            // 기본 = wHeur 가중일 때 1.0(=목표서 표준 A*). env R3D_WHEUR_NEAR 로 재정의(0=정적으로 끔).
+            double wHeurNear = weighted ? 1.0 : 0.0;
+            {
+                var sNear = System.Environment.GetEnvironmentVariable("R3D_WHEUR_NEAR");
+                if (!string.IsNullOrEmpty(sNear) &&
+                    double.TryParse(sNear, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var vNear) && vNear >= 0.0)
+                    wHeurNear = vNear;
+            }
             // 기존설계 회랑(L2b)/랙 번들링(L3a) ON 이면 회랑·랙 밖 셀당 가산(=½칸 비용)으로 부드럽게 유도.
             // w_heur=2.0 이 회랑 비용장을 휴리스틱에 반영해 탐색 폭을 억제 → OFF 와 거의 동일 속도로 동작
             // (이전 ~47s 폭증의 원인 해소). corridor_radius=2 는 회랑 튜브 폭(±2셀).
@@ -1034,7 +1047,7 @@ namespace Routing3D.Viewer.ViewModels
             double wCorr = (_useDesignCorridor || hasBundleCorr) ? g.CellMm * 0.5
                          : (_useRackBundling || (_useBundlePattern && hasRack)) ? g.CellMm * 0.2 : 0.0;
             _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
-                              rackLevels: rackLevels, wHeur: wHeur);
+                              rackLevels: rackLevels, wHeur: wHeur, wHeurNear: wHeurNear);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);

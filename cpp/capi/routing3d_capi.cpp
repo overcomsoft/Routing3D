@@ -237,6 +237,10 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     const int HIER_FACTOR = 8, HIER_RADIUS = 2;
     const long long HIER_PROBE = 300000LL;     // 직접 A* 저예산 — 초과(어려운 배관)면 hier 로 escalate.
     std::optional<ImplicitOccupancy> coarse;   // 첫 어려운 배관에서 1회 지연 생성.
+    // (독립 배관 병렬화 시도·기각: optimistic 병렬 A*+순차 충돌 복구는 순차와 바이트 동일했으나(정확),
+    //  project6 c100/c25/c10 전부 wall-clock 이득 0~음수였다. 미세격자 A* 는 거대 해시맵을 스트리밍하는
+    //  메모리대역 바운드라 스레드들이 대역을 경합하고, Phase A 가 '마크 없는' 더 큰 탐색을 중복 수행해
+    //  병렬 이득을 상쇄. → 도입 보류, 순차 유지. 자세한 측정은 CLAUDE.md '다음 작업 후보'.)
     int done = 0;
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
@@ -391,6 +395,7 @@ extern "C" R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p) {
     e->doc.params.clearance_connectivity = p->clearance_connectivity;
     e->doc.params.w_corridor = p->w_corridor;
     e->doc.params.w_heur = p->w_heur;
+    e->doc.params.w_heur_near = p->w_heur_near;
     e->doc.params.corridor_radius = p->corridor_radius > 0 ? p->corridor_radius : 1;
     e->doc.params.rack_levels.clear();
     {
