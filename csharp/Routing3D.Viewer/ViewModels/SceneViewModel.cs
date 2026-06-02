@@ -1374,14 +1374,30 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var d in s.DuctsLaterals)     // 덕트/레터럴(부대장비 포함).
                 AddBoxObstacle(engine, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ, minT);
 
-            // 이미 설계된(라우팅 성공) 다른 배관의 경로를 점유로 추가 — 새 배관이 이를 피하도록.
-            double r = cell * 0.6;   // 경로 셀 폴리라인을 약 1셀 두께 튜브로 점유.
+            // 이미 설계된(라우팅 성공) 다른 배관의 경로 + 고정 스텁을 점유로 추가 — 새 배관이 이를 피하도록.
+            // 메모리 효율: 셀별 점유가 아니라 직선 구간 AABB(반경 r 팽창)로 등록한다(엔진 호출/메모리 최소).
+            double r = cell * 0.6;   // 경로/스텁 폴리라인을 약 1셀 두께 튜브로 점유.
             for (int i = 0; i < Tasks.Count; i++)
             {
-                if (currentRows.Contains(i)) continue;          // 지금 라우팅하는(=자기) 배관은 제외.
+                if (currentRows.Contains(i)) continue;          // 지금 라우팅하는(=자기) 배관은 제외(자기 스텁에 막히지 않게).
                 var row = Tasks[i];
                 if (!row.Success || row.Path.Length < 2) continue;
                 AddPathObstacle(engine, row.Path, s.Grid, r);
+                // 고정 출발/종단 스텁(수직+엘보)도 장애물로 — 다른 배관이 스텁을 관통/교차하지 않도록.
+                if (row.StartStub != null) AddPolylineObstacle(engine, row.StartStub, r);
+                if (row.EndStub != null) AddPolylineObstacle(engine, row.EndStub, r);
+            }
+        }
+
+        // 월드 mm 폴리라인을 직선 구간별 AABB(반경 r 팽창)로 장애물에 추가. 셀 복셀화 없이 세그먼트당 박스 1개(메모리 효율).
+        private static void AddPolylineObstacle(Engine engine, System.Collections.Generic.IReadOnlyList<Pt3> poly, double r)
+        {
+            for (int i = 1; i < poly.Count; i++)
+            {
+                var a = poly[i - 1]; var b = poly[i];
+                engine.AddObstacle(
+                    Math.Min(a.X, b.X) - r, Math.Min(a.Y, b.Y) - r, Math.Min(a.Z, b.Z) - r,
+                    Math.Max(a.X, b.X) + r, Math.Max(a.Y, b.Y) + r, Math.Max(a.Z, b.Z) + r);
             }
         }
 
