@@ -17,9 +17,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "routing3d/astar.hpp"
@@ -99,6 +101,75 @@ ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
     return occ;
 }
 
+// 거대격자 장거리 배관 가속용 coarse 점유맵(factor 배 셀). 동일 origin·박스, 셀만 factor 배 굵게.
+ImplicitOccupancy coarse_implicit_from_doc(const SceneDoc& doc, int factor) {
+    Cell cs{(doc.shape.i + factor - 1) / factor, (doc.shape.j + factor - 1) / factor,
+            (doc.shape.k + factor - 1) / factor};
+    ImplicitOccupancy occ(cs, doc.origin, doc.cell_mm * factor);
+    for (const Obstacle& o : doc.obstacles) {
+        try {
+            occ.add_box(AABB(o.min_xyz, o.max_xyz));
+        } catch (const std::invalid_argument&) {
+            continue;
+        }
+    }
+    return occ;
+}
+
+// 계층 corridor 라우팅 — coarse 가이드로 fine 탐색을 tube(coarse 경로 ±radius 팽창)로 하드 제한한다.
+// 거대격자 장거리 배관의 탐색량을 크게 줄인다. **비용모델은 fine 과 동일**(weighted A* + 클리어런스 +
+// 턴 페널티)이라 경로 품질 보존. 가이드 실패/튜브 내 경로 없음 → false 반환(호출자가 무제한 fine 으로
+// 폴백 → 성공 수 회귀 0). work=깔린배관 포함 fine 점유(충돌회피 유지).
+template <class Occ>
+bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, int radius,
+                Cell s, Cell g, const RouteParams& params, long long max_exp,
+                bool collect_visited, AStarResult& out) {
+    auto to_coarse = [factor](const Cell& c) {
+        return Cell{c.i / factor, c.j / factor, c.k / factor};  // i>=0 → 바닥 나눗셈.
+    };
+    // fine 종단의 coarse 셀은 장비/덕트 근처라 coarse(굵은) 해상도에서 막혀 있을 수 있다 → 자유 coarse
+    // 셀로 스냅해 가이드가 시작/도착하게 한다. 스냅으로 생긴 종단 갭은 아래 연결 박스로 튜브에 포함.
+    Cell cs0 = to_coarse(s), cg0 = to_coarse(g);
+    Cell cs = snap_to_free_cell(coarse, cs0, 4);
+    Cell cgl = snap_to_free_cell(coarse, cg0, 4);
+    RouteParams cp = params;
+    cp.cell_mm = coarse.cell_mm();
+    AStarResult cg = astar_weighted(coarse, cs, cgl, cp, 2000000LL, false);
+    if (!cg.success || cg.path.empty()) return false;
+
+    // 2) 튜브(coarse 셀 키 집합) = coarse 경로 ±radius 팽창 + 양 끝(실제 fine 종단↔스냅 coarse) 연결 박스.
+    auto corr = std::make_shared<std::unordered_set<uint64_t>>();
+    corr->reserve(cg.path.size() * static_cast<size_t>((2 * radius + 1) * (2 * radius + 1) * (2 * radius + 1)) + 64);
+    auto add_dilated = [&](const Cell& c) {
+        for (int di = -radius; di <= radius; ++di)
+            for (int dj = -radius; dj <= radius; ++dj)
+                for (int dk = -radius; dk <= radius; ++dk)
+                    corr->insert(pack20(Cell{c.i + di, c.j + dj, c.k + dk}));
+    };
+    for (const Cell& c : cg.path) add_dilated(c);
+    // 종단 연결 박스(to_coarse(종단)↔스냅 coarse, ±radius) — fine 종단 셀이 반드시 튜브에 들도록.
+    auto add_box = [&](const Cell& a, const Cell& b) {
+        int i0 = std::min(a.i, b.i) - radius, i1 = std::max(a.i, b.i) + radius;
+        int j0 = std::min(a.j, b.j) - radius, j1 = std::max(a.j, b.j) + radius;
+        int k0 = std::min(a.k, b.k) - radius, k1 = std::max(a.k, b.k) + radius;
+        for (int i = i0; i <= i1; ++i)
+            for (int j = j0; j <= j1; ++j)
+                for (int k = k0; k <= k1; ++k) corr->insert(pack20(Cell{i, j, k}));
+    };
+    add_box(cs0, cs);
+    add_box(cg0, cgl);
+
+    // 3) fine A* — fine 셀의 coarse 셀이 튜브에 있을 때만 확장(하드 제한). 비용모델 동일(품질 보존).
+    auto in_corr = [corr, factor](const Cell& fc) {
+        return corr->count(pack20(Cell{fc.i / factor, fc.j / factor, fc.k / factor})) > 0;
+    };
+    AStarResult fr = astar_weighted(work, s, g, params, max_exp, collect_visited,
+                                    nullptr, nullptr, 0, in_corr);
+    if (!fr.success || fr.path.empty()) return false;
+    out = std::move(fr);
+    return true;
+}
+
 // 진행 콜백 타입(내부용). phase=0(탐색 진행)/1(배관 완료).
 //   인자: phase, order_index, task_index, success, length_mm, turns, expanded_nodes, elapsed_ms,
 //         done, total, progress01, path(완료·성공 시 경로 셀, 아니면 nullptr).
@@ -156,6 +227,16 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     const long long max_exp = (occ.size() > 5000000LL) ? 12000000LL : -1;
     // 탐색 진행율 보고 간격(확장 수). 너무 잦으면 콜백 폭주 → 5만마다(배관당 수십 회).
     const long long progress_every = on_pipe ? 50000LL : 0;
+    // 계층 corridor 가속(거대격자 어려운 배관) — coarse 가이드로 fine 탐색을 튜브에 한정해 탐색량을 줄인다
+    // (품질·성공수 보존). **escalation 게이트**: 먼저 저예산(HIER_PROBE) 직접 A* 를 돌려 대부분(쉬운 배관·
+    // 개방 랙 직선)은 빠르게 성공시키고, 예산을 초과하는 '어려운 배관'만 계층 corridor 로 재시도한다.
+    //   (거리 기반 게이트는 긴 직선까지 hier 로 보내 역행 — cell=50 스텁ON 134ms→24s. probe 기반이 옳다.)
+    // 작은 격자(골든)·소프트회랑 모드는 미적용 → 골든/기존 동작 완전 불변.
+    const bool large_grid = occ.size() > 5000000LL;
+    const bool use_hier = large_grid && !use_corridor;
+    const int HIER_FACTOR = 8, HIER_RADIUS = 2;
+    const long long HIER_PROBE = 300000LL;     // 직접 A* 저예산 — 초과(어려운 배관)면 hier 로 escalate.
+    std::optional<ImplicitOccupancy> coarse;   // 첫 어려운 배관에서 1회 지연 생성.
     int done = 0;
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
@@ -170,9 +251,29 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                 on_pipe(0, oidx, oi, false, 0.0, 0, expanded, 0.0, done, n, prog, nullptr);
             };
         }
-        AStarResult res = astar_weighted(work, s, g, doc.params, max_exp, collect_visited,
-                                         use_corridor ? &corridor : nullptr,
-                                         on_pipe ? &intra : nullptr, progress_every);
+        AStarResult res;
+        bool routed = false;
+        if (use_hier) {
+            // 1) 저예산 직접 A* — 쉬운 배관(개방 랙 직선 등)은 여기서 빠르게 성공(hier 오버헤드 없음).
+            const long long probe = (max_exp > 0) ? std::min(HIER_PROBE, max_exp) : HIER_PROBE;
+            res = astar_weighted(work, s, g, doc.params, probe, collect_visited, nullptr,
+                                 on_pipe ? &intra : nullptr, progress_every);
+            if (res.success && !res.path.empty()) {
+                routed = true;                       // 쉬운 배관 — 직접 최적 경로 채택.
+            } else if (res.expanded_nodes >= probe) {
+                // 2) 저예산 초과(어려운 배관) → 계층 corridor(coarse 가이드 → 튜브 한정)로 재시도.
+                if (!coarse) coarse.emplace(coarse_implicit_from_doc(doc, HIER_FACTOR));
+                if (route_hier(work, *coarse, HIER_FACTOR, HIER_RADIUS, s, g, doc.params,
+                               max_exp, collect_visited, res))
+                    routed = true;
+            } else {
+                routed = true;   // probe 소진 전 탐색 고갈 = 경로 없음(접근불가) → 그 실패 결과 채택.
+            }
+        }
+        if (!routed)
+            res = astar_weighted(work, s, g, doc.params, max_exp, collect_visited,
+                                 use_corridor ? &corridor : nullptr,
+                                 on_pipe ? &intra : nullptr, progress_every);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
