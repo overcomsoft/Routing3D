@@ -435,6 +435,7 @@ namespace Routing3D.Viewer.ViewModels
             {
                 if (!Set(ref _selectedGroup, value)) return;
                 RebuildUtilityList();
+                RebuildIfReady();   // 기존 설계배관을 선택 그룹만 표시(미선택=전체)하도록 3D 갱신.
                 if (!_suppressDrillCascade && !string.IsNullOrEmpty(value))
                     SyncTopScope(RouteScope.ByGroup, value);   // '경로 탐색 실행'이 이 그룹을 라우팅.
             }
@@ -1858,6 +1859,8 @@ namespace Routing3D.Viewer.ViewModels
                 int drawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
                 {
+                    // 좌측에서 유틸리티 그룹을 선택했으면 그 그룹의 기존 설계배관만 표시(미선택=전체).
+                    if (!string.IsNullOrEmpty(_selectedGroup) && GroupKey(pipe.Group) != _selectedGroup) continue;
                     string label = pipe.Label;
                     var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
                     if (uf != null && !uf.IsVisible) continue;   // 유틸 체크박스 필터 적용.
