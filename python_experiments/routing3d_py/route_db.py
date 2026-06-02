@@ -83,6 +83,7 @@ class ExistingPipe:
     route_path_guid: str | None = None
     utility: str | None = None
     group: str | None = None
+    owner_name: str | None = None        # SOURCE_OWNER_NAME(출발 장비명) — 그룹배관 탐지 키.
     diameter_mm: float = 0.0
     source_pos: Vec3 | None = None
     target_pos: Vec3 | None = None
@@ -233,7 +234,7 @@ def load_existing_pipes(
             'sd."TO_POSX", sd."TO_POSY", sd."TO_POSZ", '
             'rp."SOURCE_POSX", rp."SOURCE_POSY", rp."SOURCE_POSZ", '
             'rp."TARGET_POSX", rp."TARGET_POSY", rp."TARGET_POSZ", '
-            'rp."SOURCE_SIZE" '
+            'rp."SOURCE_SIZE", rp."SOURCE_OWNER_NAME" '
             'FROM "TB_ROUTE_SEGMENT_DETAIL" sd '
             'JOIN "TB_ROUTE_SEGMENTS" s ON s."SEGMENT_GUID" = sd."SEGMENT_GUID" '
             'JOIN "TB_ROUTE_PATH" rp ON rp."ROUTE_PATH_GUID" = s."ROUTE_PATH_GUID" '
@@ -265,6 +266,7 @@ def load_existing_pipes(
                 cur_pipe = ExistingPipe(
                     route_path_guid=g,
                     group=row[1], utility=row[2],
+                    owner_name=row[16],
                     diameter_mm=parse_pipe_size_mm(row[15]),
                     source_pos=sp, target_pos=tp,
                 )

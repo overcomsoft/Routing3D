@@ -117,9 +117,8 @@ namespace Routing3D.Viewer.ViewModels
                     Consider(DescribeObstacle(i, o), o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 }
 
-            if (ShowSpaces)
-                foreach (var sp in s.Spaces)
-                    Consider(DescribeSpace(sp), sp.MinX, sp.MinY, sp.MinZ, sp.MaxX, sp.MaxY, sp.MaxZ);
+            // 공간영역(A/F·CSF·CR 등)은 씬 전체를 덮는 거대 AABB 라 클릭 선택 대상에서 제외한다.
+            // (와이어프레임·라벨 렌더는 ShowSpaces 로 그대로 유지 — 표시는 하되 클릭으로는 잡히지 않음.)
 
             SelectedObjectInfo = best;
             if (best is null) { HighlightModel = null; Status = "선택된 객체 없음(빈 공간 클릭)"; }
@@ -192,6 +191,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
         private bool _showPocMarkers = true;        // 모든 작업의 시작 PoC(빨강)·종단 PoC(파랑) 마커(초기 표시).
         private bool _showStubs = true;             // 기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직+엘보) 강조.
+        private bool _showBundleGroups;             // 그룹배관 강조 — 탐지 번들(route_bundle_group) 멤버를 그룹별 색으로.
         private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
         // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
         private PatternStore? _patterns;
@@ -205,6 +205,12 @@ namespace Routing3D.Viewer.ViewModels
         // rack_levels(= w_corridor 면제 z-셀)로 준다. 같은 그룹 새 배관이 공용 랙 높이에 뭉친다(사람 설계다움).
         // rack_levels 는 w_corridor>0 일 때만 효력(랙 밖 가산) → ON 시 BuildEngineForRows 가 가벼운 w_corridor 부여.
         private bool _useRackBundling;
+        // 그룹배관 패턴(번들, L4) — Python bundle_detect 가 DB(route_bundle_template)에 저장한 '대표 번들 패턴'
+        // (같은 유틸 배관들이 동일 이격간격·2회+ 꺾임으로 공유하는 공용 트렁크 고도)을 읽어, 신규 라우팅 시
+        // 같은 유틸 새 배관을 그 트렁크 고도(rack_levels)에 뭉치게 한다. 미적재/키 미스면 자동 폴백(무해). 기본 OFF.
+        private BundleStore? _bundles;
+        private bool _bundlesTried;
+        private bool _useBundlePattern;
         // 스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 '고정 설계 구간'으로 깔고, A* 는 스텁 끝~끝
         // (랙 위 자유공간)만 탐색한다. 표시 경로 = [출발 스텁] + [A* 중간] + [종단 스텁]. 매칭 배관 없으면 PoC
         // 직접 라우팅으로 폴백. 학습 스텁과 자동설계를 일치시킨다(기존엔 PoC 에서 A* 가 스텁을 무시하고 재탐색).
@@ -352,6 +358,21 @@ namespace Routing3D.Viewer.ViewModels
         /// 학습 파이프라인(StubExtractor)과 동일 로직으로 잘라내 학습 스텁과 일치한다.</summary>
         public bool ShowStubs { get => _showStubs; set { if (Set(ref _showStubs, value)) RebuildIfReady(); } }
 
+        /// <summary>그룹배관 강조 — 현재 로드된 기존배관 중 탐지된 번들(route_bundle_group) 멤버를 '그룹별 고유 색'으로
+        /// 그리고 비멤버는 흐리게 표시한다. 동일 이격간격·2회+ 꺾임 다발이 한눈에 보인다. DB 적재(bundle_detect
+        /// --write-db) 필요. 미적재면 비활성(상태 라벨에 표시). 기본 OFF.</summary>
+        public bool ShowBundleGroups
+        {
+            get => _showBundleGroups;
+            set { if (Set(ref _showBundleGroups, value)) { OnChanged(nameof(BundleGroupStatus)); RebuildIfReady(); } }
+        }
+
+        /// <summary>그룹배관 강조 상태 표시(UI 라벨).</summary>
+        public string BundleGroupStatus =>
+            !_showBundleGroups ? "그룹배관 강조: OFF"
+            : _bundles == null || _bundles.GroupCount == 0 ? "그룹배관 강조: 없음(미적재)"
+            : $"그룹배관 강조: {_bundles.GroupCount}그룹";
+
         /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
         /// getter 전용이라 UI 에서 끌 수 없다(체크박스는 켜진 채 비활성).</summary>
@@ -381,6 +402,21 @@ namespace Routing3D.Viewer.ViewModels
             get => _useRackBundling;
             set { if (Set(ref _useRackBundling, value)) OnChanged(nameof(PatternStatus)); }
         }
+
+        /// <summary>그룹배관 패턴(번들, L4) — DB 에 저장된 대표 번들 패턴(공용 트렁크 고도)을 읽어, 같은 유틸
+        /// 새 배관을 학습된 공용 랙 고도에 뭉치게 한다(엔진 rack_levels + 가벼운 w_corridor). 미적재/미스 시
+        /// 자동 폴백(무해). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        public bool UseBundlePattern
+        {
+            get => _useBundlePattern;
+            set { if (Set(ref _useBundlePattern, value)) OnChanged(nameof(BundleStatus)); }
+        }
+
+        /// <summary>번들 저장소 상태 표시(UI 라벨).</summary>
+        public string BundleStatus =>
+            !_useBundlePattern ? "그룹배관 패턴: OFF"
+            : _bundles == null ? "그룹배관 패턴: 없음(미적재)"
+            : $"그룹배관 패턴: {_bundles.Count}키";
 
         /// <summary>스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고 A* 는
         /// 스텁 끝~끝만 탐색(표시 = 스텁+중간+스텁). 매칭 없으면 PoC 직접 라우팅으로 폴백. 기본 ON.</summary>
@@ -767,6 +803,11 @@ namespace Routing3D.Viewer.ViewModels
                     _patterns = await Task.Run(() => PatternStore.TryLoad(_dbConfig));
                     OnChanged(nameof(PatternStatus));
                 }
+                // 그룹배관 번들 템플릿(route_bundle_template)을 프로젝트별로 로드 — 신규설계 활용(L4).
+                // 프로젝트마다 source_file 이 다르므로 매 로드 시 갱신(트렁크 고도는 그 프로젝트 좌표계).
+                _bundlesTried = true;
+                _bundles = await Task.Run(() => BundleStore.TryLoad(_dbConfig, sd.SourceFile));
+                OnChanged(nameof(BundleStatus));
                 ResetEngine();
                 var g = sd.Grid;
                 _engine!.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
@@ -979,8 +1020,19 @@ namespace Routing3D.Viewer.ViewModels
             // 랙 페널티는 회랑(0.5)보다 부드러운 0.2(실측: project6 c100 200/208·랙 집중도 17→21%·길이↓.
             // 0.5 는 한 배관을 막아 198 로 떨어짐). 회랑+랙 동시 ON 이면 회랑의 0.5 가 우선(강한 설계추종).
             int[]? rackLevels = _useRackBundling ? BuildRackLevels(rowPositions) : null;
-            double wCorr = _useDesignCorridor ? g.CellMm * 0.5
-                         : _useRackBundling ? g.CellMm * 0.2 : 0.0;
+            // 그룹배관 패턴(L4): DB 에 저장된 유틸별 대표 트렁크 고도를 rack_levels 에 합친다(공용 랙 높이에 뭉침).
+            if (_useBundlePattern && _bundles != null)
+                rackLevels = MergeBundleLevels(rackLevels, rowPositions);
+            bool hasRack = rackLevels != null && rackLevels.Length > 0;
+            // 번들 공용 트렁크 회랑(L4) — 같은 유틸 기존배관 전체를 '하나의 공용 트렁크 회랑'으로 주입해, 새 배관
+            // 들이 흩어지지 않고 한 스파인에 모이게 한다(높이만 유도하던 rack_levels 의 한계 보완: xy 트렁크 제공).
+            // test_attract 가 증명한 메커니즘 — w_corridor>0 + 공유 회랑 셀이면 둘째 배관이 첫 배관 곁으로 뭉친다.
+            int[] bundleCorr = (_useBundlePattern && _bundles != null)
+                ? BuildBundleCorridorCells(rowPositions, 2) : System.Array.Empty<int>();
+            bool hasBundleCorr = bundleCorr.Length > 0;
+            // 회랑(0.5)은 랙(0.2)보다 강한 설계추종. L2b 또는 번들 트렁크 회랑이 있으면 0.5, 랙만이면 0.2.
+            double wCorr = (_useDesignCorridor || hasBundleCorr) ? g.CellMm * 0.5
+                         : (_useRackBundling || (_useBundlePattern && hasRack)) ? g.CellMm * 0.2 : 0.0;
             _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
                               rackLevels: rackLevels, wHeur: wHeur);
             foreach (var o in scene.Obstacles)
@@ -1038,8 +1090,9 @@ namespace Routing3D.Viewer.ViewModels
                 _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
                 added.Add(pos);
             }
-            // 기존설계 회랑(L2b) — 매칭 기존배관 폴리라인 셀을 회랑 시드로 주입(w_corridor>0 일 때 효력).
-            _engine.SetCorridorCells(_useDesignCorridor ? BuildDesignCorridorCells(rowPositions, 2) : null);
+            // 회랑 셀 주입(w_corridor>0 일 때 효력): L2b(배관별 매칭) + 번들 공용 트렁크(L4) 합집합.
+            int[]? l2bCells = _useDesignCorridor ? BuildDesignCorridorCells(rowPositions, 2) : null;
+            _engine.SetCorridorCells(CombineCorridor(l2bCells, bundleCorr));
             return added;
         }
 
@@ -1080,6 +1133,112 @@ namespace Routing3D.Viewer.ViewModels
             int n = 0;
             foreach (var (i, j, k) in set) { arr[n++] = i; arr[n++] = j; arr[n++] = k; }
             return arr;
+        }
+
+        // 번들 공용 트렁크 회랑 + pitch 레인(L4) — 같은 유틸 기존배관의 '트렁크 고도 수평 런'(=평행 랙 레인)만
+        // 타이트하게(±1셀) 회랑으로 만든다. 전체 폴리라인을 넓게 깔던 옵션1과 달리, 레인만 좁게 깔면 route_multi 의
+        // 충돌회피(mark_pipe)가 새 배관들을 '인접 레인'에 분산 배치 → 사람 설계처럼 등간격 평행 다발로 패킹된다.
+        //   트렁크 고도(trunk_z)는 번들 템플릿에서 조회. 트렁크 밴드(±1셀) 안 수평 런만 채택(수직 라이저·팬아웃 제외).
+        //   주의: 격자 셀 > pitch 면 인접 레인이 같은 셀로 뭉개진다(예 cell=100 > pitch≈56) → 셀 크기 ≤ pitch/2 권장.
+        // 템플릿 미적재/트렁크 미스면 전체 폴리라인을 넓게(±2) 까는 옵션1 동작으로 폴백(무해).
+        private int[] BuildBundleCorridorCells(IReadOnlyList<int> rowPositions, int dilate)
+        {
+            var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return System.Array.Empty<int>();
+            var g = s.Grid; double cell = g.CellMm, oz = g.Oz;
+
+            var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pos in rowPositions)
+                if (!string.IsNullOrEmpty(Tasks[pos].Utility)) utils.Add(Tasks[pos].Utility!);
+            if (utils.Count == 0) return System.Array.Empty<int>();
+
+            // 유틸별 트렁크 고도(z-셀) 집합 — 이 밴드의 수평 런만 레인으로 채택.
+            var trunkZ = new HashSet<int>();
+            if (_bundles != null)
+                foreach (var u in utils)
+                {
+                    var t = _bundles.TryGet(null, u); if (t == null) continue;
+                    foreach (var z in t.TrunkZs)
+                    {
+                        int zk = (int)Math.Floor((z - oz) / cell);
+                        if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
+                    }
+                }
+            bool laneMode = trunkZ.Count > 0;          // 트렁크 고도를 알면 레인 모드(타이트), 아니면 옵션1 폴백.
+            const double HorizTol = 0.34, MinRunMm = 800.0;
+            const int BandCells = 1, LaneDilate = 1;   // 트렁크 ±1셀, 레인 두께 ±1셀(타이트).
+
+            var set = new HashSet<(int, int, int)>();
+            foreach (var pipe in s.ExistingPipes)
+            {
+                if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                    double horiz = Math.Sqrt(dx * dx + dy * dy);
+                    double len = Math.Sqrt(horiz * horiz + dz * dz);
+                    int dl = dilate;
+                    if (laneMode)
+                    {
+                        // 레인 모드: 트렁크 고도 밴드 안의 '수평 런(랙 레인)'만, 타이트하게.
+                        if (horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz || len < MinRunMm) continue;
+                        int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
+                        bool nearTrunk = false;
+                        foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
+                        if (!nearTrunk) continue;
+                        dl = LaneDilate;
+                    }
+                    int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                    for (int sIdx = 0; sIdx <= steps; sIdx++)
+                    {
+                        double tt = (double)sIdx / steps;
+                        int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                        int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                        int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                        for (int di = -dl; di <= dl; di++)
+                            for (int dj = -dl; dj <= dl; dj++)
+                                for (int dk = -dl; dk <= dl; dk++)
+                                {
+                                    int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                    if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                    set.Add((ii, jj, kk));
+                                }
+                    }
+                }
+            }
+            var arr = new int[set.Count * 3];
+            int n = 0;
+            foreach (var (i, j, k) in set) { arr[n++] = i; arr[n++] = j; arr[n++] = k; }
+            return arr;
+        }
+
+        // 두 회랑 셀 배열(ijk 평탄)을 합친다 — 중복은 엔진이 set 으로 흡수. 둘 다 비면 null(회랑 없음).
+        private static int[]? CombineCorridor(int[]? a, int[]? b)
+        {
+            int la = a?.Length ?? 0, lb = b?.Length ?? 0;
+            if (la == 0 && lb == 0) return null;
+            if (lb == 0) return a;
+            if (la == 0) return b;
+            var r = new int[la + lb];
+            System.Array.Copy(a!, 0, r, 0, la);
+            System.Array.Copy(b!, 0, r, la, lb);
+            return r;
+        }
+
+        // 그룹배관 강조용 — group_id 별 구분되는 고유 색(황금비 색상환 회전으로 인접 그룹도 또렷이 구분).
+        private static Color BundleGroupColor(int gid)
+        {
+            double h = (gid * 0.61803398875) % 1.0 * 360.0;
+            double s = 0.72, v = 0.98;
+            double c = v * s, x = c * (1 - Math.Abs((h / 60.0) % 2 - 1)), m = v - c;
+            double r, g, b;
+            if (h < 60) { r = c; g = x; b = 0; }
+            else if (h < 120) { r = x; g = c; b = 0; }
+            else if (h < 180) { r = 0; g = c; b = x; }
+            else if (h < 240) { r = 0; g = x; b = c; }
+            else if (h < 300) { r = x; g = 0; b = c; }
+            else { r = c; g = 0; b = x; }
+            return Color.FromRgb((byte)((r + m) * 255), (byte)((g + m) * 255), (byte)((b + m) * 255));
         }
 
         // 유틸그룹 랙 번들링(L3a) — 라우팅할 행들의 그룹에 속한 기존배관 수평 런이 모이는 z-셀(랙 높이)을
@@ -1131,6 +1290,33 @@ namespace Routing3D.Viewer.ViewModels
             if (picked.Count == 0) return null;
             var top = picked.OrderByDescending(kv => kv.Value).Take(8).Select(kv => kv.Key).ToArray();
             return top.Length > 0 ? top : null;
+        }
+
+        // 그룹배관 패턴(L4) — 이번 라우팅 행들의 유틸리티별 학습 트렁크 고도(route_bundle_template)를 z-셀로
+        // 변환해 rackLevels 에 합친다(중복 제거, 엔진 상한 8). DB 에 저장한 번들 패턴을 신규 라우팅에 직접 활용:
+        // 같은 유틸 새 배관이 사람이 설계한 공용 랙(트렁크) 고도에 뭉친다. 키 미스/미적재면 입력 그대로 반환.
+        private int[]? MergeBundleLevels(int[]? rackLevels, IReadOnlyList<int> rowPositions)
+        {
+            var s = _scene; if (s == null || _bundles == null) return rackLevels;
+            var g = s.Grid; double oz = g.Oz, cell = g.CellMm; if (cell <= 0) return rackLevels;
+
+            var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pos in rowPositions)
+                if (!string.IsNullOrEmpty(Tasks[pos].Utility)) utils.Add(Tasks[pos].Utility!);
+            if (utils.Count == 0) return rackLevels;
+
+            var zset = new HashSet<int>(rackLevels ?? System.Array.Empty<int>());
+            foreach (var u in utils)
+            {
+                var t = _bundles.TryGet(null, u);   // (owner 미상 → util 폴백) 유틸별 트렁크 고도.
+                if (t == null) continue;
+                foreach (var z in t.TrunkZs)
+                {
+                    int zk = (int)Math.Floor((z - oz) / cell);
+                    if (zk >= 0 && zk < g.Nz) zset.Add(zk);
+                }
+            }
+            return zset.Count > 0 ? zset.Take(8).ToArray() : rackLevels;
         }
 
         // 기존설계 패턴에서 학습된 진출/진입 면(예: EQUIP=-z, DUCT=+z)을 조회한다. 패턴 OFF/미적재/미스면 null.
@@ -1926,6 +2112,11 @@ namespace Routing3D.Viewer.ViewModels
             {
                 double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
+                // 그룹배관 강조 모드 — 탐지된 번들(route_bundle_group) 멤버를 그룹별 고유 색으로, 비멤버는 흐리게.
+                bool bundleHi = _showBundleGroups && _bundles != null && _bundles.GroupCount > 0;
+                var perGroup = new Dictionary<int, MeshBuilder>();        // group_id → 머지 메시(그룹 색).
+                var nonMemberMb = new MeshBuilder(false, false);          // 번들 미소속 기존배관(흐린 회색).
+                int nonMemberCnt = 0;
                 // 출발(빨강)·종단(파랑) 스텁 강조 — 학습 StubExtractor 로 잘라낸 수직+엘보 구간을 굵은 색 튜브로.
                 var startStubMb = new MeshBuilder(false, false);
                 var endStubMb = new MeshBuilder(false, false);
@@ -1938,21 +2129,33 @@ namespace Routing3D.Viewer.ViewModels
                     var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
                     if (uf != null && !uf.IsVisible) continue;   // 유틸 체크박스 필터 적용.
                     if (pipe.Points.Count < 2) continue;
-                    if (!perUtilEx.TryGetValue(label, out var mb))
+                    var pts = pipe.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
+                    // 실제 관경(외경) 사용. 너무 가늘면 안 보이므로 최소 8mm 로 클램프.
+                    double dia = pipe.DiameterMm > 0 ? Math.Max(pipe.DiameterMm, 8.0) : fallbackDia;
+                    // 머지 대상 선택: 그룹배관 강조면 그룹 멤버=그룹 메시 / 비멤버=흐린 메시, 아니면 유틸 색 메시.
+                    MeshBuilder mb;
+                    if (bundleHi)
+                    {
+                        int gid = _bundles!.GroupIdOf(pipe.RoutePathGuid);
+                        if (gid >= 0)
+                        {
+                            if (!perGroup.TryGetValue(gid, out mb)) { mb = new MeshBuilder(false, false); perGroup[gid] = mb; }
+                        }
+                        else { mb = nonMemberMb; nonMemberCnt++; }
+                    }
+                    else if (!perUtilEx.TryGetValue(label, out mb!))
                     {
                         mb = new MeshBuilder(false, false);
                         perUtilEx[label] = mb;
                     }
-                    var pts = pipe.Points.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList();
-                    // 실제 관경(외경) 사용. 너무 가늘면 안 보이므로 최소 8mm 로 클램프.
-                    double dia = pipe.DiameterMm > 0 ? Math.Max(pipe.DiameterMm, 8.0) : fallbackDia;
                     mb.AddTube(pts, dia, 10, false);
                     drawn++;
 
-                    // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 굵은 튜브로 강조.
+                    // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 튜브로 강조.
+                    // 굵기는 배관 관경과 동일하게(색만 다르게) 그린다 — 실제 배관 형상과 일치시킨다.
                     if (ShowStubs)
                     {
-                        double stubDia = Math.Max(dia * 1.8, grid.CellMm * 0.6);
+                        double stubDia = dia;
                         var (startStub, endStub) = StubExtractor.ForPipe(pipe);
                         if (startStub.Count >= 2)
                         {
@@ -1963,19 +2166,32 @@ namespace Routing3D.Viewer.ViewModels
                             endStubMb.AddTube(endStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
                     }
                 }
-                int totalEx = 0;
-                foreach (var kv in perUtilEx)
+                if (bundleHi)
                 {
-                    var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
-                    group.Children.Add(Geometry(kv.Value, color, 235));
-                    totalEx++;
-                }
-                if (drawn > 0)
+                    // 비멤버 기존배관은 흐린 회색으로(다발이 도드라지게).
+                    if (nonMemberCnt > 0) group.Children.Add(Geometry(nonMemberMb, Color.FromRgb(90, 100, 120), 90));
+                    foreach (var kv in perGroup.OrderBy(k => k.Key))
+                        group.Children.Add(Geometry(kv.Value, BundleGroupColor(kv.Key), 245));
                     Legend.Add(new LegendItem
                     {
-                        Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
-                        Label = $"기존 설계배관 {drawn}"
+                        Swatch = new SolidColorBrush(BundleGroupColor(0)),
+                        Label = $"그룹배관 {perGroup.Count}그룹 (멤버 {drawn - nonMemberCnt} · 비멤버 {nonMemberCnt})"
                     });
+                }
+                else
+                {
+                    foreach (var kv in perUtilEx)
+                    {
+                        var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
+                        group.Children.Add(Geometry(kv.Value, color, 235));
+                    }
+                    if (drawn > 0)
+                        Legend.Add(new LegendItem
+                        {
+                            Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
+                            Label = $"기존 설계배관 {drawn}"
+                        });
+                }
                 if (ShowStubs && stubDrawn > 0)
                 {
                     group.Children.Add(Geometry(startStubMb, Color.FromRgb(226, 48, 48), 255));   // 출발 스텁 = 빨강.

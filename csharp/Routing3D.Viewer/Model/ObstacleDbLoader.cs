@@ -112,7 +112,7 @@ namespace Routing3D.Viewer.Model
                 sourceFile = (string)v;
             }
 
-            var data = new SceneData();
+            var data = new SceneData { SourceFile = sourceFile };
 
             // ── 2) 장애물 로드 ────────────────────────────────────────────────────
             using (var cmd = new NpgsqlCommand(
@@ -321,6 +321,7 @@ namespace Routing3D.Viewer.Model
                     curGuid = g;
                     cur = new ExistingPipe
                     {
+                        RoutePathGuid = g,
                         Group = r.IsDBNull(1) ? null : r.GetString(1),
                         Utility = r.IsDBNull(2) ? null : r.GetString(2),
                         DiameterMm = r.IsDBNull(15) ? 0 : ParsePipeSizeMm(r.GetString(15)),

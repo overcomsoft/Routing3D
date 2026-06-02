@@ -47,19 +47,28 @@ namespace Routing3D.Viewer.Diagnostics
             sb.AppendLine($"기존설계 패턴: {(patterns == null ? (usePat ? "없음(기하 폴백)" : "OFF") : patterns.Count + "키")}"
                           + (patterns != null ? $" (검색증강 다중면 {patterns.AnnKeyCount}키)" : ""));
 
+            // 그룹배관 패턴(번들, L4) — R3D_BUNDLE=on 이면 DB(route_bundle_template)의 유틸별 트렁크 고도를
+            // rack_levels 로 주입(GUI UseBundlePattern 미러). 미적재면 폴백(무해).
+            bool useBundle = string.Equals(Environment.GetEnvironmentVariable("R3D_BUNDLE"), "on",
+                                           StringComparison.OrdinalIgnoreCase);
+            BundleStore? bundles = useBundle ? BundleStore.TryLoad(cfg, sd.SourceFile) : null;
+            sb.AppendLine($"그룹배관 패턴: {(bundles == null ? (useBundle ? "없음(미적재)" : "OFF") : bundles.Count + "키")}");
+
             sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 10, mode: "multi",
-                              "G route_multi +facilities+drop clearON(Implicit 온디맨드)", patterns));
+                              "G route_multi +facilities+drop clearON(Implicit 온디맨드)", patterns, bundles));
             return sb.ToString();
         }
 
         static string Try(SceneData sd, List<TaskInfo> rows, bool fac, bool drop,
                           double wClear, string mode, string label, PatternStore? patterns = null,
-                          int factor = 6, int radius = 2)
+                          BundleStore? bundles = null, int factor = 6, int radius = 2)
         {
             var g = sd.Grid;
             double cell = g.CellMm;
             int[]? rackLevels = null;   // L3a 랙 z-셀(측정에 재사용 위해 try 밖 선언).
             int stubMatched = 0;        // 스텁 라우팅으로 처리된 작업 수(매칭 배관 있는 것).
+            int corrCells = 0;          // 주입된 회랑 셀 수(번들/L2b). 0=회랑 미적용.
+            double wCorrUsed = 0;       // 적용된 w_corridor(셀당 회랑 밖 가산).
             Engine eng;
             try
             {
@@ -80,11 +89,20 @@ namespace Routing3D.Viewer.Diagnostics
                 bool useRack = string.Equals(Environment.GetEnvironmentVariable("R3D_RACK"), "on",
                                              StringComparison.OrdinalIgnoreCase);
                 rackLevels = BuildRackLevels(sd, rows);   // 항상 학습(집중도 지표에 재사용). 적용은 useRack 일 때만.
-                // 회랑은 cell*0.5(R3D_WCORR), 랙-단독은 부드러운 cell*0.2(GUI 와 동일). 동시 ON 이면 회랑 우선.
+                // 적용할 랙: 랙번들(L3a) 학습값 + 그룹배관 번들(L4) 유틸별 트렁크 고도 합집합.
+                int[]? appliedRack = useRack ? rackLevels : null;
+                if (bundles != null) appliedRack = MergeBundle(sd, rows, appliedRack, bundles);
+                bool hasRack = appliedRack != null && appliedRack.Length > 0;
+                // 번들 공용 트렁크 회랑(L4) — 같은 유틸 기존배관 전체를 공용 회랑으로(GUI BuildBundleCorridorCells 미러).
+                var bundleSet = bundles != null ? BuildBundleCorridor(sd, rows, corrRad, bundles) : null;
+                bool hasBundleCorr = bundleSet != null && bundleSet.Count > 0;
+                // 회랑(L2b/번들)=cell*0.5(설계추종), 랙-단독=부드러운 cell*0.2. L2b 와 번들 동시면 L2b(R3D_WCORR) 우선.
                 double wCorr = useCorr ? cell * wcMul
-                             : useRack ? cell * ParseEnv("R3D_WCORR", 0.2) : 0.0;
+                             : hasBundleCorr ? cell * 0.5
+                             : (useRack || hasRack) ? cell * ParseEnv("R3D_WCORR", 0.2) : 0.0;
+                wCorrUsed = wCorr;
                 eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad,
-                              rackLevels: useRack ? rackLevels : null, wHeur: wHeur);
+                              rackLevels: appliedRack, wHeur: wHeur);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -279,40 +297,43 @@ namespace Routing3D.Viewer.Diagnostics
                     eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
                 }
 
-                // 기존설계 회랑 시드(L2b) — 매칭 기존배관 폴리라인을 셀로 복셀화(±2)해 주입.
-                if (useCorr)
+                // 회랑 시드 주입(w_corridor>0 일 때 효력): L2b(매칭, useCorr) + 번들 공용 트렁크(bundles) 합집합.
+                if (useCorr || hasBundleCorr)
                 {
-                    var set = new HashSet<(int, int, int)>();
-                    foreach (var t in rows)
-                    {
-                        var pipe = MatchPipe(sd, t, cell);
-                        if (pipe == null || pipe.Points.Count < 2) continue;
-                        for (int i = 1; i < pipe.Points.Count; i++)
+                    var set = bundleSet != null ? new HashSet<(int, int, int)>(bundleSet)
+                                                : new HashSet<(int, int, int)>();
+                    if (useCorr)
+                        foreach (var t in rows)
                         {
-                            var a = pipe.Points[i - 1]; var b = pipe.Points[i];
-                            double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
-                            double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                            int steps = Math.Max(1, (int)(len / (cell * 0.5)));
-                            for (int sIdx = 0; sIdx <= steps; sIdx++)
+                            var pipe = MatchPipe(sd, t, cell);
+                            if (pipe == null || pipe.Points.Count < 2) continue;
+                            for (int i = 1; i < pipe.Points.Count; i++)
                             {
-                                double tt = (double)sIdx / steps;
-                                int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
-                                int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
-                                int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
-                                for (int di = -corrRad; di <= corrRad; di++)
-                                    for (int dj = -corrRad; dj <= corrRad; dj++)
-                                        for (int dk = -corrRad; dk <= corrRad; dk++)
-                                        {
-                                            int ii = ci + di, jj = cj + dj, kk = ck + dk;
-                                            if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
-                                            set.Add((ii, jj, kk));
-                                        }
+                                var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                                double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                                double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                                int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                                for (int sIdx = 0; sIdx <= steps; sIdx++)
+                                {
+                                    double tt = (double)sIdx / steps;
+                                    int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                                    int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                                    int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                                    for (int di = -corrRad; di <= corrRad; di++)
+                                        for (int dj = -corrRad; dj <= corrRad; dj++)
+                                            for (int dk = -corrRad; dk <= corrRad; dk++)
+                                            {
+                                                int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                                if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                                set.Add((ii, jj, kk));
+                                            }
+                                }
                             }
                         }
-                    }
                     var arr = new int[set.Count * 3]; int nn = 0;
                     foreach (var (i, j, k) in set) { arr[nn++] = i; arr[nn++] = j; arr[nn++] = k; }
                     eng.SetCorridorCells(arr);
+                    corrCells = set.Count;
                 }
             }
             catch (Exception ex) { return $"{label}: BUILD-EXCEPTION {ex.Message}"; }
@@ -352,13 +373,51 @@ namespace Routing3D.Viewer.Diagnostics
                 }
                 catch { }
             }
+            // 번들 밀집도 — 성공 경로 쌍에서 한 배관 셀이 다른 배관 셀 ±2 안에 드는 평균 비율(높을수록 다발).
+            // test_attract 의 near_frac 와 동일 개념. 배관 수가 많으면(>40) O(n²) 회피 위해 생략.
+            double nearPct = -1;
+            if (rows.Count >= 2 && rows.Count <= 40)
+            {
+                var paths = new List<HashSet<long>>();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    try { var r = eng.GetResult(i); if (r.Success && r.Path.Length > 0) {
+                        var hs = new HashSet<long>();
+                        foreach (var c in r.Path) hs.Add(((long)c.I << 40) ^ ((long)c.J << 20) ^ c.K);
+                        paths.Add(hs);
+                    } } catch { }
+                }
+                if (paths.Count >= 2)
+                {
+                    double sum = 0; int pairs = 0;
+                    for (int i = 0; i < paths.Count; i++)
+                        for (int j = 0; j < paths.Count; j++)
+                        {
+                            if (i == j) continue;
+                            int near = 0;
+                            foreach (var key in paths[i])
+                            {
+                                int ci = (int)((key >> 40) & 0xFFFFF), cj = (int)((key >> 20) & 0xFFFFF), ck = (int)(key & 0xFFFFF);
+                                bool hit = false;
+                                for (int di = -2; di <= 2 && !hit; di++)
+                                    for (int dj = -2; dj <= 2 && !hit; dj++)
+                                        if (paths[j].Contains(((long)(ci + di) << 40) ^ ((long)(cj + dj) << 20) ^ ck)) hit = true;
+                                if (hit) near++;
+                            }
+                            sum += paths[i].Count > 0 ? (double)near / paths[i].Count : 0; pairs++;
+                        }
+                    nearPct = pairs > 0 ? sum / pairs * 100.0 : -1;
+                }
+            }
             eng.Dispose();
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
             string rk = (rackSet != null && horizCells > 0)
                 ? $" rackZ={rackCells * 100.0 / horizCells:0.0}% (z셀 {string.Join(",", rackLevels!)})" : "";
             string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}";
+            string corr = corrCells > 0 ? $" corridor={corrCells}셀 wCorr={wCorrUsed:0}" : "";
+            string nr = nearPct >= 0 ? $" 번들밀집={nearPct:0.0}%" : "";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
@@ -403,6 +462,94 @@ namespace Routing3D.Viewer.Diagnostics
             if (picked.Count == 0) return null;
             var top = picked.OrderByDescending(kv => kv.Value).Take(8).Select(kv => kv.Key).ToArray();
             return top.Length > 0 ? top : null;
+        }
+
+        // 그룹배관 패턴(L4) — rows 의 유틸별 학습 트렁크 고도(route_bundle_template)를 z-셀로 변환해 rackLevels
+        // 에 합친다(GUI SceneViewModel.MergeBundleLevels 미러). 키 미스/미적재면 입력 그대로 반환.
+        static int[]? MergeBundle(SceneData sd, List<TaskInfo> rows, int[]? rackLevels, BundleStore bundles)
+        {
+            var g = sd.Grid; double oz = g.Oz, cell = g.CellMm; if (cell <= 0) return rackLevels;
+            var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in rows) if (!string.IsNullOrEmpty(t.Utility)) utils.Add(t.Utility!);
+            if (utils.Count == 0) return rackLevels;
+            var zset = new HashSet<int>(rackLevels ?? Array.Empty<int>());
+            foreach (var u in utils)
+            {
+                var t = bundles.TryGet(null, u);
+                if (t == null) continue;
+                foreach (var z in t.TrunkZs)
+                {
+                    int zk = (int)Math.Floor((z - oz) / cell);
+                    if (zk >= 0 && zk < g.Nz) zset.Add(zk);
+                }
+            }
+            return zset.Count > 0 ? zset.Take(8).ToArray() : rackLevels;
+        }
+
+        // 번들 공용 트렁크 회랑 + pitch 레인(L4) — 같은 유틸 기존배관의 '트렁크 고도 수평 런'(=평행 랙 레인)만
+        // 타이트하게 회랑으로 만든다(GUI SceneViewModel.BuildBundleCorridorCells 미러). 트렁크 미스면 전체 폴리라인
+        // 넓게 폴백(옵션1). 충돌회피가 새 배관을 인접 레인에 분산 → 등간격 다발 패킹.
+        static HashSet<(int, int, int)> BuildBundleCorridor(SceneData sd, List<TaskInfo> rows, int corrRad, BundleStore bundles)
+        {
+            var set = new HashSet<(int, int, int)>();
+            var g = sd.Grid; double cell = g.CellMm, oz = g.Oz;
+            if (sd.ExistingPipes.Count == 0) return set;
+            var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in rows) if (!string.IsNullOrEmpty(t.Utility)) utils.Add(t.Utility!);
+            if (utils.Count == 0) return set;
+
+            var trunkZ = new HashSet<int>();
+            foreach (var u in utils)
+            {
+                var t = bundles.TryGet(null, u); if (t == null) continue;
+                foreach (var z in t.TrunkZs)
+                {
+                    int zk = (int)Math.Floor((z - oz) / cell);
+                    if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
+                }
+            }
+            bool laneMode = trunkZ.Count > 0;
+            const double HorizTol = 0.34, MinRunMm = 800.0;
+            const int BandCells = 1, LaneDilate = 1;
+
+            foreach (var pipe in sd.ExistingPipes)
+            {
+                if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                    double horiz = Math.Sqrt(dx * dx + dy * dy);
+                    double len = Math.Sqrt(horiz * horiz + dz * dz);
+                    int dl = corrRad;
+                    if (laneMode)
+                    {
+                        if (horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz || len < MinRunMm) continue;
+                        int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
+                        bool nearTrunk = false;
+                        foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
+                        if (!nearTrunk) continue;
+                        dl = LaneDilate;
+                    }
+                    int steps = Math.Max(1, (int)(len / (cell * 0.5)));
+                    for (int sIdx = 0; sIdx <= steps; sIdx++)
+                    {
+                        double tt = (double)sIdx / steps;
+                        int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
+                        int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
+                        int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
+                        for (int di = -dl; di <= dl; di++)
+                            for (int dj = -dl; dj <= dl; dj++)
+                                for (int dk = -dl; dk <= dl; dk++)
+                                {
+                                    int ii = ci + di, jj = cj + dj, kk = ck + dk;
+                                    if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
+                                    set.Add((ii, jj, kk));
+                                }
+                    }
+                }
+            }
+            return set;
         }
 
         // 작업(TaskInfo) ↔ 기존 설계배관(TB_ROUTE_PATH) 매칭 — 양 끝 PoC 거리 합 최소(양방향), 임계 내. (GUI FindMatchingExistingPipe 미러)

@@ -178,6 +178,22 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 - **헤드리스 A/B**: `Routing3D.Viewer.exe --dbroute <proj> <cell> ALL <out>` + env `R3D_PATTERNS`/`R3D_SNAP`/`R3D_CORRIDOR`=off 로 각 단계 비교.
 - **남은 실패**(project6 c100 10건)는 expanded>0(경로 없음=혼잡/막힘)으로 rip-up/CBS 영역 — 패턴 범위 밖.
 - **개발계획 문서**: `docs/routing3d_pattern_learning_plan.{docx,pdf}`(생성기 `python_experiments/out/_gen_pattern_learning_plan.py`).
+- **스텁 추출 알고리즘 상세문서**: `docs/routing3d_stub_extraction.{docx,pdf}`(런압축→지터흡수→엘보탐지→점열절단 16장, Python↔C# 1:1, 생성기 `_gen_stub_extraction_algorithm.py`).
+
+### 그룹(번들) 배관 탐지·활용 L4 (pgvector, 2026-06-02)
+
+장비명·유틸리티별 기존배관 경로 **형태 유사도**로 '번들'(동일 이격간격으로 2회+ 수직/수평 꺾임 공유 평행 다발)을 탐지·저장하고, 신규 라우팅에 활용한다.
+
+| 단계 | 내용 | 산출물 |
+|---|---|---|
+| **탐지** | 3단계: ①특징(방향런 압축·Arrow R/H/D·꺾임수·리샘플 방향벡터·extent) ②복합유사도(형태30% Levenshtein + 방향30% 코사인 + 길이20% + 규모20%) ③(owner,util) pre-filter→Union-Find(임계0.70)→**번들게이트(꺾임≥2 + pitch CV≤0.30)**→트렁크z·다발폭·pitch | `routing3d_py/bundle_detect.py` · `db/schema/route_bundle_group.sql`(테이블+집계뷰 `route_bundle_template`) · `route_db.ExistingPipe.owner_name` 추가 |
+| **저장** | CLI `--project N\|--all --write-db\|--templates`. `--all`=DB 전체 순회 | **70프로젝트·353그룹·템플릿 275키 적재** |
+| **신규설계 활용(C#)** | `Model/BundleStore.cs`(템플릿+멤버 guid→group_id) + `UseBundlePattern` 토글. **MergeBundleLevels**(유틸 trunk_z→rack_levels) + **BuildBundleCorridorCells 레인모드**(트렁크고도 ±1셀 수평런만 타이트 회랑 → 충돌회피가 인접레인 분산) | `SceneData.SourceFile` · DbRouteDiag env `R3D_BUNDLE` |
+| **그룹배관 강조 표시** | 기존배관 중 번들 멤버를 **그룹별 고유색**(황금비 `BundleGroupColor`), 비멤버 흐리게. `ExistingPipe.RoutePathGuid`(member_guids 매칭) + `ShowBundleGroups` 토글 | UI 체크박스 '그룹배관 강조' |
+
+- **실측(project6 ALL c100)**: 전부 OFF 199·rackZ 17.3% → **스텁+번들 레인 207·rackZ 39.7%**(corridor 28k셀, 옵션1 broad 118k 대비 4배 타이트).
+- **핵심 한계**: cell(100) > pitch(~56mm) 면 인접 레인이 같은 셀로 뭉개져 물리적 패킹 불가 → **cell ≤ pitch/2(25~50mm) 필요**(cell=50 LPS rackZ 92%). route_multi(capi)는 이미 w_corridor>0 시 동적 자기번들링 + seed corridor 지원.
+- **개발계획 문서**: `docs/routing3d_bundle_detection_plan.md`.
 
 ### 실데이터 교차검증 (Python = C++ = C#)
 

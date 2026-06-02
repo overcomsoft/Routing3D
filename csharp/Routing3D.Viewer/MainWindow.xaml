@@ -225,6 +225,9 @@
                             <CheckBox Content="스텁"
                                       IsChecked="{Binding ShowStubs}" Margin="0,0,12,0"
                                       ToolTip="기존 설계배관의 출발(빨강)·종단(파랑) 스텁 = 수직배관 + 엘보(수직→수평 전환)를 굵은 색 튜브로 강조합니다. 학습 파이프라인과 동일 로직으로 잘라내 학습 스텁과 일치. 유틸리티 그룹/유틸을 선택하면 그 그룹의 기존배관 스텁만 보입니다."/>
+                            <CheckBox Content="{Binding BundleGroupStatus}"
+                                      IsChecked="{Binding ShowBundleGroups}" Margin="0,0,12,0"
+                                      ToolTip="그룹배관 강조 — 현재 로드된 기존배관 중 탐지된 번들(동일 이격간격으로 2회 이상 수직/수평 꺾임을 공유하는 평행 다발)을 '그룹별 고유 색'으로 표시하고, 번들에 속하지 않는 배관은 흐리게 그립니다. DB 적재 필요: python -m routing3d_py.bundle_detect --project N --write-db (또는 --all). 미적재면 비활성."/>
                             <CheckBox Content="충돌"
                                       IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"
                                       ToolTip="충돌 셀 (≥2 배관이 공유하는 셀, 빨간 큐브)"/>
@@ -267,6 +270,10 @@
                                       IsChecked="{Binding UseStubRouting}"
                                       Margin="0,0,12,0"
                                       ToolTip="스텁 라우팅 — 매칭되는 기존배관의 출발/종단 스텁(수직배관+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료합니다. 표시 경로 = 출발 스텁 + A* 중간 + 종단 스텁. 자동설계가 학습 스텁을 그대로 따라가게 합니다(PoC에서 재탐색하지 않음). 매칭 배관 없으면 PoC 직접 라우팅으로 폴백. 기본 ON."/>
+                            <CheckBox Content="{Binding BundleStatus}"
+                                      IsChecked="{Binding UseBundlePattern}"
+                                      Margin="0,0,12,0"
+                                      ToolTip="그룹배관 패턴(번들, L4) — 기존배관에서 장비·유틸리티별로 '동일 이격간격·2회 이상 수직/수평 꺾임'을 공유하는 번들을 탐지해 DB(route_bundle_template)에 저장한 대표 트렁크 고도를, 신규 라우팅 시 같은 유틸 새 배관의 공용 랙 고도(rack_levels)로 주입합니다. 같은 유틸 배관들이 학습된 공용 랙에 다발로 뭉칩니다. 적재: python -m routing3d_py.bundle_detect --project N --write-db. 미적재/키 미스면 자동 폴백. 기본 OFF."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>

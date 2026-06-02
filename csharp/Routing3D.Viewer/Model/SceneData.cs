@@ -93,6 +93,7 @@ namespace Routing3D.Viewer.Model
     public sealed class ExistingPipe
     {
         public List<Pt3> Points { get; } = new();   // PoC→종단 폴리라인(월드 mm, 순서대로).
+        public string? RoutePathGuid { get; set; }    // TB_ROUTE_PATH.ROUTE_PATH_GUID — 번들 그룹 member_guids 매칭 키.
         public string? Utility { get; set; }          // TB_ROUTE_PATH.SOURCE_UTILITY.
         public string? Group { get; set; }            // TB_ROUTE_PATH.UTILITY_GROUP.
         public double DiameterMm { get; set; }        // 대표 관경(mm). 0 이면 미상 → 렌더에서 기본값.
@@ -125,6 +126,7 @@ namespace Routing3D.Viewer.Model
         public List<EquipmentBox> Equipment { get; } = new();   // 장비 박스(시각화용). DB 로드 시에만.
         public List<DuctLateral> DuctsLaterals { get; } = new();   // 덕트/레터럴 박스(시각화용). DB 로드 시에만.
         public List<ExistingPipe> ExistingPipes { get; } = new();   // 기존 설계배관 폴리라인(시각화용). DB 로드 시에만.
+        public string SourceFile { get; set; } = string.Empty;      // 프로젝트 SOURCE_FILE(DB 로드 시). 번들 템플릿 조회 키.
         public string RawText { get; set; } = string.Empty;
     }
 }
