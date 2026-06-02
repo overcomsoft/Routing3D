@@ -40,6 +40,12 @@ struct AStarResult {
     std::vector<Cell> visited;
 };
 
+// 모든 셀을 허용하는 corridor 술어 — astar_weighted 의 기본값(전역 탐색, 제한 없음).
+// 기존 호출은 이 기본을 쓰므로 `if(!in_corridor(nb))` 가 항상 false → 컴파일러가 제거(코드/결과 불변).
+struct AllowAll {
+    bool operator()(const Cell&) const noexcept { return true; }
+};
+
 // 경로의 방향 전환 횟수(백엔드 무관). 헤더 인라인.
 inline int count_turns(const std::vector<Cell>& path) {
     if (path.size() < 3) return 0;
@@ -159,17 +165,20 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 // on_progress(expanded, progress01): 탐색 중 진행율 콜백(뷰어 진행 다이얼로그의 '처리상태 %').
 //   progress01 = 1 - h_min/h_start (목표까지 남은 최소 휴리스틱의 감소율, [0,0.99] 클램프).
 //   progress_every>0 이고 on_progress 가 유효하면 그 간격(확장 수)마다 호출. 결과/결정성에는 영향 없음.
-template <class Occ>
+template <class Occ, class InCorridor = AllowAll>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
                            long long max_expansions = -1, bool collect_visited = false,
                            const std::unordered_set<long long>* corridor = nullptr,
                            const std::function<void(long long, double)>* on_progress = nullptr,
-                           long long progress_every = 0) {
+                           long long progress_every = 0, InCorridor in_corridor = {}) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
 
     if (occ.is_blocked(start) || occ.is_blocked(goal)) { R.elapsed_ms = detail::ms_since(t0); return R; }
+    // corridor 술어(하드 제한) — start/goal 이 튜브 밖이면 즉시 실패(호출자가 무제한으로 폴백).
+    // 기본 AllowAll 이면 항상 true → 분기 제거(기존 동작·골든 결과 완전 불변).
+    if (!in_corridor(start) || !in_corridor(goal)) { R.elapsed_ms = detail::ms_since(t0); return R; }
     if (start == goal) {
         R.success = true; R.path = {start}; R.expanded_nodes = 1; R.elapsed_ms = detail::ms_since(t0);
         return R;
@@ -248,6 +257,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             const Cell& d = NEIGHBORS_6[static_cast<size_t>(nidx)];
             Cell nb{cur.cell.i + d.i, cur.cell.j + d.j, cur.cell.k + d.k};
             if (!occ.in_bounds(nb) || occ.is_blocked(nb)) continue;
+            if (!in_corridor(nb)) continue;   // 하드 corridor 제한(기본 AllowAll → 제거됨).
             long long ns = state_of(occ.lin(nb), nidx);
             if (closed.count(ns)) continue;
             double t = g_cur + model.move_cost(nb, prev_off, d);
