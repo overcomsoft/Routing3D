@@ -157,14 +157,15 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 
 ### 기존설계 패턴 학습 (pgvector, 2026-06-02)
 
-사람이 설계한 기존배관(TB_ROUTE_PATH)의 양 끝 '스텁'(장비 출발·덕트/레터럴 진입) 형상을 학습해 자동라우팅에 활용한다. 커밋 `e1adeb3`(L1/L2a/전처리) + `5eae5a8`(L2b). 엔진 골든 불변(회랑은 `w_corridor>0` 일 때만 동작).
+사람이 설계한 기존배관(TB_ROUTE_PATH)의 양 끝 '스텁'(장비 출발·덕트/레터럴 진입) 형상을 학습해 자동라우팅에 활용한다. 커밋 `e1adeb3`(L1/L2a/전처리) + `5eae5a8`(L2b) + **속도튜닝**(`weighted A* w_heur 1.5→2.0`). 엔진 골든 불변(회랑은 `w_corridor>0` 일 때만 동작).
 
-| 단계 | 내용 | 산출물 | 효과(project6 c100 ALL 208작업) |
+| 단계 | 내용 | 산출물 | 효과(project6 c100 ALL 208작업, **w_heur=2.0**) |
 |---|---|---|---|
 | **L1** | pgvector 학습 저장소 + Python 학습 파이프라인 | `db/schema/route_stub_pattern.sql`(feat `vector(24)`·dir_unit `vector(3)`·HNSW + 집계뷰 `route_stub_template`) · `routing3d_py/{route_db,pattern_learn,pattern_db}.py` | 405표본/38키, 도메인규칙 입증(EQUIP면=−z·DUCT면=+z), pytest 9/9 |
-| **L2a** | 학습면 PoC 투영(C#만, 엔진변경 0) | `Model/PatternStore.cs` + `SceneViewModel.LiftPocToSurface(preferFace)` | 185→187 · 23.6s→6.4s(헛탐색 0) |
-| **전처리** | 접근불가(파묻힌) PoC→최근접 자유셀 스냅 | `SceneViewModel.SnapPocToFreeCell`(학습면 행진+반경확장) | 187→194 |
-| **L2b** | 기존설계 회랑 소프트바이어스(옵트인) | C ABI `r3d_set_corridor_cells` + corridor 키 `long long` 확장 + `SceneViewModel.{UseDesignCorridor,BuildDesignCorridorCells}` | 194→198(설계추종, 46s) |
+| **L2a** | 학습면 PoC 투영(C#만, 엔진변경 0) | `Model/PatternStore.cs` + `SceneViewModel.LiftPocToSurface(preferFace)` | 기하 187 · 38s→23s(헛탐색 0) |
+| **전처리** | 접근불가(파묻힌) PoC→최근접 자유셀 스냅 | `SceneViewModel.SnapPocToFreeCell`(학습면 행진+반경확장) | 187→**199** · 23s→6.3s |
+| **L2b** | 기존설계 회랑 소프트바이어스(옵트인) | C ABI `r3d_set_corridor_cells` + corridor 키 `long long` 확장 + `SceneViewModel.{UseDesignCorridor,BuildDesignCorridorCells}` | 199(동일성공)·**설계추종**(totalLen↓)·6.4s |
+| **속도튜닝** | weighted A* `w_heur` 1.5→2.0 + 임계 5M→300k셀 | `SceneViewModel.BuildEngineForRows` · `DbRouteDiag`(env `R3D_WCORR/WHEUR/CORRRAD`) | **회랑 ON 47s→6.2s(7.6×)** · 198→199 · 기하 baseline 도 194→199 |
 
 - **학습/적재 CLI**: `python -m routing3d_py.pattern_learn --project N {--report|--write-db}` · 통계 `python -m routing3d_py.pattern_db --stats` · 스키마 `--apply-schema`.
 - **추론(C#)**: PoC가 속한 (장비·유틸)·(덕트·유틸) 키로 학습 면(EQUIP=−z·DUCT=+z 등) 조회 → 표면 투영 방향 결정. L2b는 매칭 기존배관(`FindMatchingExistingPipe`) 폴리라인을 회랑 셀로 주입.
@@ -254,7 +255,7 @@ C# 직교 A* + 동일 DB. UI 스타일·DB 흐름 참조용(직접 포팅 안 �
 
 ## 9. 다음 작업 후보
 
-- **패턴학습 L2b 속도 튜닝**: 기존설계 회랑 ON 이 ~7× 느림(`w_corridor` 페널티로 일부 배관 탐색량 급증, project6 c100 46s). `w_corridor` 값·회랑 폭 적응·회랑 밖 가중(ε)A* 결합으로 단축.
+- ~~**패턴학습 L2b 속도 튜닝**~~: **완료** — 회랑 페널티 비용장을 휴리스틱이 과소평가하던 게 병목. weighted A* `w_heur` 1.5→2.0 + weighted 임계 5M→300k셀로 **회랑 ON 47s→6.2s(7.6× 단축)**, 성공 198→199, 회랑 OFF baseline 도 194→199. 엔진 무변경(뷰어 파라미터). 잔여 9실패는 혼잡/막힘(아래 CBS).
 - **패턴학습 L3**: 유틸그룹 랙 번들링(학습 z레벨 → `rack_levels`) · 검색증강 라우팅(컨텍스트 임베딩 ANN, pgvector HNSW 본격 활용).
 - **정밀 셀 탐색량 최적화(10mm)**: sparse 저장(S1~S4)으로 메모리·오버플로는 해결됨 — 25mm 실용(유틸 단위 ~분), **10mm 는 셀 16배·탐색량 폭증으로 ~110s/배관·탐색상한(12M) 도달분 실패**(메모리 아님). 다음 계층 = **계층 corridor 강건화**(굵은 가이드→가는 튜브로 탐색을 튜브 부피에 한정, 종단점 최근접 스냅+튜브 적응폭) / 가중(ε)A* / 독립 배관 병렬화. ImplicitOccupancy 가 이미 corridor 백엔드로 적합.
 - ~~**접근불가 PoC 전처리**~~: **완료(P3j 전처리)** — 파묻힌 PoC를 학습면 행진+반경확장으로 최근접 자유셀 스냅(project6 c100 +7 복구). 남은 실패는 혼잡/막힘(아래 CBS 대상).
