@@ -211,9 +211,10 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 | `docs/routing3d_dev_report.{docx,pdf}` | 전체 + 단계별 개발보고서 (Phase 1~3 + 인터롭 5장 + 결론 6장) |
 | `docs/routing3d_regression_report.{docx,pdf}` | Step 3.12 회귀 리포트 (실측+기대치 비교) |
 | `docs/routing3d_pattern_learning_plan.{docx,pdf}` | **기존설계 패턴 학습 개발계획 + 구현현황·실측**(P3j) |
+| `docs/routing3d_stub_pattern.{docx,pdf}` | **스텁 패턴 기술 레퍼런스** — 출발/종단 스텁 프로세스·추출/특징 알고리즘·pgvector 데이터생성·자동설계 활용(L2a/L2b/L3a/L3b) |
 | `docs/csharp_helix_interop_design.md` | C ABI/뷰어 설계 + 로드맵 P0~P3j |
 | `docs/phase2_input_notes.md` | Phase 2 동결 입력 노트 |
-| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_gen_pattern_learning_plan.py` · `_docx_to_pdf.ps1` |
+| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_gen_pattern_learning_plan.py` · `_gen_stub_pattern_doc.py` · `_docx_to_pdf.ps1` |
 
 ---
 
