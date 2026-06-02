@@ -190,6 +190,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
+        private bool _showPocMarkers = true;        // 모든 작업의 시작 PoC(빨강)·종단 PoC(파랑) 마커(초기 표시).
         private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
         // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
         private PatternStore? _patterns;
@@ -340,6 +341,8 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowLaterals { get => _showLaterals; set { if (Set(ref _showLaterals, value)) RebuildIfReady(); } }
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
+        /// <summary>모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구) 마커 — 라우팅 전에도 초기 표시. 기본 ON.</summary>
+        public bool ShowPocMarkers { get => _showPocMarkers; set { if (Set(ref _showPocMarkers, value)) RebuildIfReady(); } }
 
         /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
@@ -1889,6 +1892,32 @@ namespace Routing3D.Viewer.ViewModels
                         Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
                         Label = $"기존 설계배관 {drawn}"
                     });
+            }
+
+            // PoC 마커 — 모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시.
+            //   유틸 체크박스 필터 + 좌측 선택 그룹을 동일 적용(경로/기존배관 레이어와 일관). 두 색을 머지 메시로.
+            if (ShowPocMarkers && Tasks.Count > 0)
+            {
+                double pocR = Math.Max(grid.CellMm * 0.9, 50);
+                var startMb = new MeshBuilder(false, false);
+                var endMb = new MeshBuilder(false, false);
+                int pocN = 0;
+                foreach (var row in Tasks)
+                {
+                    if (!string.IsNullOrEmpty(_selectedGroup) && GroupKey(row.Group) != _selectedGroup) continue;
+                    var uf = UtilityFilters.FirstOrDefault(u => u.Label == row.Label);
+                    if (uf != null && !uf.IsVisible) continue;
+                    startMb.AddSphere(new Point3D(row.Sx, row.Sy, row.Sz), pocR);
+                    endMb.AddSphere(new Point3D(row.Gx, row.Gy, row.Gz), pocR);
+                    pocN++;
+                }
+                if (pocN > 0)
+                {
+                    group.Children.Add(Geometry(startMb, Color.FromRgb(255, 45, 45), 235));    // 시작 PoC = 빨강.
+                    group.Children.Add(Geometry(endMb, Color.FromRgb(50, 120, 255), 235));     // 종단 PoC = 파랑.
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(255, 45, 45)), Label = $"시작 PoC {pocN}" });
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(50, 120, 255)), Label = $"종단 PoC {pocN}" });
+                }
             }
 
             // 방문맵 — 유틸리티별 색의 반투명 큐브 집합. 경로와 같은 색 규약.
