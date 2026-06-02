@@ -3,7 +3,7 @@
 이 파일은 다른 PC / 새 세션에서 프로젝트를 재개할 때 필요한 핵심 정보를 한곳에 모은 것이다.
 세부 사항은 git 이력과 `docs/`, `cpp/`, `csharp/`, `python_experiments/` 가 정답.
 
-> 마지막 갱신: 2026-05-30 · 단위 mm · 기본 셀 50mm
+> 마지막 갱신: 2026-06-02 · 단위 mm · 기본 셀 50mm
 
 ---
 
@@ -151,8 +151,27 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 | **P3g** | **워크플로 재설계** — 창 즉시 표시 + DB 비동기 로드(UI 비차단) · 프로젝트 선택 시 장애물만 표시 · 탐색 범위(모두/유틸그룹별/유틸별) 선택 실행 · 좌측 드릴다운(그룹→유틸→PoC) |
 | **P3h** | **DB 레이어 확장** — 장비(TB_BIM_EQUIPMENT) · 레터럴/덕트(TB_DUCT_LATERAL, CATEGORY별 토글) · 공간영역(TB_BIM_SPACE_INFO LEVEL_NAME, 와이어+라벨) · PoC 이름 로드 · 점유맵 원본/샘플 토글 · 객체 중앙 정렬 |
 | **P3i** | **탐색 시각화** — 선택 배관 단계별 A* 애니메이션(방문셀 확장순서) + 경로 꺾임 마커 + 우측 구간 단계 리스트(클릭 시 카메라 이동) |
+| **P3j** | **기존설계 패턴 학습(pgvector)** — 학습면 PoC 투영 + 접근불가 PoC 스냅 + 기존설계 회랑(L2b). 아래 별도 절 참조 |
 | P3b' | OpenVDB capi (선택, 보류) |
 | (보류) | DDW_AI_DB 전환 — 스키마 전면 재설계(로더 재작성 필요)로 보류, 현재 AUTOROUTINGV7 |
+
+### 기존설계 패턴 학습 (pgvector, 2026-06-02)
+
+사람이 설계한 기존배관(TB_ROUTE_PATH)의 양 끝 '스텁'(장비 출발·덕트/레터럴 진입) 형상을 학습해 자동라우팅에 활용한다. 커밋 `e1adeb3`(L1/L2a/전처리) + `5eae5a8`(L2b). 엔진 골든 불변(회랑은 `w_corridor>0` 일 때만 동작).
+
+| 단계 | 내용 | 산출물 | 효과(project6 c100 ALL 208작업) |
+|---|---|---|---|
+| **L1** | pgvector 학습 저장소 + Python 학습 파이프라인 | `db/schema/route_stub_pattern.sql`(feat `vector(24)`·dir_unit `vector(3)`·HNSW + 집계뷰 `route_stub_template`) · `routing3d_py/{route_db,pattern_learn,pattern_db}.py` | 405표본/38키, 도메인규칙 입증(EQUIP면=−z·DUCT면=+z), pytest 9/9 |
+| **L2a** | 학습면 PoC 투영(C#만, 엔진변경 0) | `Model/PatternStore.cs` + `SceneViewModel.LiftPocToSurface(preferFace)` | 185→187 · 23.6s→6.4s(헛탐색 0) |
+| **전처리** | 접근불가(파묻힌) PoC→최근접 자유셀 스냅 | `SceneViewModel.SnapPocToFreeCell`(학습면 행진+반경확장) | 187→194 |
+| **L2b** | 기존설계 회랑 소프트바이어스(옵트인) | C ABI `r3d_set_corridor_cells` + corridor 키 `long long` 확장 + `SceneViewModel.{UseDesignCorridor,BuildDesignCorridorCells}` | 194→198(설계추종, 46s) |
+
+- **학습/적재 CLI**: `python -m routing3d_py.pattern_learn --project N {--report|--write-db}` · 통계 `python -m routing3d_py.pattern_db --stats` · 스키마 `--apply-schema`.
+- **추론(C#)**: PoC가 속한 (장비·유틸)·(덕트·유틸) 키로 학습 면(EQUIP=−z·DUCT=+z 등) 조회 → 표면 투영 방향 결정. L2b는 매칭 기존배관(`FindMatchingExistingPipe`) 폴리라인을 회랑 셀로 주입.
+- **UI 토글**: '기존설계 패턴'(학습면, 기본 ON) · '기존설계 회랑(L2b)'(기본 OFF). 미적재/키 미스 시 기존 기하 규칙으로 자동 폴백(무해, 회귀 0).
+- **헤드리스 A/B**: `Routing3D.Viewer.exe --dbroute <proj> <cell> ALL <out>` + env `R3D_PATTERNS`/`R3D_SNAP`/`R3D_CORRIDOR`=off 로 각 단계 비교.
+- **남은 실패**(project6 c100 10건)는 expanded>0(경로 없음=혼잡/막힘)으로 rip-up/CBS 영역 — 패턴 범위 밖.
+- **개발계획 문서**: `docs/routing3d_pattern_learning_plan.{docx,pdf}`(생성기 `python_experiments/out/_gen_pattern_learning_plan.py`).
 
 ### 실데이터 교차검증 (Python = C++ = C#)
 
@@ -187,9 +206,10 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 | `docs/spec/algorithm_spec.md` + 4종 | Phase 2 동결 명세(불변식 포함) |
 | `docs/routing3d_dev_report.{docx,pdf}` | 전체 + 단계별 개발보고서 (Phase 1~3 + 인터롭 5장 + 결론 6장) |
 | `docs/routing3d_regression_report.{docx,pdf}` | Step 3.12 회귀 리포트 (실측+기대치 비교) |
-| `docs/csharp_helix_interop_design.md` | C ABI/뷰어 설계 + 로드맵 P0~P3i |
+| `docs/routing3d_pattern_learning_plan.{docx,pdf}` | **기존설계 패턴 학습 개발계획 + 구현현황·실측**(P3j) |
+| `docs/csharp_helix_interop_design.md` | C ABI/뷰어 설계 + 로드맵 P0~P3j |
 | `docs/phase2_input_notes.md` | Phase 2 동결 입력 노트 |
-| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_docx_to_pdf.ps1` |
+| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_gen_pattern_learning_plan.py` · `_docx_to_pdf.ps1` |
 
 ---
 
@@ -216,6 +236,10 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 | `TB_BIM_OBSTACLES` | 장애물 AABB | SOURCE_FILE, MIN/MAX_X/Y/Z (mm), OST_TYPE, NAME, OBJECT_ID, DDWORKS_TYPE |
 | `TB_BIM_EQUIPMENT` | 메인 장비 + PoC | SOURCE_FILE, IS_MAIN, EQ_ID, NAME, MIN/MAX_X/Y/Z, **POC_LIST (jsonb)** |
 | `TB_DUCT_LATERAL` | 종단 객체(시각화) | SOURCE_FILE, OBJECT_ID, NAME, UTILITY, MIN/MAX_X/Y/Z |
+| `TB_ROUTE_PATH` (+`_SEGMENTS`/`_SEGMENT_DETAIL`) | 기존 설계배관 폴리라인(패턴 학습 입력) | ROUTE_PATH_GUID, UTILITY_GROUP, SOURCE_UTILITY, SOURCE/TARGET_POS, SOURCE_OWNER_NAME/POS, SOURCE_SIZE |
+| `route_stub_pattern` (+뷰 `route_stub_template`) | **학습 스텁 패턴 저장소(pgvector, 우리가 생성)** | anchor_kind/utility/face/dir_seq/rise · `feat vector(24)`·`dir_unit vector(3)`·HNSW |
+
+확장: **pgvector / cube / postgis 설치됨**(2026-06-02 확인). 스키마 적용 `python -m routing3d_py.pattern_db --apply-schema`(소스 `db/schema/route_stub_pattern.sql`).
 
 **POC_LIST jsonb 구조**: 각 PoC = `{id, name, pocPosition:[x,y,z], utility, utilityGroup, isConnected, endPocs:[{endName, endType, endPocGuid, endInstanceGuid, endPocPosition:[x,y,z]}, …]}`.
 `connectedOnly=true`(기본) 면 `isConnected=true` 만 작업으로 만든다.
@@ -230,9 +254,11 @@ C# 직교 A* + 동일 DB. UI 스타일·DB 흐름 참조용(직접 포팅 안 �
 
 ## 9. 다음 작업 후보
 
+- **패턴학습 L2b 속도 튜닝**: 기존설계 회랑 ON 이 ~7× 느림(`w_corridor` 페널티로 일부 배관 탐색량 급증, project6 c100 46s). `w_corridor` 값·회랑 폭 적응·회랑 밖 가중(ε)A* 결합으로 단축.
+- **패턴학습 L3**: 유틸그룹 랙 번들링(학습 z레벨 → `rack_levels`) · 검색증강 라우팅(컨텍스트 임베딩 ANN, pgvector HNSW 본격 활용).
 - **정밀 셀 탐색량 최적화(10mm)**: sparse 저장(S1~S4)으로 메모리·오버플로는 해결됨 — 25mm 실용(유틸 단위 ~분), **10mm 는 셀 16배·탐색량 폭증으로 ~110s/배관·탐색상한(12M) 도달분 실패**(메모리 아님). 다음 계층 = **계층 corridor 강건화**(굵은 가이드→가는 튜브로 탐색을 튜브 부피에 한정, 종단점 최근접 스냅+튜브 적응폭) / 가중(ε)A* / 독립 배관 병렬화. ImplicitOccupancy 가 이미 corridor 백엔드로 적합.
-- **접근불가 PoC 전처리**: 종단 PoC가 장애물에 파묻혔을 때 스냅 반경 확장 / 표면 투사(rip-up으로는 구조상 해소 불가)
-- **negotiated-congestion / CBS**: 비용기반 충돌 회피 — rip-up 의 더 강력한 후속
+- ~~**접근불가 PoC 전처리**~~: **완료(P3j 전처리)** — 파묻힌 PoC를 학습면 행진+반경확장으로 최근접 자유셀 스냅(project6 c100 +7 복구). 남은 실패는 혼잡/막힘(아래 CBS 대상).
+- **negotiated-congestion / CBS**: 비용기반 충돌 회피 — rip-up 의 더 강력한 후속. project6 c100 잔여 10실패(expanded>0=경로 없음)가 이 대상.
 - **P3b' OpenVDB capi**: VDB 백엔드를 C ABI 로 노출 + 런타임 DLL 동봉 (Sparse로 목표 충족돼 보류 중)
 - **DDW_AI_DB 전환(보류)**: 새 DB는 스키마 전면 재설계(`TB_BIM_OBSTACLE`/`TB_EQUIPMENTS`/`TB_LATERAL_PIPE`/`TB_DUCT`, source_file 없음, POC 평행 텍스트 배열, 작업 생성이 장비 PoC↔lateral/duct 3-테이블 매칭). `ObstacleDbLoader`(C#)·Python `obstacle_db`/`scene` 재작성 필요. 현재는 AUTOROUTINGV7 사용.
 
@@ -246,29 +272,32 @@ Routing3D/
 ├── run.ps1                           # C++ 빌드+CLI 래퍼
 ├── README.md
 ├── .venv/                            # Python 환경
+├── db/schema/route_stub_pattern.sql       # ← pgvector 학습 저장소 스키마(P3j)
 ├── docs/
 │   ├── development_plan.md  phase{1,2,3}_plan.md  phase2_input_notes.md
 │   ├── spec/{algorithm,scene_format,regression_set,performance_targets,freeze_signoff}.md
 │   ├── csharp_helix_interop_design.md
-│   └── routing3d_{dev,regression}_report.{docx,pdf}
+│   └── routing3d_{dev,regression,pattern_learning_plan}.{docx,pdf}
 ├── python_experiments/
 │   ├── routing3d_py/{occupancy,astar,cost,multi_route,scene_io,obstacle_db,scene,viz,viz_scene}.py
-│   ├── tests/{test_*.py, scenarios/, scenario_runner.py}
+│   ├── routing3d_py/{route_db,pattern_learn,pattern_db}.py    # ← 패턴 학습(P3j)
+│   ├── tests/{test_*.py, test_pattern_learn.py, scenarios/, scenario_runner.py}
 │   ├── experiments/baseline_params.json
-│   └── out/{_gen_dev_report.py, _gen_regression_report.py, _gen_spec_docs.py, _docx_to_pdf.ps1}
+│   └── out/{_gen_dev_report.py, _gen_regression_report.py, _gen_spec_docs.py, _gen_pattern_learning_plan.py, _docx_to_pdf.ps1}
 ├── cpp/
 │   ├── CMakeLists.txt
-│   ├── include/routing3d/{geometry,occupancy,cost,astar,multi_route,corridor,scene_io,fcl_scene,route_task}.hpp
+│   ├── include/routing3d/{geometry,occupancy,box_index,cost,astar,multi_route,corridor,scene_io,fcl_scene,route_task}.hpp
 │   ├── cli/routing3d_cli.cpp                  → routing3d_cli.exe
 │   ├── bindings/bindings.cpp                  → routing3d_cpp.pyd
-│   ├── capi/routing3d_capi.{h,cpp}            → routing3d_capi.dll
-│   ├── tests/{test_golden, test_scene_io, test_occupancy, test_corridor, test_ripup, test_capi, test_vdb, test_fcl, test_bindings.py}
+│   ├── capi/routing3d_capi.{h,cpp}            → routing3d_capi.dll  (r3d_set_corridor_cells = L2b)
+│   ├── tests/{test_golden, test_scene_io, test_occupancy, test_corridor, test_implicit, test_ripup, test_attract, test_capi, test_vdb, test_fcl}
 │   └── build/                                 # gitignored
 └── csharp/Routing3D.Viewer/
     ├── Routing3D.Viewer.csproj                # net9.0-windows, x64, HelixToolkit.Wpf 2.24.0, Npgsql 8.0.4
-    ├── App.{xaml,.xaml.cs}                    # OnStartup: --selftest / scene.txt 인자 / DB 자동
-    ├── MainWindow.{xaml,.xaml.cs}             # SpaceAI 다크 3-컬럼
+    ├── App.{xaml,.xaml.cs}                    # OnStartup: --selftest / --dbroute / scene.txt 인자 / DB 자동
+    ├── MainWindow.{xaml,.xaml.cs}             # SpaceAI 다크 3-컬럼 (패턴/회랑 토글)
     ├── Interop/{Native, R3dEngineHandle, Engine}.cs
-    ├── Model/{SceneData, SceneTextParser, UtilityColors, CollisionFinder, ObstacleDbLoader}.cs
+    ├── Model/{SceneData, SceneTextParser, UtilityColors, CollisionFinder, ObstacleDbLoader, PatternStore}.cs
+    ├── Diagnostics/DbRouteDiag.cs             # 헤드리스 라우팅 진단(--dbroute, A/B env)
     └── ViewModels/{SceneViewModel, TaskRowVM, UtilityFilterVM, ObservableObject, RelayCommand}.cs
 ```
