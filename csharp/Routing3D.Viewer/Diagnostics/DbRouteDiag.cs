@@ -66,8 +66,15 @@ namespace Routing3D.Viewer.Diagnostics
                 // 기존설계 회랑(L2b) — R3D_CORRIDOR=on 이면 회랑 밖 가산(GUI UseDesignCorridor 와 동일).
                 bool useCorr = string.Equals(Environment.GetEnvironmentVariable("R3D_CORRIDOR"), "on",
                                              StringComparison.OrdinalIgnoreCase);
-                double wCorr = useCorr ? cell * 0.5 : 0.0;
-                eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: 2, wHeur: 1.5);
+                // L2b 속도 튜닝 노브(헤드리스 A/B). 미설정이면 기존 기본값(0.5 / 1.5 / 2).
+                //   R3D_WCORR  = 회랑 밖 가산 = cell × 이 배수 (작을수록 탐색 폭 축소·설계추종 약화)
+                //   R3D_WHEUR  = weighted A* 휴리스틱 가중(클수록 목표지향·확장 급감·약간 비최적)
+                //   R3D_CORRRAD= 회랑 팽창 반경(셀, 튜브 폭). 넓을수록 경로가 회랑 안에 머물러 가산 회피.
+                double wcMul = ParseEnv("R3D_WCORR", 0.5);
+                double wHeur = ParseEnv("R3D_WHEUR", 2.0);   // L2b 속도튜닝: 1.5→2.0(회랑 47s→6.3s, +1성공)
+                int corrRad = (int)ParseEnv("R3D_CORRRAD", 2);
+                double wCorr = useCorr ? cell * wcMul : 0.0;
+                eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad, wHeur: wHeur);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -236,9 +243,9 @@ namespace Routing3D.Viewer.Diagnostics
                                 int ci = (int)Math.Floor((a.X + dx * tt - g.Ox) / cell);
                                 int cj = (int)Math.Floor((a.Y + dy * tt - g.Oy) / cell);
                                 int ck = (int)Math.Floor((a.Z + dz * tt - g.Oz) / cell);
-                                for (int di = -2; di <= 2; di++)
-                                    for (int dj = -2; dj <= 2; dj++)
-                                        for (int dk = -2; dk <= 2; dk++)
+                                for (int di = -corrRad; di <= corrRad; di++)
+                                    for (int dj = -corrRad; dj <= corrRad; dj++)
+                                        for (int dk = -corrRad; dk <= corrRad; dk++)
                                         {
                                             int ii = ci + di, jj = cj + dj, kk = ck + dk;
                                             if (ii < 0 || jj < 0 || kk < 0 || ii >= g.Nx || jj >= g.Ny || kk >= g.Nz) continue;
@@ -302,6 +309,14 @@ namespace Routing3D.Viewer.Diagnostics
         {
             double dx = x - p.X, dy = y - p.Y, dz = z - p.Z;
             return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 환경변수를 double 로 파싱(미설정/형식오류면 기본값). L2b 속도 튜닝 노브용.
+        static double ParseEnv(string name, double dflt)
+        {
+            var v = Environment.GetEnvironmentVariable(name);
+            return double.TryParse(v, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : dflt;
         }
     }
 }

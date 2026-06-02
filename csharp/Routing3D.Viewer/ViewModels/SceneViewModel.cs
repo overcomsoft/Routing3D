@@ -933,11 +933,18 @@ namespace Routing3D.Viewer.ViewModels
             // ~520MB BFS) 없이 저렴하게 계산. 따라서 더는 대형 격자에서 클리어런스를 끄지 않는다(품질 유지).
             // 대형 격자는 weighted A*(w_heur=1.5) — 솔리드 설비/덕트를 우회하는 어려운 경로를 탐색상한(12M)
             // 내에 찾도록 목표 지향 탐색(약간 비최적 허용). 작은 격자(데모 등)는 표준 A*(1.0, 최적).
-            bool bigGrid = (long)g.Nx * g.Ny * g.Nz > 5_000_000;
+            // weighted A* — 실데이터처럼 솔리드 설비/덕트가 많은 혼잡 격자는 목표지향 탐색(w_heur=2.0)으로
+            // 어려운 우회 경로를 탐색상한(12M) 내에 빠르게 찾는다(약간 비최적 허용). 측정(project6 c100,
+            // 1.39M셀·208작업): w_heur 1.5→2.0 으로 회랑 OFF 194→199, 회랑 ON 47s→6.3s(약 7.5× 단축, +1).
+            // 임계를 5M→300k 로 낮춰 실데이터 격자가 weighted A* 를 받게 한다(이전엔 1.39M<5M 라 1.0 였음).
+            // 작은 데모 격자(<300k셀)는 표준 A*(1.0, 최적). 골든 정확도는 C++ ctest 가 별도 검증(이 경로 무관).
+            bool weighted = (long)g.Nx * g.Ny * g.Nz > 300_000;
+            double wHeur = weighted ? 2.0 : 1.0;
             // 기존설계 회랑(L2b) ON 이면 회랑 밖 셀당 가산(=½칸 비용)으로 부드럽게 설계 경로를 유도.
+            // w_heur=2.0 이 회랑 비용장을 휴리스틱에 반영해 탐색 폭을 억제 → L2b 가 OFF 와 거의 동일 속도로
+            // 동작(이전 ~47s 폭증의 원인 해소). corridor_radius=2 는 회랑 튜브 폭(±2셀).
             double wCorr = _useDesignCorridor ? g.CellMm * 0.5 : 0.0;
-            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
-                              wHeur: bigGrid ? 1.5 : 1.0);
+            _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2, wHeur: wHeur);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
