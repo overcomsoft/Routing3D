@@ -192,6 +192,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showPocMarkers = true;        // 모든 작업의 시작 PoC(빨강)·종단 PoC(파랑) 마커(초기 표시).
         private bool _showStubs = true;             // 기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직+엘보) 강조.
         private bool _showBundleGroups;             // 그룹배관 강조 — 탐지 번들(route_bundle_group) 멤버를 그룹별 색으로.
+        private bool _showBundlePattern;            // 그룹배관 패턴 표시 — 학습된 유틸별 공용 트렁크 레인(L4)을 반투명 큐브로.
         private readonly bool _includeFacilities = true;  // 충돌확장: 설비·덕트·레터럴 + 기설계 배관을 장애물로. 항상 ON 고정(readonly).
         // 기존설계 패턴(pgvector) — 학습된 진출/진입 면으로 시작/종단 PoC 를 투영(L2a). null=미적재(기하 폴백).
         private PatternStore? _patterns;
@@ -378,6 +379,21 @@ namespace Routing3D.Viewer.ViewModels
             !_showBundleGroups ? "그룹배관 강조: OFF"
             : _bundles == null || _bundles.GroupCount == 0 ? "그룹배관 강조: 없음(미적재)"
             : $"그룹배관 강조: {_bundles.GroupCount}그룹";
+
+        /// <summary>그룹배관 패턴 표시 — 기존설계에서 학습한 유틸별 '공용 트렁크 레인'(L4, route_bundle_template)을
+        /// 메인/미니 3D 에 보라색 반투명 큐브로 그린다. 신규 라우팅이 이 레인을 따라 다발로 뭉친다(라우팅에 주입하는
+        /// 회랑 셀 = BuildBundleCorridorCells 와 동일). 드릴다운(그룹/유틸 선택) 시 그 부분집합만. 미적재면 비활성. 기본 OFF.</summary>
+        public bool ShowBundlePattern
+        {
+            get => _showBundlePattern;
+            set { if (Set(ref _showBundlePattern, value)) { OnChanged(nameof(BundlePatternStatus)); RebuildIfReady(); } }
+        }
+
+        /// <summary>그룹배관 패턴 표시 상태(UI 라벨).</summary>
+        public string BundlePatternStatus =>
+            !_showBundlePattern ? "그룹배관 패턴 표시: OFF"
+            : _bundles == null ? "그룹배관 패턴 표시: 없음(미적재)"
+            : $"그룹배관 패턴 표시: {_bundles.Count}키";
 
         /// <summary>충돌확장 — 라우팅 시 설비(메인 장비 포함)·덕트·레터럴 + 이미 설계된(라우팅 성공) 다른
         /// 배관의 경로를 장애물로 추가해 충돌을 피한다. <b>항상 ON 고정(표준 라우팅 동작, 토글 잠금)</b> —
@@ -2057,6 +2073,29 @@ namespace Routing3D.Viewer.ViewModels
                 }
             }
 
+            // ①'' 그룹배관 패턴(토글) — 기존설계에서 학습한 유틸별 '공용 트렁크 레인'(L4)을 보라색 반투명 큐브로.
+            //    이 셀들이 곧 신규 라우팅에 주입되는 회랑(BuildBundleCorridorCells)이라, 자동경로가 이 레인을
+            //    따라 다발로 뭉치는 걸 미리 볼 수 있다. 드릴다운(그룹/유틸 선택) 시 그 부분집합 유틸만 표시.
+            if (ShowBundlePattern && _bundles != null)
+            {
+                var scopeRows = PatternScopeRows();
+                var laneCells = BuildBundleCorridorCells(scopeRows, 2);   // 유틸별 트렁크 레인 셀(병합 ijk).
+                int shown = AddBundlePatternVoxels(group, grid, laneCells, 115, 120_000);
+                if (shown > 0)
+                {
+                    var trunkZ = (MergeBundleLevels(null, scopeRows) ?? System.Array.Empty<int>())
+                                 .Distinct().OrderBy(z => z).ToList();
+                    int laneTotal = laneCells.Length / 3;
+                    string tz = trunkZ.Count > 0 ? $" · 트렁크 z셀 {string.Join(",", trunkZ)}" : "";
+                    string ds = shown < laneTotal ? $"/{laneTotal:N0} 다운샘플" : "";
+                    Legend.Add(new LegendItem
+                    {
+                        Swatch = new SolidColorBrush(Color.FromArgb(170, BundlePatternColor.R, BundlePatternColor.G, BundlePatternColor.B)),
+                        Label = $"그룹배관 패턴 레인 {shown:N0}{ds}셀{tz}"
+                    });
+                }
+            }
+
             // ② 경로 — 유틸리티별 색 튜브 + 시작/끝 구. (충돌 계산용으로 경로는 항상 수집)
             // 단계별 탐색 애니메이션 중에는 최종 경로를 숨겨 탐색 과정만 보이게 한다(_hidePathsForAnim).
             bool drawPaths = ShowPaths && !_hidePathsForAnim;
@@ -2324,6 +2363,39 @@ namespace Routing3D.Viewer.ViewModels
 
         private static Point3D CellToWorld(GridMeta g, PathCell c) =>
             new(g.Ox + (c.I + 0.5) * g.CellMm, g.Oy + (c.J + 0.5) * g.CellMm, g.Oz + (c.K + 0.5) * g.CellMm);
+
+        // 그룹배관 패턴(L4) 시각화 — 공용 색(보라). 점유(청회)·경로(파랑)·방문(노랑)·충돌(적색)과 구별된다.
+        private static readonly Color BundlePatternColor = Color.FromRgb(190, 120, 235);
+
+        // 그룹배관 패턴 표시 범위 — 좌측 드릴다운(그룹/유틸 선택) 시 그 부분집합만, 미선택 시 전체 작업.
+        // (메인 뷰는 선택된 그룹의 패턴만 보여줘 혼잡을 줄인다. 미니 뷰는 단일 배관 유틸로 별도 호출.)
+        private List<int> PatternScopeRows()
+        {
+            if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
+                return RowsWhere(t => GroupKey(t.Group) == _selectedGroup && UtilityKey(t.Utility) == _selectedUtility);
+            if (!string.IsNullOrEmpty(_selectedGroup))
+                return RowsWhere(t => GroupKey(t.Group) == _selectedGroup);
+            return AllRows();
+        }
+
+        // 그룹배관 패턴 레인 셀(평탄 ijk)을 반투명 큐브로 그린다(셀 0.6변 — 점유보다 작게, 레인이 비치게).
+        // 상한 초과 시 균등 다운샘플. 반환: 실제 표시한 셀 수.
+        private static int AddBundlePatternVoxels(Model3DGroup group, GridMeta g, int[] ijk, byte alpha, int cap)
+        {
+            int total = ijk.Length / 3;
+            if (total == 0) return 0;
+            int take = Math.Min(cap, total);
+            double stride = (double)total / take;
+            double s = g.CellMm * 0.6;
+            var mb = new MeshBuilder(false, false);
+            for (int n = 0; n < take; n++)
+            {
+                int idx = (int)(n * stride) * 3;
+                mb.AddBox(CellToWorld(g, new PathCell(ijk[idx], ijk[idx + 1], ijk[idx + 2])), s, s, s);
+            }
+            group.Children.Add(Geometry(mb, BundlePatternColor, alpha));
+            return take;
+        }
 
         // 라이브 오버레이 초기화(배치 라우팅 시작 시). UI 스레드에서 호출.
         private void ResetLiveRoute()
@@ -2840,7 +2912,7 @@ namespace Routing3D.Viewer.ViewModels
         // 표 행 클릭 시 그 배관(taskIndex)의 로컬 영역만 미니 3D 로 합성하고 결과 설명을 만든다.
         // SceneModel 과 독립(자체 Model3DGroup) — 다이얼로그 미니 뷰포트에 표시. 라우팅 완료 후
         // TaskRowVM 에 경로/방문이 캐시(CacheResults)돼 있으므로 그 데이터를 쓴다.
-        // layers = [복셀맵, 점유맵, 방문맵, 최종경로].
+        // layers = [복셀맵, 점유맵, 방문맵, 최종경로, 그룹배관패턴].
         public Routing3D.Viewer.Views.PipeDetail BuildPipeDetail(int taskIndex, bool[] layers)
         {
             var group = new Model3DGroup();
@@ -2852,6 +2924,7 @@ namespace Routing3D.Viewer.ViewModels
             bool oOn = layers.Length > 1 && layers[1];
             bool vOn = layers.Length > 2 && layers[2];
             bool pOn = layers.Length > 3 && layers[3];
+            bool patOn = layers.Length > 4 && layers[4];
 
             // 전체 격자(도메인) 기준으로 표시한다 — 메인 뷰/실제 BIM 처럼 '모든 셀'을 대상으로 그려,
             // 배관을 전체 장애물 맥락 안에서 본다(이전엔 배관 로컬 BBOX 로 잘라 부분 슬래브만 보여 혼동).
@@ -2863,6 +2936,9 @@ namespace Routing3D.Viewer.ViewModels
             // 색상 규약: 복셀맵=회색 선형 틀 · 점유맵=적색 · 방문맵=노랑 · 최종경로=파랑(꺾임 셀=녹색).
             if (gOn) AddBoxFrame(group, dlo, dhi, Color.FromRgb(150, 152, 160), Math.Max(grid.CellMm * 0.12, 8), 200);
             if (oOn) AddFullOccupancy(group, grid);
+            // 그룹배관 패턴(보라) — 이 배관 유틸의 학습 트렁크 레인(L4). 방문/경로보다 먼저 그려 뒤에 깔리게.
+            if (patOn && _bundles != null)
+                AddBundlePatternVoxels(group, grid, BuildBundleCorridorCells(new List<int> { taskIndex }, 2), 110, 120_000);
             if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited);
             if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row);
 
@@ -3021,6 +3097,7 @@ namespace Routing3D.Viewer.ViewModels
             sb.AppendLine("─ 색상 ─");
             sb.AppendLine("복셀맵=회색 틀 · 점유맵=적색");
             sb.AppendLine("방문맵=노랑 · 경로=파랑(꺾임=녹색)");
+            sb.AppendLine("그룹배관패턴=보라(공용 트렁크 레인)");
             return sb.ToString();
         }
     }

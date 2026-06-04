@@ -265,6 +265,9 @@
                             <CheckBox Content="{Binding BundleGroupStatus}"
                                       IsChecked="{Binding ShowBundleGroups}" Margin="0,0,12,0"
                                       ToolTip="그룹배관 강조 — 탐지된 번들(동일 이격간격·2회 이상 꺾임 평행 다발)을 그룹별 고유 색으로, 비멤버는 흐리게. DB 적재 필요: python -m routing3d_py.bundle_detect --project N --write-db. 미적재면 비활성."/>
+                            <CheckBox Content="{Binding BundlePatternStatus}"
+                                      IsChecked="{Binding ShowBundlePattern}" Margin="0,0,12,0"
+                                      ToolTip="그룹배관 패턴 표시 — 기존설계에서 학습한 유틸별 '공용 트렁크 레인'(L4)을 보라색 반투명 큐브로 메인 3D 에 그립니다. 이 셀들이 곧 자동 라우팅에 주입되는 회랑이라, 새 경로가 어떤 레인을 따라 다발로 뭉칠지 미리 보입니다. 좌측에서 그룹/유틸을 선택하면 그 부분집합 패턴만. DB 적재 필요(bundle_detect --write-db). 미적재면 비활성."/>
 
                             <Border Width="1" Background="#404a64" Margin="2,1,12,1"/>
                             <!-- ───── 라우팅: 경로 결과를 바꾸는 옵션 ───── -->

@@ -104,6 +104,8 @@
                                           ToolTip="이 배관 라우팅 중 A* 가 확장한 방문 셀 — 노란색 반투명 큐브. 실패 시 어디서 막혔는지 보임"/>
                                 <CheckBox Content="최종경로" IsChecked="{Binding ShowPathLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
                                           ToolTip="경로 튜브 + 경로 구성 셀(파랑, 꺾임 셀=녹색) + 시작(빨강)/종단(파랑) 마커 + 스텁"/>
+                                <CheckBox Content="그룹배관패턴" IsChecked="{Binding ShowPatternLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          ToolTip="이 배관 유틸리티의 학습된 공용 트렁크 레인(L4, 기존설계 그룹배관 패턴) — 보라색 반투명 큐브. 자동경로가 이 레인을 따라 다발로 뭉칩니다. 미적재면 빈 표시."/>
                                 <Button Content="↺ 전체보기" Click="OnMiniFit" Padding="8,2" MinWidth="0"
                                         ToolTip="미니 3D 뷰를 이 배관이 들어오도록 자동 줌"/>
                                 <Button Content="🖼 저장" Click="OnSaveMiniImage" Padding="8,2" MinWidth="0" Margin="6,0,0,0"
