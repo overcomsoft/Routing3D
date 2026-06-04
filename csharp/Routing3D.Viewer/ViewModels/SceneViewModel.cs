@@ -2265,7 +2265,10 @@ namespace Routing3D.Viewer.ViewModels
             {
                 var scopeRows = PatternScopeRows();
                 var laneCells = BuildBundleCorridorCells(scopeRows, 2);   // 유틸별 트렁크 레인 셀(병합 ijk).
-                int shown = AddBundlePatternVoxels(group, grid, laneCells, 115, 120_000);
+                // 큐브 변 = 실제 관경×1.35(배관보다 살짝 크게) — 관경 미상이면 셀×0.9 폴백.
+                double patDia = RepresentativePipeDia(scopeRows);
+                double patCube = patDia > 0 ? patDia * 1.35 : grid.CellMm * 0.9;
+                int shown = AddBundlePatternVoxels(group, grid, laneCells, patCube, 95, 120_000);
                 if (shown > 0)
                 {
                     var trunkZ = (MergeBundleLevels(null, scopeRows) ?? System.Array.Empty<int>())
@@ -2430,10 +2433,11 @@ namespace Routing3D.Viewer.ViewModels
                     drawn++;
 
                     // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 튜브로 강조.
-                    // 굵기는 배관 관경과 동일하게(색만 다르게) 그린다 — 실제 배관 형상과 일치시킨다.
+                    // 실제 관경보다 살짝 굵게(×1.35) + 반투명으로 그린다 → 실제 배관(원색·불투명)을 감싸는
+                    // 투명 셸로 보여, 스텁 강조와 배관 본체가 동시에 보인다.
                     if (ShowStubs)
                     {
-                        double stubDia = dia;
+                        double stubDia = dia * 1.35;
                         var (startStub, endStub) = StubExtractor.ForPipe(pipe);
                         if (startStub.Count >= 2)
                         {
@@ -2473,8 +2477,8 @@ namespace Routing3D.Viewer.ViewModels
                 }
                 if (ShowStubs && stubDrawn > 0)
                 {
-                    group.Children.Add(Geometry(startStubMb, Color.FromRgb(226, 48, 48), 255));   // 출발 스텁 = 빨강.
-                    group.Children.Add(Geometry(endStubMb, Color.FromRgb(48, 112, 255), 255));    // 종단 스텁 = 파랑.
+                    group.Children.Add(Geometry(startStubMb, Color.FromRgb(226, 48, 48), 120));   // 출발 스텁 = 빨강(반투명 셸).
+                    group.Children.Add(Geometry(endStubMb, Color.FromRgb(48, 112, 255), 120));    // 종단 스텁 = 파랑(반투명 셸).
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(226, 48, 48)), Label = $"출발 스텁 {stubDrawn}" });
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(48, 112, 255)), Label = "종단 스텁" });
                 }
@@ -2563,15 +2567,30 @@ namespace Routing3D.Viewer.ViewModels
             return AllRows();
         }
 
-        // 그룹배관 패턴 레인 셀(평탄 ijk)을 반투명 큐브로 그린다(셀 0.6변 — 점유보다 작게, 레인이 비치게).
-        // 상한 초과 시 균등 다운샘플. 반환: 실제 표시한 셀 수.
-        private static int AddBundlePatternVoxels(Model3DGroup group, GridMeta g, int[] ijk, byte alpha, int cap)
+        // 범위 행들의 유틸리티에 해당하는 기존배관 관경의 중앙값(mm). 패턴/표시를 '실제 관경 기준'으로
+        //   잡는 데 쓴다. 관경 정보가 없으면 0(호출자가 셀 기반 기본값으로 폴백).
+        private double RepresentativePipeDia(IReadOnlyList<int> rows)
+        {
+            var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return 0;
+            var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pos in rows) if (!string.IsNullOrEmpty(Tasks[pos].Utility)) utils.Add(Tasks[pos].Utility!);
+            var dias = new List<double>();
+            foreach (var p in s.ExistingPipes)
+                if (p.DiameterMm > 0 && p.Utility != null && utils.Contains(p.Utility)) dias.Add(p.DiameterMm);
+            if (dias.Count == 0) return 0;
+            dias.Sort();
+            return dias[dias.Count / 2];
+        }
+
+        // 그룹배관 패턴 레인 셀(평탄 ijk)을 반투명 큐브로 그린다. cubeMm = 큐브 변(실제 관경보다 살짝 크게
+        // 잡아 레인이 배관을 감싸는 투명 셸로 보이게). 상한 초과 시 균등 다운샘플. 반환: 실제 표시한 셀 수.
+        private static int AddBundlePatternVoxels(Model3DGroup group, GridMeta g, int[] ijk, double cubeMm, byte alpha, int cap)
         {
             int total = ijk.Length / 3;
             if (total == 0) return 0;
             int take = Math.Min(cap, total);
             double stride = (double)total / take;
-            double s = g.CellMm * 0.6;
+            double s = cubeMm > 0 ? cubeMm : g.CellMm * 0.6;
             var mb = new MeshBuilder(false, false);
             for (int n = 0; n < take; n++)
             {
@@ -3122,8 +3141,12 @@ namespace Routing3D.Viewer.ViewModels
             if (gOn) AddBoxFrame(group, dlo, dhi, Color.FromRgb(150, 152, 160), Math.Max(grid.CellMm * 0.12, 8), 200);
             if (oOn) AddFullOccupancy(group, grid);
             // 그룹배관 패턴(보라) — 이 배관 유틸의 학습 트렁크 레인(L4). 방문/경로보다 먼저 그려 뒤에 깔리게.
+            //   큐브 변 = 이 배관 실제 관경×1.35(배관보다 살짝 크게·반투명) — 관경 미상이면 셀×0.9.
             if (patOn && _bundles != null)
-                AddBundlePatternVoxels(group, grid, BuildBundleCorridorCells(new List<int> { taskIndex }, 2), 110, 120_000);
+            {
+                double patCube = row.DiameterMm > 0 ? row.DiameterMm * 1.35 : grid.CellMm * 0.9;
+                AddBundlePatternVoxels(group, grid, BuildBundleCorridorCells(new List<int> { taskIndex }, 2), patCube, 95, 120_000);
+            }
             if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited);
             if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row);
 
