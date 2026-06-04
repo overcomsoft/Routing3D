@@ -1,10 +1,13 @@
 <Window x:Class="Routing3D.Viewer.Views.RoutingProgressWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="라우팅 진행 상황" Width="1120" Height="600"
+        xmlns:h="http://helix-toolkit.org/wpf"
+        Title="라우팅 진행 상황" Width="1200" Height="820"
         Background="#1e2230" WindowStartupLocation="CenterOwner">
     <!-- 라우팅 처리 순서·그룹/유틸·시작/종단 PoC·처리상태(엔진 단계별 진행율)·성공/실패·실패사유를
-         네이티브 진행 콜백으로 실시간 표시. 각 배관 완료 시 3D 화면이 갱신된다(VM 측). -->
+         네이티브 진행 콜백으로 실시간 표시. 각 배관 완료 시 메인 3D 화면이 갱신된다(VM 측).
+         표에서 배관 행을 클릭하면 하단에 그 배관(시작→종단) 로컬 영역의 미니 3D(복셀/점유/방문/경로)와
+         결과 설명이 표시되고, 동시에 메인 뷰가 그 배관으로 줌한다. -->
     <Window.Resources>
         <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#e8eaf0"/></Style>
         <Style TargetType="Button">
@@ -14,6 +17,7 @@
             <Setter Property="BorderBrush" Value="#5a6a8a"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
+        <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#e8eaf0"/></Style>
     </Window.Resources>
 
     <Grid Margin="12">
@@ -30,41 +34,97 @@
                      Maximum="{Binding Total}" Value="{Binding Done}"
                      Background="#2b3548" Foreground="#385b85" BorderThickness="0"/>
 
-        <DataGrid Grid.Row="2" ItemsSource="{Binding Rows}" AutoGenerateColumns="False"
-                  IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                  CanUserAddRows="False" Background="#252b3d" RowBackground="#252b3d"
-                  AlternatingRowBackground="#2b3548" Foreground="#e8eaf0" BorderBrush="#404a64"
-                  HorizontalGridLinesBrush="#333b50" FontFamily="Consolas" FontSize="12">
-            <DataGrid.ColumnHeaderStyle>
-                <Style TargetType="DataGridColumnHeader">
-                    <Setter Property="Background" Value="#2b3548"/>
-                    <Setter Property="Foreground" Value="#bfc6d6"/>
-                    <Setter Property="Padding" Value="6,3"/>
-                    <Setter Property="BorderBrush" Value="#404a64"/>
-                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
-                </Style>
-            </DataGrid.ColumnHeaderStyle>
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="순서" Binding="{Binding Order}" Width="44"/>
-                <DataGridTextColumn Header="유틸리티그룹" Binding="{Binding Group}" Width="100"/>
-                <DataGridTextColumn Header="유틸리티" Binding="{Binding Utility}" Width="80"/>
-                <DataGridTextColumn Header="시작PoC" Binding="{Binding StartPoC}" Width="150"/>
-                <DataGridTextColumn Header="종단PoC" Binding="{Binding EndPoC}" Width="150"/>
-                <DataGridTextColumn Header="처리상태" Binding="{Binding StatusText}" Width="110">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
-                            <Setter Property="FontWeight" Value="Bold"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <DataGridTextColumn Header="추정 사유" Binding="{Binding Reason}" Width="*"/>
-                <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="72"/>
-                <DataGridTextColumn Header="꺾임" Binding="{Binding TurnsText}" Width="44"/>
-                <DataGridTextColumn Header="확장수" Binding="{Binding ExpandedText}" Width="84"/>
-                <DataGridTextColumn Header="ms" Binding="{Binding ElapsedText}" Width="64"/>
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- 상: 진행 표 / 하: 선택 배관 상세(미니 3D + 설명). GridSplitter 로 비율 조절. -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="2*" MinHeight="150"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="1*" MinHeight="230"/>
+            </Grid.RowDefinitions>
+
+            <DataGrid x:Name="RowGrid" Grid.Row="0" ItemsSource="{Binding Rows}" AutoGenerateColumns="False"
+                      IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                      CanUserAddRows="False" Background="#252b3d" RowBackground="#252b3d"
+                      AlternatingRowBackground="#2b3548" Foreground="#e8eaf0" BorderBrush="#404a64"
+                      HorizontalGridLinesBrush="#333b50" FontFamily="Consolas" FontSize="12"
+                      SelectionMode="Single" SelectionChanged="OnRowSelectionChanged">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#2b3548"/>
+                        <Setter Property="Foreground" Value="#bfc6d6"/>
+                        <Setter Property="Padding" Value="6,3"/>
+                        <Setter Property="BorderBrush" Value="#404a64"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="순서" Binding="{Binding Order}" Width="44"/>
+                    <DataGridTextColumn Header="유틸리티그룹" Binding="{Binding Group}" Width="100"/>
+                    <DataGridTextColumn Header="유틸리티" Binding="{Binding Utility}" Width="80"/>
+                    <DataGridTextColumn Header="시작PoC" Binding="{Binding StartPoC}" Width="150"/>
+                    <DataGridTextColumn Header="종단PoC" Binding="{Binding EndPoC}" Width="150"/>
+                    <DataGridTextColumn Header="처리상태" Binding="{Binding StatusText}" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="추정 사유" Binding="{Binding Reason}" Width="*"/>
+                    <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="72"/>
+                    <DataGridTextColumn Header="꺾임" Binding="{Binding TurnsText}" Width="44"/>
+                    <DataGridTextColumn Header="확장수" Binding="{Binding ExpandedText}" Width="84"/>
+                    <DataGridTextColumn Header="ms" Binding="{Binding ElapsedText}" Width="64"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"
+                          Background="#404a64" ResizeBehavior="PreviousAndNext"/>
+
+            <!-- 선택 배관 상세: 좌 미니 3D / 우 설명 -->
+            <Border Grid.Row="2" Background="#161a26" BorderBrush="#404a64" BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="380"/>
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel Grid.Column="0">
+                        <Border DockPanel.Dock="Top" Background="#252b3d" Padding="6,3"
+                                BorderBrush="#404a64" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="선택 배관:" FontWeight="Bold" Foreground="#bfc6d6"
+                                           VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <CheckBox Content="복셀맵"  IsChecked="{Binding ShowGridLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          ToolTip="배관 로컬 영역의 격자 BBOX 12변(작업 공간 프레임)"/>
+                                <CheckBox Content="점유맵"  IsChecked="{Binding ShowOccLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          ToolTip="로컬 영역의 점유(장애물) 셀 — 옅은 청회색 큐브"/>
+                                <CheckBox Content="방문맵"  IsChecked="{Binding ShowVisLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          ToolTip="이 배관 라우팅 중 A* 가 확장한 셀(유틸 색 반투명). 실패 시 어디서 막혔는지 보임"/>
+                                <CheckBox Content="최종경로" IsChecked="{Binding ShowPathLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          ToolTip="최종 라우팅 경로(유틸 색 튜브) + 시작(빨강)/종단(파랑) 마커 + 스텁"/>
+                                <Button Content="↺ 전체보기" Click="OnMiniFit" Padding="8,2" MinWidth="0"
+                                        ToolTip="미니 3D 뷰를 이 배관이 들어오도록 자동 줌"/>
+                            </StackPanel>
+                        </Border>
+                        <h:HelixViewport3D x:Name="MiniView" Background="#0f1320"
+                                           ShowViewCube="False" ShowCoordinateSystem="True"
+                                           IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
+                            <h:DefaultLights/>
+                            <ModelVisual3D x:Name="MiniModelVisual"/>
+                        </h:HelixViewport3D>
+                    </DockPanel>
+
+                    <Border Grid.Column="1" BorderBrush="#404a64" BorderThickness="1,0,0,0" Padding="8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <TextBlock Text="{Binding DetailText}" FontFamily="Consolas" FontSize="12"
+                                       TextWrapping="Wrap" Foreground="#dfe4f0" LineHeight="18"/>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
 
         <TextBlock Grid.Row="3" Text="{Binding FailSummary}" Margin="2,8,2,4" TextWrapping="Wrap" Foreground="#ffb0b0"/>
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">

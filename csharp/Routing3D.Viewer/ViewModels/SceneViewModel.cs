@@ -691,6 +691,10 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>'전체보기' 명령(코드비하인드가 ZoomExtents 호출).</summary>
         public event Action? FitViewRequested;
 
+        /// <summary>특정 영역(Rect3D)으로 메인 뷰를 줌(코드비하인드가 CameraHelper.ZoomExtents 호출).
+        /// 진행 다이얼로그에서 배관 행을 클릭하면 그 배관 로컬 영역으로 메인 뷰를 맞춘다.</summary>
+        public event Action<Rect3D>? ZoomToBoxRequested;
+
         // ---- 필터 ----
         private bool TaskFilter(object o) => o is TaskRowVM r && TaskFilterCore(r);
 
@@ -1739,6 +1743,9 @@ namespace Routing3D.Viewer.ViewModels
                     ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
                     dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
                     dlg.Begin(label, added.Count);
+                    // 표 행 클릭 → 그 배관 로컬 미니 3D/설명 생성 + 메인 뷰 줌(라우팅 완료 후에도 동작).
+                    dlg.DetailProvider = (ti, layers) => BuildPipeDetail(ti, layers);
+                    dlg.FocusInMainView = ti => FocusPipeInMainView(ti);
                     dlg.Show();
                 }
                 var disp = System.Windows.Application.Current?.Dispatcher;
@@ -2766,6 +2773,166 @@ namespace Routing3D.Viewer.ViewModels
         {
             var c = Color.FromArgb(alpha, color.R, color.G, color.B);
             return new DiffuseMaterial(new SolidColorBrush(c));
+        }
+
+        // ============================================================ 진행 다이얼로그 — 선택 배관 상세
+        // 표 행 클릭 시 그 배관(taskIndex)의 로컬 영역만 미니 3D 로 합성하고 결과 설명을 만든다.
+        // SceneModel 과 독립(자체 Model3DGroup) — 다이얼로그 미니 뷰포트에 표시. 라우팅 완료 후
+        // TaskRowVM 에 경로/방문이 캐시(CacheResults)돼 있으므로 그 데이터를 쓴다.
+        // layers = [복셀맵, 점유맵, 방문맵, 최종경로].
+        public Routing3D.Viewer.Views.PipeDetail BuildPipeDetail(int taskIndex, bool[] layers)
+        {
+            var group = new Model3DGroup();
+            if (_scene == null || taskIndex < 0 || taskIndex >= Tasks.Count)
+                return new Routing3D.Viewer.Views.PipeDetail(group, new Rect3D(), "데이터 없음");
+            var grid = _scene.Grid;
+            var row = Tasks[taskIndex];
+            var (lo, hi) = PipeWorldBounds(row, grid);
+            bool gOn = layers.Length > 0 && layers[0];
+            bool oOn = layers.Length > 1 && layers[1];
+            bool vOn = layers.Length > 2 && layers[2];
+            bool pOn = layers.Length > 3 && layers[3];
+            Color util = (row.Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
+
+            if (gOn) AddBoxFrame(group, lo, hi, Color.FromRgb(122, 223, 176), Math.Max(grid.CellMm * 0.08, 5), 200);
+            if (oOn) AddLocalOccupancy(group, grid, lo, hi);
+            if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited, util);
+            if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row, util);
+
+            var box = new Rect3D(lo.X, lo.Y, lo.Z, hi.X - lo.X, hi.Y - lo.Y, hi.Z - lo.Z);
+            return new Routing3D.Viewer.Views.PipeDetail(group, box, ExplainPipe(taskIndex));
+        }
+
+        // 메인 뷰를 그 배관 로컬 영역으로 줌(코드비하인드가 카메라 이동).
+        public void FocusPipeInMainView(int taskIndex)
+        {
+            if (_scene == null || taskIndex < 0 || taskIndex >= Tasks.Count) return;
+            var (lo, hi) = PipeWorldBounds(Tasks[taskIndex], _scene.Grid);
+            ZoomToBoxRequested?.Invoke(new Rect3D(lo.X, lo.Y, lo.Z, hi.X - lo.X, hi.Y - lo.Y, hi.Z - lo.Z));
+        }
+
+        // 배관(경로+시작/종단, 실패면 방문까지) 을 감싸는 월드 AABB + 여유.
+        private (Point3D lo, Point3D hi) PipeWorldBounds(TaskRowVM row, GridMeta g)
+        {
+            double nx = double.MaxValue, ny = double.MaxValue, nz = double.MaxValue;
+            double xx = double.MinValue, xy = double.MinValue, xz = double.MinValue;
+            void Acc(double x, double y, double z)
+            {
+                nx = Math.Min(nx, x); ny = Math.Min(ny, y); nz = Math.Min(nz, z);
+                xx = Math.Max(xx, x); xy = Math.Max(xy, y); xz = Math.Max(xz, z);
+            }
+            foreach (var c in row.Path) { var p = CellToWorld(g, c); Acc(p.X, p.Y, p.Z); }
+            Acc(row.Sx, row.Sy, row.Sz); Acc(row.Gx, row.Gy, row.Gz);
+            if (row.Path.Length == 0)
+                foreach (var c in row.Visited) { var p = CellToWorld(g, c); Acc(p.X, p.Y, p.Z); }
+            double m = Math.Max(g.CellMm * 3, 800);
+            return (new Point3D(nx - m, ny - m, nz - m), new Point3D(xx + m, xy + m, xz + m));
+        }
+
+        // 로컬 bbox 안의 점유(블록) 셀을 큐브로(옅은 청회색 반투명). CopyBlocked 를 bbox 셀 범위로 필터.
+        private void AddLocalOccupancy(Model3DGroup group, GridMeta g, Point3D lo, Point3D hi)
+        {
+            if (_engine == null) return;
+            var cells = _engine.CopyBlocked();
+            if (cells.Length == 0) return;
+            int i0 = (int)Math.Floor((lo.X - g.Ox) / g.CellMm), i1 = (int)Math.Ceiling((hi.X - g.Ox) / g.CellMm);
+            int j0 = (int)Math.Floor((lo.Y - g.Oy) / g.CellMm), j1 = (int)Math.Ceiling((hi.Y - g.Oy) / g.CellMm);
+            int k0 = (int)Math.Floor((lo.Z - g.Oz) / g.CellMm), k1 = (int)Math.Ceiling((hi.Z - g.Oz) / g.CellMm);
+            double s = g.CellMm;
+            var mb = new MeshBuilder(false, false);
+            int n = 0; const int cap = 60000;
+            foreach (var c in cells)
+            {
+                if (c.I < i0 || c.I > i1 || c.J < j0 || c.J > j1 || c.K < k0 || c.K > k1) continue;
+                mb.AddBox(CellToWorld(g, c), s, s, s);
+                if (++n >= cap) break;
+            }
+            if (n > 0) group.Children.Add(Geometry(mb, Color.FromRgb(130, 170, 200), 105));
+        }
+
+        // 이 배관 A* 가 확장한 방문 셀(유틸 색 반투명, 점유보다 작은 큐브). 상한 초과 시 균등 다운샘플.
+        private static void AddLocalVisited(Model3DGroup group, GridMeta g, PathCell[] visited, Color col)
+        {
+            const int cap = 40000;
+            int take = Math.Min(cap, visited.Length);
+            double stride = (double)visited.Length / take;
+            double s = g.CellMm * 0.7;
+            var mb = new MeshBuilder(false, false);
+            for (int n = 0; n < take; n++) { var c = visited[(int)(n * stride)]; mb.AddBox(CellToWorld(g, c), s, s, s); }
+            group.Children.Add(Geometry(mb, col, 70));
+        }
+
+        // 최종 경로(스텁+A*+스텁) 튜브 + 시작(빨강)/종단(파랑) 구 마커.
+        private static void AddPipePath(Model3DGroup group, GridMeta g, TaskRowVM row, Color col)
+        {
+            double dia = Math.Max(g.CellMm * 0.35, 30);
+            if (row.Path.Length >= 1)
+            {
+                var pts = new List<Point3D>();
+                if (row.StartStub != null) pts.AddRange(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)));
+                pts.AddRange(row.Path.Select(c => CellToWorld(g, c)));
+                if (row.EndStub != null)
+                    for (int k = row.EndStub.Count - 1; k >= 0; k--)
+                        pts.Add(new Point3D(row.EndStub[k].X, row.EndStub[k].Y, row.EndStub[k].Z));
+                if (pts.Count >= 2)
+                {
+                    var mb = new MeshBuilder(false, false);
+                    mb.AddTube(pts, dia, 10, false);
+                    group.Children.Add(Geometry(mb, col, 255));
+                }
+            }
+            var sm = new MeshBuilder(false, false); sm.AddSphere(new Point3D(row.Sx, row.Sy, row.Sz), dia * 1.6);
+            group.Children.Add(Geometry(sm, Color.FromRgb(230, 80, 80), 255));   // 시작=빨강.
+            var em = new MeshBuilder(false, false); em.AddSphere(new Point3D(row.Gx, row.Gy, row.Gz), dia * 1.6);
+            group.Children.Add(Geometry(em, Color.FromRgb(80, 120, 230), 255));  // 종단=파랑.
+        }
+
+        // 라우팅 결과를 사람이 읽을 설명으로(성공: 길이/우회율/꺾임/탐색 · 실패: 막힘 유형).
+        public string ExplainPipe(int taskIndex)
+        {
+            if (_scene == null || taskIndex < 0 || taskIndex >= Tasks.Count) return "데이터 없음";
+            var row = Tasks[taskIndex];
+            var sb = new System.Text.StringBuilder();
+            string s = string.IsNullOrEmpty(row.PocName) ? $"({row.Sx:0},{row.Sy:0},{row.Sz:0})" : row.PocName!;
+            string e = string.IsNullOrEmpty(row.EndName) ? $"({row.Gx:0},{row.Gy:0},{row.Gz:0})" : row.EndName!;
+            sb.AppendLine($"[{row.Group} / {row.Utility}]");
+            sb.AppendLine($"{s}  →  {e}");
+            sb.AppendLine();
+            double man = Math.Abs(row.Gx - row.Sx) + Math.Abs(row.Gy - row.Sy) + Math.Abs(row.Gz - row.Sz);
+            int visited = row.Visited.Length;
+            if (row.Success && row.Path.Length >= 2)
+            {
+                var b = CountBends(row.Path);
+                double len = row.LengthMm;
+                double detour = man > 1 ? (len / man - 1.0) * 100.0 : 0.0;
+                sb.AppendLine("결과 : ✅ 성공");
+                sb.AppendLine($"· 경로 길이    : {len:#,0} mm");
+                sb.AppendLine($"· 직선(맨해튼) : {man:#,0} mm");
+                sb.AppendLine($"· 우회율       : {detour:0.0} %");
+                sb.AppendLine($"· 꺾임(엘보)   : {b.Total} 회 (수평 {b.Horiz}·수직 {b.Vert})");
+                sb.AppendLine($"· 경로 셀      : {row.Path.Length:#,0}");
+                sb.AppendLine($"· 탐색(방문)   : {visited:#,0} 셀");
+                if (row.StartStub != null || row.EndStub != null)
+                    sb.AppendLine($"· 스텁         : 출발 {(row.StartStub != null ? "○" : "—")} · 종단 {(row.EndStub != null ? "○" : "—")} (기존설계 추종)");
+                sb.AppendLine();
+                sb.AppendLine(detour < 15 ? "→ 직선에 가깝게 효율적으로 연결되었습니다."
+                            : detour < 50 ? "→ 장애물/회랑을 우회하며 연결되었습니다."
+                            : "→ 우회가 큽니다(혼잡·회랑 바이어스). 방문맵으로 탐색 범위를 확인하세요.");
+            }
+            else
+            {
+                sb.AppendLine("결과 : ❌ 실패 (경로 없음)");
+                sb.AppendLine($"· 직선(맨해튼) : {man:#,0} mm");
+                sb.AppendLine($"· 탐색(방문)   : {visited:#,0} 셀");
+                sb.AppendLine();
+                if (visited <= 1)
+                    sb.AppendLine("→ 시작/종단 셀이 장애물 내부입니다(PoC가 솔리드에 파묻힘).\n   탐색이 거의 없음 = 출발조차 못함. 면 투영/스냅 대상.");
+                else if (visited >= 11_000_000)
+                    sb.AppendLine("→ 탐색 상한 도달: 경로가 매우 길거나 사실상 막혔습니다.\n   방문맵이 넓게 퍼진 뒤 종단에 못 닿음.");
+                else
+                    sb.AppendLine("→ 종단까지 완전 차단되었습니다.\n   방문맵으로 어디까지 탐색하고 막혔는지 확인하세요(rip-up/CBS 대상).");
+            }
+            return sb.ToString();
         }
     }
 }

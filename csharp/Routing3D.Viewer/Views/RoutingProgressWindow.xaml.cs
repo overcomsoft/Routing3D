@@ -8,11 +8,17 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using Routing3D.Viewer.Interop;
 
 namespace Routing3D.Viewer.Views
 {
+    /// <summary>진행 다이얼로그가 표 행 선택 시 VM(SceneViewModel)에서 받아오는 '선택 배관 상세'.
+    /// Model=미니 3D 모델(복셀/점유/방문/경로 합성), Box=그 로컬 영역(미니뷰 줌용), Text=결과 설명.</summary>
+    public readonly record struct PipeDetail(Model3DGroup Model, Rect3D Box, string Text);
+
     public partial class RoutingProgressWindow : Window, INotifyPropertyChanged
     {
         private const long ExpansionCap = 12_000_000L;  // 네이티브 대형격자 탐색 상한(실패 사유 추정).
@@ -20,6 +26,12 @@ namespace Routing3D.Viewer.Views
         private int _success, _fail;
         private readonly Dictionary<string, int> _reasonHist = new();
         private readonly Dictionary<int, ProgressRow> _byOrder = new();  // order_index → 행.
+
+        // VM 주입 — 표 행 선택 시 상세 모델/설명을 만들고(레이어 플래그 [복셀,점유,방문,경로]),
+        // 동시에 메인 뷰를 그 배관으로 줌한다. 라우팅 완료 후에도 다이얼로그가 열려 있어 최신 결과를 쓴다.
+        public Func<int, bool[], PipeDetail>? DetailProvider { get; set; }
+        public Action<int>? FocusInMainView { get; set; }
+        private int _selectedTaskIndex = -1;
 
         public ObservableCollection<ProgressRow> Rows { get; } = new();
 
@@ -32,11 +44,52 @@ namespace Routing3D.Viewer.Views
         private int _total = 1;
         public int Total { get => _total; set { _total = value; OnPc(nameof(Total)); } }
 
+        // ----- 선택 배관 상세(하단 미니 3D + 설명) -----
+        private string _detailText = "표에서 배관 행을 클릭하면 그 배관의 로컬 3D(복셀·점유·방문·경로)와 결과 설명이 여기에 표시됩니다.";
+        public string DetailText { get => _detailText; set { _detailText = value; OnPc(nameof(DetailText)); } }
+
+        private bool _showGridLayer = true, _showOccLayer = true, _showVisLayer = true, _showPathLayer = true;
+        public bool ShowGridLayer { get => _showGridLayer; set { _showGridLayer = value; OnPc(nameof(ShowGridLayer)); RebuildDetail(); } }
+        public bool ShowOccLayer  { get => _showOccLayer;  set { _showOccLayer  = value; OnPc(nameof(ShowOccLayer));  RebuildDetail(); } }
+        public bool ShowVisLayer  { get => _showVisLayer;  set { _showVisLayer  = value; OnPc(nameof(ShowVisLayer));  RebuildDetail(); } }
+        public bool ShowPathLayer { get => _showPathLayer; set { _showPathLayer = value; OnPc(nameof(ShowPathLayer)); RebuildDetail(); } }
+
         public RoutingProgressWindow()
         {
             InitializeComponent();
             DataContext = this;
         }
+
+        // 표 행 선택 → 그 배관으로 메인 뷰 줌 + 하단 미니 3D/설명 갱신.
+        private void OnRowSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (RowGrid.SelectedItem is not ProgressRow row) return;
+            _selectedTaskIndex = row.TaskIndex;
+            FocusInMainView?.Invoke(_selectedTaskIndex);   // 메인 3D 뷰가 그 배관으로 줌.
+            RebuildDetail();
+        }
+
+        // 현재 선택 배관 + 레이어 플래그로 미니 3D 모델/설명을 다시 만들어 표시하고 미니뷰를 줌한다.
+        private void RebuildDetail()
+        {
+            if (DetailProvider == null || _selectedTaskIndex < 0 || MiniModelVisual == null) return;
+            var layers = new[] { _showGridLayer, _showOccLayer, _showVisLayer, _showPathLayer };
+            PipeDetail d;
+            try { d = DetailProvider(_selectedTaskIndex, layers); }
+            catch (Exception ex) { DetailText = "상세 생성 오류: " + ex.Message; return; }
+            MiniModelVisual.Content = d.Model;
+            DetailText = d.Text;
+            FitMini();
+        }
+
+        private void FitMini()
+        {
+            // 모델 갱신 직후엔 시각트리 경계가 아직이라, 낮은 우선순위로 줌(빈 모델이면 무시).
+            Dispatcher.BeginInvoke(new Action(() => { try { MiniView.ZoomExtents(); } catch { } }),
+                                   System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void OnMiniFit(object sender, RoutedEventArgs e) => FitMini();
 
         public void Begin(string label, int total)
         {
@@ -61,6 +114,7 @@ namespace Routing3D.Viewer.Views
                 row = new ProgressRow
                 {
                     Order = p.OrderIndex + 1,
+                    TaskIndex = p.TaskIndex,
                     Group = group,
                     Utility = utility,
                     StartPoC = startPoC,
@@ -138,6 +192,7 @@ namespace Routing3D.Viewer.Views
     public sealed class ProgressRow : INotifyPropertyChanged
     {
         public int Order { get; init; }
+        public int TaskIndex { get; init; } = -1;   // 원본 작업 인덱스(TaskRowVM 매핑 — 상세 3D/줌용).
         public string Group { get; init; } = string.Empty;
         public string Utility { get; init; } = string.Empty;
         public string StartPoC { get; init; } = string.Empty;

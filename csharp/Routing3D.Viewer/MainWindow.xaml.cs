@@ -22,6 +22,7 @@ namespace Routing3D.Viewer
             _vm.SceneRebuilt += () => Dispatcher.BeginInvoke(new Action(OnSceneRebuilt));
             _vm.FitViewRequested += () => Dispatcher.BeginInvoke(new Action(FitToScene));
             _vm.NavigateToRequested += target => Dispatcher.BeginInvoke(new Action(() => NavigateTo(target)));
+            _vm.ZoomToBoxRequested += box => Dispatcher.BeginInvoke(new Action(() => ZoomToBox(box)));
             DataContext = _vm;
 
             // 피킹 모드일 때만 좌클릭으로 3D 지점을 잡아 종단점으로 설정(평소 회전은 그대로).
@@ -105,6 +106,21 @@ namespace Routing3D.Viewer
                 View.Children.Add(t);
                 _spaceLabelVisuals.Add(t);
             }
+        }
+
+        // 특정 영역(Rect3D)으로 줌 — 진행 다이얼로그 배관 행 클릭 시 그 배관 로컬 영역을 화면에 맞춘다.
+        // 현재 시선 방향을 유지하면서, 카메라를 영역 중심에서 박스 반경에 비례한 거리(≈원근 FOV 보정)로 물린다.
+        private void ZoomToBox(Rect3D box)
+        {
+            if (box.IsEmpty || View.Camera is not ProjectionCamera cam) return;
+            var center = new Point3D(box.X + box.SizeX / 2, box.Y + box.SizeY / 2, box.Z + box.SizeZ / 2);
+            double radius = 0.5 * Math.Sqrt(box.SizeX * box.SizeX + box.SizeY * box.SizeY + box.SizeZ * box.SizeZ);
+            var dir = cam.LookDirection;
+            if (dir.Length < 1) dir = new Vector3D(1, 1, -1);
+            dir.Normalize();
+            double dist = Math.Max(radius * 2.5, 1500);   // 원근 FOV~45° 기준 박스가 화면을 채우는 거리.
+            cam.Position = center - dir * dist;
+            cam.LookDirection = dir * dist;
         }
 
         // 단계(구간) 클릭 시 카메라를 그 위치로 이동(같은 거리·방향 유지하며 대상이 화면 중앙에 오게).
