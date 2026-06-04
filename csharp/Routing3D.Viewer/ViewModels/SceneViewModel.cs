@@ -1743,9 +1743,13 @@ namespace Routing3D.Viewer.ViewModels
                     ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
                     dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
                     dlg.Begin(label, added.Count);
-                    // 표 행 클릭 → 그 배관 로컬 미니 3D/설명 생성 + 메인 뷰 줌(라우팅 완료 후에도 동작).
-                    dlg.DetailProvider = (ti, layers) => BuildPipeDetail(ti, layers);
-                    dlg.FocusInMainView = ti => FocusPipeInMainView(ti);
+                    // 표 행 클릭 → 그 배관 로컬 미니 3D/설명 생성 + 메인 뷰 줌/선택(라우팅 완료 후에도 동작).
+                    // 콜백 ti = '엔진 task 인덱스'(이번 배치의 부분집합 순서) → 전역 Tasks 인덱스(added[ti])로 매핑.
+                    // (부분집합 라우팅 시 엔진은 0..N-1 만 갖고, 전역 Tasks 는 전체 작업이므로 매핑 필수.)
+                    var addedMap = added;
+                    int MapTi(int ti) => (ti >= 0 && ti < addedMap.Count) ? addedMap[ti] : ti;
+                    dlg.DetailProvider = (ti, layers) => BuildPipeDetail(MapTi(ti), layers);
+                    dlg.FocusInMainView = ti => FocusPipeInMainView(MapTi(ti));
                     dlg.Show();
                 }
                 var disp = System.Windows.Application.Current?.Dispatcher;
@@ -2337,6 +2341,24 @@ namespace Routing3D.Viewer.ViewModels
             e.AddSphere(new Point3D(t.Gx, t.Gy, t.Gz), r);
             grp.Children.Add(Geometry(e, Color.FromRgb(50, 120, 255), 235));   // 종단 PoC = 파랑.
 
+            // 선택 배관 경로 강조 — 다른 배관(같은 유틸 색) 사이에서 또렷이 보이도록 굵은 밝은 튜브로 덧그린다.
+            // 표시 경로 = 출발 스텁 + A* 중간 + 종단 스텁(스텁 라우팅 시), 없으면 A* 경로만.
+            if (t.Path.Length >= 2)
+            {
+                var pts = new List<Point3D>();
+                if (t.StartStub != null) pts.AddRange(t.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)));
+                pts.AddRange(t.Path.Select(c => CellToWorld(g, c)));
+                if (t.EndStub != null)
+                    for (int k = t.EndStub.Count - 1; k >= 0; k--)
+                        pts.Add(new Point3D(t.EndStub[k].X, t.EndStub[k].Y, t.EndStub[k].Z));
+                if (pts.Count >= 2)
+                {
+                    var hm = new MeshBuilder(false, false);
+                    hm.AddTube(pts, Math.Max(g.CellMm * 0.5, 45), 12, false);
+                    grp.Children.Add(Geometry(hm, Color.FromRgb(255, 235, 90), 255));   // 선택 경로 = 밝은 노랑 강조.
+                }
+            }
+
             // 경로가 있으면 방향 전환(꺾임) 지점을 마젠타 구로 표시 + 구간 단계 리스트 구성.
             BuildPathSteps(g, t.Path, grp);
 
@@ -2803,10 +2825,11 @@ namespace Routing3D.Viewer.ViewModels
             return new Routing3D.Viewer.Views.PipeDetail(group, box, ExplainPipe(taskIndex));
         }
 
-        // 메인 뷰를 그 배관 로컬 영역으로 줌(코드비하인드가 카메라 이동).
+        // 메인 뷰에서 그 배관을 '선택'(경로 강조 + 종단 마커) 하고 그 로컬 영역으로 줌.
         public void FocusPipeInMainView(int taskIndex)
         {
             if (_scene == null || taskIndex < 0 || taskIndex >= Tasks.Count) return;
+            SelectedTask = Tasks[taskIndex];   // → UpdateSelectionHighlight: 선택 경로 밝게 강조 + 시작/종단 마커.
             var (lo, hi) = PipeWorldBounds(Tasks[taskIndex], _scene.Grid);
             ZoomToBoxRequested?.Invoke(new Rect3D(lo.X, lo.Y, lo.Z, hi.X - lo.X, hi.Y - lo.Y, hi.Z - lo.Z));
         }
