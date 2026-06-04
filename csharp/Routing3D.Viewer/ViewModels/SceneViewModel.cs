@@ -217,6 +217,10 @@ namespace Routing3D.Viewer.ViewModels
         // (랙 위 자유공간)만 탐색한다. 표시 경로 = [출발 스텁] + [A* 중간] + [종단 스텁]. 매칭 배관 없으면 PoC
         // 직접 라우팅으로 폴백. 학습 스텁과 자동설계를 일치시킨다(기존엔 PoC 에서 A* 가 스텁을 무시하고 재탐색).
         private bool _useStubRouting = true;
+        // 기존배관 복제(폴리라인) — 매칭되는 기존 설계배관이 있으면 그 폴리라인을 셀 경로로 '복제'하고, 현재
+        // 점유에서 막힌(장애물이 달라진) 구간만 A* 로 국소 우회 수리한다. 결과 = 기존설계 그대로 + 변경된 곳만
+        // 우회 → 가장 강한 '기존설계 유사'. 매칭 없으면 일반 A* 결과 유지(무해 폴백). 기본 OFF(경로를 크게 바꿈).
+        private bool _useDesignReplicate;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
@@ -446,6 +450,15 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _useStubRouting;
             set { Set(ref _useStubRouting, value); }
+        }
+
+        /// <summary>기존배관 복제(폴리라인) — 매칭 기존배관의 폴리라인을 그대로 복제하고, 현재 점유에서 막힌
+        /// (장애물이 달라진) 구간만 A* 로 국소 우회 수리한다. 가장 강한 '기존설계 유사'. 매칭 없으면 일반 A*
+        /// 결과 유지(무해). 경로를 크게 바꾸므로 기본 OFF.</summary>
+        public bool UseDesignReplicate
+        {
+            get => _useDesignReplicate;
+            set { if (Set(ref _useDesignReplicate, value)) OnChanged(nameof(PatternStatus)); }
         }
 
         /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
@@ -1710,6 +1723,172 @@ namespace Routing3D.Viewer.ViewModels
             }
         }
 
+        // ===================================================== 기존배관 복제(폴리라인) — UseDesignReplicate
+        // 매칭되는 기존 설계배관이 있으면 그 폴리라인을 셀 경로로 '복제'하고, 현재 점유에서 막힌(장애물이
+        // 달라진) 구간만 A* 로 국소 우회 수리한다. route_multi 완료(CacheResults) 후 호출 — 매칭 행의 row.Path
+        // 를 복제경로로 덮어쓴다(스텁은 폴리라인에 포함되므로 비운다). 백그라운드 스레드에서 호출(네이티브 A*).
+        //   수리용 엔진 = 현재 장애물+설비만(다른 새 배관 마크 없음 → 순수 물리 장애물). 복제는 기존설계가
+        //   충돌 없었다는 전제라 새 배관끼리 충돌은 드물다(새 장애물 우회 구간에서만 가능 — v1 한계, 문서화).
+        private int ReplicateMatchedPipes(IReadOnlyList<int> added)
+        {
+            if (_scene == null) return 0;
+            var s = _scene; var g = s.Grid;
+            // 수리 A*(r3d_route_task)는 호출마다 DenseOccupancy(격자 전체)를 복셀화하므로, 초대형 격자
+            //   (cell≤25 등)에선 메모리/시간 폭증. 30M 셀 초과면 복제 생략(A* 결과 유지) — 그룹 라우팅은
+            //   cell=50(약 11M) 로 재적재되므로 정상 동작. 필요 시 셀을 키워 복제하라고 상태바에 안내.
+            if ((long)g.Nx * g.Ny * g.Nz > 30_000_000L) return -1;
+
+            // 수리 엔진(장애물+설비, 배관 마크 없음) — 막힌 구간 국소 A* 에 재사용.
+            using var rep = new Engine();
+            rep.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
+            bool weighted = (long)g.Nx * g.Ny * g.Nz > 300_000;
+            rep.SetParams(g.CellMm, 500, 10, 2, 6, wHeur: weighted ? 2.0 : 1.0, wHeurNear: weighted ? 1.0 : 0.0);
+            foreach (var o in s.Obstacles)
+                if (o.IsPassThrough) rep.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                else rep.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            // currentRows = 전체 → AddFacilityObstacles 의 배관 루프가 모두 스킵(설비·덕트만 추가, 배관 마크 없음).
+            AddFacilityObstacles(rep, new HashSet<int>(Enumerable.Range(0, Tasks.Count)));
+
+            // 막힘 판정 — 셀 AABB 가 장애물(통과 제외)·설비·덕트 박스와 겹치면 막힘. 미세격자에서 전체
+            //   복셀(CopyBlocked) 을 HashSet 으로 들고 있으면 수백MB 라, 폴리라인 셀만 박스질의로 검사한다.
+            double minT = g.CellMm;
+            var boxes = new List<(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)>();
+            void AddBox(double a, double b, double c2, double d, double e2, double f2)
+            {
+                if (d - a < minT) { double m = (a + d) / 2; a = m - minT / 2; d = m + minT / 2; }
+                if (e2 - b < minT) { double m = (b + e2) / 2; b = m - minT / 2; e2 = m + minT / 2; }
+                if (f2 - c2 < minT) { double m = (c2 + f2) / 2; c2 = m - minT / 2; f2 = m + minT / 2; }
+                boxes.Add((a, b, c2, d, e2, f2));
+            }
+            foreach (var o in s.Obstacles) if (!o.IsPassThrough) AddBox(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            foreach (var e in s.Equipment) AddBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+            foreach (var d in s.DuctsLaterals) AddBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+            bool Blocked(int ci, int cj, int ck)
+            {
+                double clx = g.Ox + ci * g.CellMm, chx = clx + g.CellMm;
+                double cly = g.Oy + cj * g.CellMm, chy = cly + g.CellMm;
+                double clz = g.Oz + ck * g.CellMm, chz = clz + g.CellMm;
+                foreach (var bx in boxes)
+                    if (clx < bx.mxx && chx > bx.mnx && cly < bx.mxy && chy > bx.mny && clz < bx.mxz && chz > bx.mnz)
+                        return true;
+                return false;
+            }
+
+            int replaced = 0;
+            foreach (var pos in added)
+            {
+                var row = Tasks[pos];
+                var pipe = FindMatchingExistingPipe(row);
+                if (pipe == null || pipe.Points.Count < 2) continue;   // 매칭 없으면 A* 결과 유지.
+                var path = ReplicatePath(row, pipe, g, Blocked, rep);
+                if (path == null || path.Length < 2) continue;          // 복제/수리 실패 → A* 결과 유지.
+                row.Path = path;
+                row.StartStub = null; row.EndStub = null;               // 복제경로가 PoC~PoC 전체를 담는다.
+                row.Success = true;
+                row.LengthMm = (path.Length - 1) * g.CellMm;            // 직교 셀 경로 근사 길이.
+                replaced++;
+            }
+            return replaced;
+        }
+
+        // 매칭 기존배관 폴리라인(작업 PoC 방향 정렬 + 양 끝에 실제 PoC 부착)을 6-연결 셀 경로로 복제하고,
+        // 막힌 구간만 A* 로 국소 우회한다. 수리 실패/꼬리 막힘이면 null(호출자 A* 폴백).
+        private PathCell[]? ReplicatePath(TaskRowVM row, ExistingPipe pipe, GridMeta g,
+                                          Func<int, int, int, bool> blocked, Engine rep)
+        {
+            // 작업 start 가 배관 source 에 가까우면 정방향, 아니면 역방향.
+            Pt3 ps = pipe.SourcePos ?? pipe.Points[0];
+            Pt3 pe = pipe.TargetPos ?? pipe.Points[pipe.Points.Count - 1];
+            var ts = new Pt3(row.Sx, row.Sy, row.Sz); var te = new Pt3(row.Gx, row.Gy, row.Gz);
+            bool fwd = Dist(ts, ps) + Dist(te, pe) <= Dist(ts, pe) + Dist(te, ps);
+            var pts = new List<Pt3>(pipe.Points);
+            if (!fwd) pts.Reverse();
+            pts.Insert(0, ts); pts.Add(te);   // 폴리라인 양 끝을 작업 실제 PoC 로(끝점이 약간 달라도 보정).
+
+            var cells = PolylineToCells(pts, g);
+            if (cells.Count < 2) return null;
+
+            bool Blk(PathCell c) => blocked(c.I, c.J, c.K);
+            var outp = new List<PathCell>();
+            int i = 0;
+            while (i < cells.Count && Blk(cells[i])) i++;   // 선두 막힘 스킵(시작 PoC 가 솔리드면).
+            if (i >= cells.Count) return null;
+            outp.Add(cells[i]); i++;
+            while (i < cells.Count)
+            {
+                // 다음 '자유' 셀까지 전진(막힌 구간은 건너뛰고 j 로).
+                int j = i;
+                while (j < cells.Count && Blk(cells[j])) j++;
+                if (j >= cells.Count) break;                // 꼬리가 막힘 → 종단 못 닿음(미스).
+                var prev = outp[outp.Count - 1];
+                if (j == i && Adjacent(prev, cells[i]))
+                    outp.Add(cells[i]);                     // 자유·인접 → 폴리라인 그대로 복제.
+                else
+                {
+                    // 막힌 구간 또는 비인접(엘보/끝점 보정) → 국소 A* 우회.
+                    var repair = RepairAStar(prev, cells[j], rep, g);
+                    if (repair == null) return null;        // 수리 실패 → 복제 포기.
+                    for (int k = 1; k < repair.Length; k++) outp.Add(repair[k]);
+                }
+                i = j + 1;
+            }
+            return outp.Count >= 2 ? outp.ToArray() : null;
+        }
+
+        // 월드 폴리라인(직교 가정) → 6-연결 셀 경로. 각 구간을 셀 단위로 행진하고, 비인접(엘보·끝점)은 ortho 보간.
+        private static List<PathCell> PolylineToCells(IReadOnlyList<Pt3> pts, GridMeta g)
+        {
+            var outc = new List<PathCell>();
+            PathCell ToCell(Pt3 p) => new(
+                Math.Clamp((int)Math.Floor((p.X - g.Ox) / g.CellMm), 0, g.Nx - 1),
+                Math.Clamp((int)Math.Floor((p.Y - g.Oy) / g.CellMm), 0, g.Ny - 1),
+                Math.Clamp((int)Math.Floor((p.Z - g.Oz) / g.CellMm), 0, g.Nz - 1));
+            void Push(PathCell c)
+            {
+                if (outc.Count == 0) { outc.Add(c); return; }
+                if (outc[outc.Count - 1].Equals(c)) return;
+                if (!Adjacent(outc[outc.Count - 1], c)) AppendOrtho(outc, c);   // 점프 → ortho 채움.
+                else outc.Add(c);
+            }
+            for (int seg = 1; seg < pts.Count; seg++)
+            {
+                var a = pts[seg - 1]; var b = pts[seg];
+                double len = Dist(a, b);
+                int steps = Math.Max(1, (int)(len / (g.CellMm * 0.5)));
+                for (int sIdx = 0; sIdx <= steps; sIdx++)
+                {
+                    double tt = (double)sIdx / steps;
+                    Push(ToCell(new Pt3(a.X + (b.X - a.X) * tt, a.Y + (b.Y - a.Y) * tt, a.Z + (b.Z - a.Z) * tt)));
+                }
+            }
+            return outc;
+        }
+
+        // outc 의 마지막 셀에서 to 까지 한 축씩(z→x→y) ortho 로 채운다(각 셀 6-연결 보장).
+        private static void AppendOrtho(List<PathCell> outc, PathCell to)
+        {
+            var cur = outc[outc.Count - 1];
+            while (cur.K != to.K) { cur = new PathCell(cur.I, cur.J, cur.K + Math.Sign(to.K - cur.K)); outc.Add(cur); }
+            while (cur.I != to.I) { cur = new PathCell(cur.I + Math.Sign(to.I - cur.I), cur.J, cur.K); outc.Add(cur); }
+            while (cur.J != to.J) { cur = new PathCell(cur.I, cur.J + Math.Sign(to.J - cur.J), cur.K); outc.Add(cur); }
+        }
+
+        private static bool Adjacent(PathCell a, PathCell b)
+            => Math.Abs(a.I - b.I) + Math.Abs(a.J - b.J) + Math.Abs(a.K - b.K) == 1;
+
+        // 수리 엔진으로 from→to(셀) 사이를 단일 A* 로 잇는다(장애물 기준). 실패면 null.
+        private PathCell[]? RepairAStar(PathCell from, PathCell to, Engine rep, GridMeta g)
+        {
+            var a = CellToWorld(g, from); var b = CellToWorld(g, to);
+            try
+            {
+                int t = rep.AddTask(a.X, a.Y, a.Z, b.X, b.Y, b.Z, null, null);
+                var r = rep.RouteTask(t);
+                return r.Success && r.Path.Length >= 1 ? r.Path : null;
+            }
+            catch { return null; }
+        }
+
         // 엔진 인덱스 == 행 인덱스(전체 작업이 파일/추가 순서대로 적재된 경우) 결과 캐시.
         private void CacheResultsByIndex()
         {
@@ -1828,6 +2007,10 @@ namespace Routing3D.Viewer.ViewModels
                 });
                 dlg?.Complete();
                 CacheResults(added);
+                // 기존배관 복제(옵트인) — 매칭 행의 A* 결과를 '기존 폴리라인 복제 + 막힌 구간 국소 수리'로 교체.
+                int replicated = 0;
+                if (_useDesignReplicate)
+                    replicated = await Task.Run(() => ReplicateMatchedPipes(added));
                 ResetLiveRoute();   // 라이브 오버레이 제거 → 아래 BuildModel 의 최종 렌더로 대체(중복 방지).
                 BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
                 // 이번 배치 결과를 명확히 덮어쓴다 — "성공 16/113"(전체 대비)이 실패로 오해되지 않도록
@@ -1837,7 +2020,9 @@ namespace Routing3D.Viewer.ViewModels
                 int sceneOk = 0;
                 foreach (var t in Tasks) if (t.Success) sceneOk++;
                 string fail = batchOk < added.Count ? $" · 실패 {added.Count - batchOk}" : "";
-                Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}   |   전체 누적 {sceneOk}/{Tasks.Count}";
+                string rep = replicated > 0 ? $" · 기존배관 복제 {replicated}"
+                           : replicated < 0 ? " · 기존배관 복제 생략(격자>30M셀 — 셀을 키우세요)" : "";
+                Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}{rep}   |   전체 누적 {sceneOk}/{Tasks.Count}";
             }
             catch (Exception ex)
             {
