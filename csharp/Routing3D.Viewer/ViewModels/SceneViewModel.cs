@@ -205,12 +205,13 @@ namespace Routing3D.Viewer.ViewModels
         // rack_levels(= w_corridor 면제 z-셀)로 준다. 같은 그룹 새 배관이 공용 랙 높이에 뭉친다(사람 설계다움).
         // rack_levels 는 w_corridor>0 일 때만 효력(랙 밖 가산) → ON 시 BuildEngineForRows 가 가벼운 w_corridor 부여.
         private bool _useRackBundling;
-        // 그룹배관 패턴(번들, L4) — Python bundle_detect 가 DB(route_bundle_template)에 저장한 '대표 번들 패턴'
+        // 그룹배관 패턴(L4) — Python bundle_detect 가 DB(route_bundle_template)에 저장한 '대표 그룹배관 패턴'
         // (같은 유틸 배관들이 동일 이격간격·2회+ 꺾임으로 공유하는 공용 트렁크 고도)을 읽어, 신규 라우팅 시
-        // 같은 유틸 새 배관을 그 트렁크 고도(rack_levels)에 뭉치게 한다. 미적재/키 미스면 자동 폴백(무해). 기본 OFF.
+        // 같은 유틸 새 배관을 그 트렁크 고도(rack_levels)에 뭉치게 한다. 미적재/키 미스면 자동 폴백(무해).
+        // 기본 ON(항상 적용) — 학습 패턴이 없으면 폴백이라 무해하고, 있으면 사람 설계처럼 공용 랙에 다발링.
         private BundleStore? _bundles;
         private bool _bundlesTried;
-        private bool _useBundlePattern;
+        private bool _useBundlePattern = true;
         // 스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 '고정 설계 구간'으로 깔고, A* 는 스텁 끝~끝
         // (랙 위 자유공간)만 탐색한다. 표시 경로 = [출발 스텁] + [A* 중간] + [종단 스텁]. 매칭 배관 없으면 PoC
         // 직접 라우팅으로 폴백. 학습 스텁과 자동설계를 일치시킨다(기존엔 PoC 에서 A* 가 스텁을 무시하고 재탐색).
@@ -251,10 +252,12 @@ namespace Routing3D.Viewer.ViewModels
             DemoCommand = new RelayCommand(LoadDemo);
             RunRouteCommand = new RelayCommand(() => _ = RunRouteAsync(), () => _scene != null);
             RerouteCorridorCommand = new RelayCommand(
-                () => _ = RouteRowsAsync(AllRows(), "기존설계 유사(회랑+랙)", corridor: true),
+                () => _ = RouteRowsAsync(AllRows(), "기존설계 유사(그룹배관)", corridor: true),
                 () => _scene != null);
+            // 단건 라우팅도 그룹배관 모드(corridor:true) — 학습 공용 트렁크 회랑(L4)+매칭 기존배관(L2b)을 따라
+            //   1개 배관도 그룹 트렁크에 정렬된다. (단건은 셀 재적재 없이 = 다른 누적 경로 보존, 셀 가드는 다건만.)
             RerouteSelectedCommand = new RelayCommand(
-                () => { if (_selectedTask != null) _ = RouteRowsAsync(new List<int> { _selectedTask.Index }, $"선택 #{_selectedTask.Index}", corridor: false); },
+                () => { if (_selectedTask != null) _ = RouteRowsAsync(new List<int> { _selectedTask.Index }, $"선택 #{_selectedTask.Index}", corridor: true); },
                 () => _selectedTask != null);
             CompareSelectedCommand = new RelayCommand(
                 () => _ = CompareSelectedAsync(),
@@ -273,16 +276,19 @@ namespace Routing3D.Viewer.ViewModels
                 () => { if (_selectedProject != null) _ = LoadFromDbAsync(_selectedProject.ProjectId); },
                 () => _selectedProject != null);
             // 좌측 드릴다운 선택을 한꺼번에 라우팅 — 선택 그룹/유틸리티의 모든 PoC를 부분집합 충돌회피 라우팅.
+            // 그룹/유틸 전체 라우팅 = 그룹배관 모드(corridor:true) — 같은 유틸을 공용 트렁크에 다발로 묶는다
+            //   (스텁+그룹 트렁크 회랑+유틸 순서+강한 w_corridor, 셀>50이면 자동 50mm). 단건이 아니라 '묶음'을
+            //   라우팅하므로 기존설계처럼 그룹으로 나오는 게 기대값.
             RouteGroupCommand = new RelayCommand(
                 () => { if (!string.IsNullOrEmpty(_selectedGroup))
                             _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup),
-                                               $"그룹 '{_selectedGroup}'", corridor: false, showProgress: true); },
+                                               $"그룹 '{_selectedGroup}'", corridor: true, showProgress: true); },
                 () => _scene != null && !string.IsNullOrEmpty(_selectedGroup));
             RouteUtilityCommand = new RelayCommand(
                 () => { if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
                             _ = RouteRowsAsync(RowsWhere(t => GroupKey(t.Group) == _selectedGroup &&
                                                               UtilityKey(t.Utility) == _selectedUtility),
-                                               $"유틸리티 '{_selectedUtility}'", corridor: false, showProgress: true); },
+                                               $"유틸리티 '{_selectedUtility}'", corridor: true, showProgress: true); },
                 () => _scene != null && !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility));
             // 자동설계된(라우팅된) 모든 경로 삭제 — 결과 캐시 초기화 + 라이브 오버레이 제거 + 재렌더.
             ClearRoutesCommand = new RelayCommand(ClearAllRoutes,
@@ -403,16 +409,16 @@ namespace Routing3D.Viewer.ViewModels
             set { if (Set(ref _useRackBundling, value)) OnChanged(nameof(PatternStatus)); }
         }
 
-        /// <summary>그룹배관 패턴(번들, L4) — DB 에 저장된 대표 번들 패턴(공용 트렁크 고도)을 읽어, 같은 유틸
+        /// <summary>그룹배관 패턴(L4) — DB 에 저장된 대표 그룹배관 패턴(공용 트렁크 고도)을 읽어, 같은 유틸
         /// 새 배관을 학습된 공용 랙 고도에 뭉치게 한다(엔진 rack_levels + 가벼운 w_corridor). 미적재/미스 시
-        /// 자동 폴백(무해). 경로 모양을 바꾸므로 기본 OFF.</summary>
+        /// 자동 폴백(무해). 기본 ON(항상 적용).</summary>
         public bool UseBundlePattern
         {
             get => _useBundlePattern;
             set { if (Set(ref _useBundlePattern, value)) OnChanged(nameof(BundleStatus)); }
         }
 
-        /// <summary>번들 저장소 상태 표시(UI 라벨).</summary>
+        /// <summary>그룹배관 패턴 저장소 상태 표시(UI 라벨).</summary>
         public string BundleStatus =>
             !_useBundlePattern ? "그룹배관 패턴: OFF"
             : _bundles == null ? "그룹배관 패턴: 없음(미적재)"
@@ -974,7 +980,8 @@ namespace Routing3D.Viewer.ViewModels
                     break;
             }
             if (rows.Count == 0) { Status = "대상 작업이 없습니다"; return; }
-            await RouteRowsAsync(rows, label, corridor: false);
+            // 범위(모두/그룹/유틸) 라우팅도 그룹배관 모드 — 같은 유틸을 공용 트렁크에 다발로(기존설계 유사).
+            await RouteRowsAsync(rows, label, corridor: true, showProgress: true);
         }
 
         private List<int> RowsWhere(Func<TaskRowVM, bool> pred)
@@ -999,7 +1006,9 @@ namespace Routing3D.Viewer.ViewModels
 
         // 엔진을 [장애물 전체 + 지정 행들의 작업]만으로 재구성한다(부분집합 충돌회피 라우팅용).
         // 반환: 적재한 행 위치 목록(순서 = 엔진 작업 인덱스). 종단점은 행에서 직접 읽는다(편집 반영).
-        private List<int> BuildEngineForRows(IReadOnlyList<int> rowPositions)
+        // groupMode=true(그룹배관 라우팅) — 매칭 기존배관 회랑(L2b)을 강제 ON 취급하고 w_corridor 를 강하게
+        //   줘서, 같은 유틸 배관이 공용 트렁크에 뭉치도록 한다(끝단 스텁은 기존대로). priority "utility" 와 함께 쓴다.
+        private List<int> BuildEngineForRows(IReadOnlyList<int> rowPositions, bool groupMode = false)
         {
             var scene = _scene!;
             ResetEngine();
@@ -1048,7 +1057,12 @@ namespace Routing3D.Viewer.ViewModels
                 ? BuildBundleCorridorCells(rowPositions, 2) : System.Array.Empty<int>();
             bool hasBundleCorr = bundleCorr.Length > 0;
             // 회랑(0.5)은 랙(0.2)보다 강한 설계추종. L2b 또는 번들 트렁크 회랑이 있으면 0.5, 랙만이면 0.2.
-            double wCorr = (_useDesignCorridor || hasBundleCorr) ? g.CellMm * 0.5
+            // 그룹 모드도 회랑 0.5(설계추종) — self-bundling(mark_pipe+add_corridor_cells)은 wCorr>0 이면
+            //   작동하므로 0.5 로 충분하다. 과거 cell*2.0 은 회랑 밖 셀당 +2칸 페널티 비용장을 weighted A*
+            //   휴리스틱(직선거리)이 과소평가해 탐색이 Dijkstra 처럼 폭발 → 혼잡 프로젝트(예: CMP_KSCTA08,
+            //   평범한 cell=100 plain 에서도 실패 7건이 확장 11.27M 으로 12M 상한 근접)에서 첫 어려운 배관이
+            //   탐색상한(12M) 초과로 실패했다. 0.5 는 동일 다발링·정상속도(ALKA 14/14: 2.0=15.2s→0.5=1.3s).
+            double wCorr = (groupMode || _useDesignCorridor || hasBundleCorr) ? g.CellMm * 0.5
                          : (_useRackBundling || (_useBundlePattern && hasRack)) ? g.CellMm * 0.2 : 0.0;
             _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
                               rackLevels: rackLevels, wHeur: wHeur, wHeurNear: wHeurNear);
@@ -1108,7 +1122,8 @@ namespace Routing3D.Viewer.ViewModels
                 added.Add(pos);
             }
             // 회랑 셀 주입(w_corridor>0 일 때 효력): L2b(배관별 매칭) + 번들 공용 트렁크(L4) 합집합.
-            int[]? l2bCells = _useDesignCorridor ? BuildDesignCorridorCells(rowPositions, 2) : null;
+            //   그룹 모드면 L2b(매칭 기존배관 추종)를 강제 ON — 그룹 패턴(L4) 트렁크 좌표와 합쳐 자유공간을 가이드.
+            int[]? l2bCells = (_useDesignCorridor || groupMode) ? BuildDesignCorridorCells(rowPositions, 2) : null;
             _engine.SetCorridorCells(CombineCorridor(l2bCells, bundleCorr));
             return added;
         }
@@ -1704,28 +1719,38 @@ namespace Routing3D.Viewer.ViewModels
             RoutingProgressWindow? dlg = null;
             try
             {
+                // 그룹 라우팅(corridor)에서 '다건'(2개 이상)은 셀 ≤ 50mm 라야 인접 레인이 분리돼 다발이
+                // 형성된다. DB 프로젝트가 로드된 상태에서 셀이 크면 50mm 로 낮춰 재적재(재복셀화)한다. 작업(Task)
+                // 목록은 셀과 무관하게 동일 순서로 재생성되므로 rowPositions 인덱스는 그대로 유효하다.
+                //   단건(rowPositions.Count==1)은 재적재하지 않는다 — 재적재는 BuildTaskRows 로 모든 누적 경로를
+                //   지우므로(다른 배관 결과 손실), 단건 재라우팅에는 부적절. 단건은 그룹 트렁크 회랑만 따라가면 충분.
+                if (corridor && rowPositions.Count > 1 && _cellMm > 50.0 && SelectedProject != null)
+                {
+                    Status = "그룹 라우팅: cell 50mm 로 재적재 중…";
+                    CellMm = 50.0;
+                    await LoadFromDbAsync(SelectedProject.ProjectId);
+                }
+
                 // 동일 대상(동일 Start PoC)을 다시 자동설계할 때 — 기존 설계 데이터를 먼저 지우고 진행한다.
                 // (대상 행만 초기화; 다른 그룹/유틸의 누적 경로는 보존 → 충돌 회피·표시 유지.)
                 ClearRouteResults(rowPositions);
                 BuildModel();   // 지운 상태를 즉시 3D에 반영(라이브 오버레이 위에 옛 경로가 남지 않도록).
 
-                var added = BuildEngineForRows(rowPositions);
+                bool cor = corridor;   // 그룹배관 라우팅 모드(스텁+공용 트렁크 회랑+강한 w_corridor).
+                var added = BuildEngineForRows(rowPositions, groupMode: cor);
                 Status = $"경로 탐색 중… {label} (작업 {added.Count})";
                 var engine = _engine!;
-                bool cor = corridor;
-                // '기존설계 유사'(corridor=true): 회랑 인력(w_corridor) + 랙 레벨로 배관을 공용 랙에 뭉치게.
-                // route_multi 가 w_corridor>0 이면 깔린 배관 곁을 회랑으로 키워 다음 배관을 끌어모은다.
                 double cellMm = _scene.Grid.CellMm;
-                double wCorridor = cor ? cellMm * 2.0 : 0.0;
-                int[] rackLevels = cor ? ComputeRackLevels() : System.Array.Empty<int>();
-                string priority = _priority;
-                // 계층 corridor 사용 여부('회랑 비용' 모드(cor)는 route_multi 로 랙 번들링 유지).
+                // 그룹 모드는 유틸 우선순위로 정렬 — 같은 유틸을 묶어 순차 라우팅하면 self-bundling 이 유틸별로
+                // 일관되게 자라 공용 트렁크에 다발로 모인다. 일반 모드는 기존 정렬(_priority).
+                string priority = cor ? "utility" : _priority;
+                // 계층 corridor 사용 여부(그룹 모드는 route_multi 로 회랑/랙 번들링 유지).
                 bool hier = _useHierarchicalCorridor && !cor;
                 // coarse 셀 ≈ 160mm 가 되도록 factor 산출(4~24 클램프), 통로 반경 2 coarse 셀.
                 int factor = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
 
-                // 진행 다이얼로그 — 표준 route_multi 경로(cor/hier 아님)에서만 배관별 콜백을 받아 실시간 표시.
-                bool useProgress = showProgress && !cor && !hier;
+                // 진행 다이얼로그 — 그룹 모드 또는 showProgress 일 때(계층 corridor 제외) 배관별 콜백 실시간 표시.
+                bool useProgress = (showProgress || cor) && !hier;
                 var grid = _scene.Grid;
                 // 엔진 작업 인덱스(=added 순서)별 메타/색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
                 // Brush(.Color)·컬렉션 접근이 불가). 콜백은 이 값 배열만 참조 → 스레드 안전.
@@ -1756,12 +1781,7 @@ namespace Routing3D.Viewer.ViewModels
 
                 await Task.Run(() =>
                 {
-                    if (cor)
-                    {
-                        engine.SetParams(cellMm, 500, 10, 2, 6, wCorridor, 1, rackLevels);
-                        engine.RouteMulti(priority);
-                    }
-                    else if (hier)
+                    if (hier)
                     {
                         // Sparse + astar_hashed: 셀 수 배열을 안 잡아 10mm 대형 격자도 안전.
                         // priority 순차 + mark_pipe 로 배관 간 충돌 0.
@@ -2044,11 +2064,13 @@ namespace Routing3D.Viewer.ViewModels
             var colorMap = UtilityColors.Assign(
                 scene.Tasks.Select(t => t.UtilityLabel)
                     .Concat(scene.ExistingPipes.Select(p => p.Label)));
+            // 자동(개발) 경로 = 유틸리티별 머지 메시. 색은 '유틸 색을 밝게(Lighten)' 한 같은 계열 색으로 그린다.
+            //   같은 유틸의 기존 설계배관(원래 유틸 색)보다 밝아 '사람 설계 vs 자동 설계'를 색으로 구분한다.
             var perUtil = new Dictionary<string, MeshBuilder>();
             var perUtilVisited = new Dictionary<string, MeshBuilder>();   // 방문맵 — 유틸리티별 머지 메시.
             var perUtilVisitedCount = new Dictionary<string, int>();      // 표시 셀 카운트(다운샘플 후).
             var successPaths = new List<PathCell[]>();
-            double tubeDia = grid.CellMm * 0.7;
+            double fallbackTubeDia = grid.CellMm * 0.7;   // 관경 미상 시 격자 기반 기본 지름.
             double markerR = grid.CellMm * 0.9;
             double visitedBoxSize = grid.CellMm * 0.5;  // 방문 셀 큐브 변(작게 — 경로보다 가늘게).
             const int VisitedCapPerUtility = 12000;     // 유틸리티당 표시 상한(WPF 부하 한도).
@@ -2069,7 +2091,7 @@ namespace Routing3D.Viewer.ViewModels
                 var uf = UtilityFilters.FirstOrDefault(u => u.Label == label);
                 bool utilVisible = uf == null || uf.IsVisible;
 
-                // 경로 튜브(ShowPaths + 유틸 가시 일 때).
+                // 경로 튜브(ShowPaths + 유틸 가시 일 때) — 실제 관경(매칭 기존배관 SOURCE_SIZE)으로 그린다.
                 if (drawPaths && utilVisible)
                 {
                     if (!perUtil.TryGetValue(label, out var mb))
@@ -2077,6 +2099,13 @@ namespace Routing3D.Viewer.ViewModels
                         mb = new MeshBuilder(false, false);
                         perUtil[label] = mb;
                     }
+                    // 관경: 행 캐시값 우선, 없으면 매칭 기존배관에서 1회 조회해 캐시(이후 재빌드 비용 절감).
+                    if (row.DiameterMm <= 0)
+                    {
+                        var exm = FindMatchingExistingPipe(row);
+                        row.DiameterMm = (exm != null && exm.DiameterMm > 0) ? exm.DiameterMm : 0;
+                    }
+                    double routeDia = row.DiameterMm > 0 ? Math.Max(row.DiameterMm, 8.0) : fallbackTubeDia;
                     // 표시 경로 = [출발 스텁] + [A* 중간] + [reverse(종단 스텁)]. 스텁이 없으면 A* 경로만.
                     var pts = new List<Point3D>();
                     if (row.StartStub != null)
@@ -2085,7 +2114,7 @@ namespace Routing3D.Viewer.ViewModels
                     if (row.EndStub != null)
                         for (int k = row.EndStub.Count - 1; k >= 0; k--)
                             pts.Add(new Point3D(row.EndStub[k].X, row.EndStub[k].Y, row.EndStub[k].Z));
-                    if (pts.Count >= 2) mb.AddTube(pts, tubeDia, 8, false);
+                    if (pts.Count >= 2) mb.AddTube(pts, routeDia, 10, false);
                     mb.AddSphere(pts[0], markerR);
                     mb.AddSphere(pts[^1], markerR);
                 }
@@ -2119,13 +2148,14 @@ namespace Routing3D.Viewer.ViewModels
                 }
             }
 
-            if (drawPaths)
+            if (drawPaths && perUtil.Count > 0)
             {
                 foreach (var kv in perUtil)
                 {
-                    var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
-                    group.Children.Add(Geometry(kv.Value, color, 255));
-                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(color), Label = kv.Key });
+                    var baseColor = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
+                    var lit = Lighten(baseColor, 0.55);   // 자동 경로 = 유틸 색을 밝게(기존 설계보다 밝은 같은 계열).
+                    group.Children.Add(Geometry(kv.Value, lit, 255));
+                    Legend.Add(new LegendItem { Swatch = new SolidColorBrush(lit), Label = $"자동 {kv.Key} (밝게·관경)" });
                 }
             }
 
@@ -2204,6 +2234,7 @@ namespace Routing3D.Viewer.ViewModels
                 }
                 else
                 {
+                    // 기존 설계배관 = 유틸리티 색(원색). 같은 유틸 자동 경로는 이 색을 밝게 한 색이라 구분된다.
                     foreach (var kv in perUtilEx)
                     {
                         var color = colorMap.TryGetValue(kv.Key, out var c) ? c : Colors.Gray;
@@ -2212,8 +2243,8 @@ namespace Routing3D.Viewer.ViewModels
                     if (drawn > 0)
                         Legend.Add(new LegendItem
                         {
-                            Swatch = new SolidColorBrush(Color.FromArgb(235, 200, 200, 200)),
-                            Label = $"기존 설계배관 {drawn}"
+                            Swatch = new SolidColorBrush(Color.FromArgb(235, 160, 160, 160)),
+                            Label = $"기존 설계배관 {drawn} (유틸 색·관경)"
                         });
                 }
                 if (ShowStubs && stubDrawn > 0)
@@ -2797,6 +2828,14 @@ namespace Routing3D.Viewer.ViewModels
             return new DiffuseMaterial(new SolidColorBrush(c));
         }
 
+        // 색을 흰색 쪽으로 t(0~1) 만큼 보간해 밝게 만든다 — 자동 경로(= 유틸 색을 밝게)와 기존 설계배관
+        //   (= 유틸 원색)을 같은 계열의 명도 차로 구분하는 데 쓴다. t=0 원색, t=1 흰색.
+        private static Color Lighten(Color c, double t)
+        {
+            byte L(byte v) => (byte)Math.Round(v + (255 - v) * t);
+            return Color.FromRgb(L(c.R), L(c.G), L(c.B));
+        }
+
         // ============================================================ 진행 다이얼로그 — 선택 배관 상세
         // 표 행 클릭 시 그 배관(taskIndex)의 로컬 영역만 미니 3D 로 합성하고 결과 설명을 만든다.
         // SceneModel 과 독립(자체 Model3DGroup) — 다이얼로그 미니 뷰포트에 표시. 라우팅 완료 후
@@ -2809,19 +2848,25 @@ namespace Routing3D.Viewer.ViewModels
                 return new Routing3D.Viewer.Views.PipeDetail(group, new Rect3D(), "데이터 없음");
             var grid = _scene.Grid;
             var row = Tasks[taskIndex];
-            var (lo, hi) = PipeWorldBounds(row, grid);
             bool gOn = layers.Length > 0 && layers[0];
             bool oOn = layers.Length > 1 && layers[1];
             bool vOn = layers.Length > 2 && layers[2];
             bool pOn = layers.Length > 3 && layers[3];
-            Color util = (row.Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
 
-            if (gOn) AddBoxFrame(group, lo, hi, Color.FromRgb(122, 223, 176), Math.Max(grid.CellMm * 0.08, 5), 200);
-            if (oOn) AddLocalOccupancy(group, grid, lo, hi);
-            if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited, util);
-            if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row, util);
+            // 전체 격자(도메인) 기준으로 표시한다 — 메인 뷰/실제 BIM 처럼 '모든 셀'을 대상으로 그려,
+            // 배관을 전체 장애물 맥락 안에서 본다(이전엔 배관 로컬 BBOX 로 잘라 부분 슬래브만 보여 혼동).
+            var dlo = new Point3D(grid.Ox, grid.Oy, grid.Oz);
+            var dhi = new Point3D(grid.Ox + grid.Nx * grid.CellMm,
+                                  grid.Oy + grid.Ny * grid.CellMm,
+                                  grid.Oz + grid.Nz * grid.CellMm);
 
-            var box = new Rect3D(lo.X, lo.Y, lo.Z, hi.X - lo.X, hi.Y - lo.Y, hi.Z - lo.Z);
+            // 색상 규약: 복셀맵=회색 선형 틀 · 점유맵=적색 · 방문맵=노랑 · 최종경로=파랑(꺾임 셀=녹색).
+            if (gOn) AddBoxFrame(group, dlo, dhi, Color.FromRgb(150, 152, 160), Math.Max(grid.CellMm * 0.12, 8), 200);
+            if (oOn) AddFullOccupancy(group, grid);
+            if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited);
+            if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row);
+
+            var box = new Rect3D(dlo.X, dlo.Y, dlo.Z, dhi.X - dlo.X, dhi.Y - dlo.Y, dhi.Z - dlo.Z);
             return new Routing3D.Viewer.Views.PipeDetail(group, box, ExplainPipe(taskIndex));
         }
 
@@ -2852,29 +2897,24 @@ namespace Routing3D.Viewer.ViewModels
             return (new Point3D(nx - m, ny - m, nz - m), new Point3D(xx + m, xy + m, xz + m));
         }
 
-        // 로컬 bbox 안의 점유(블록) 셀을 큐브로(옅은 청회색 반투명). CopyBlocked 를 bbox 셀 범위로 필터.
-        private void AddLocalOccupancy(Model3DGroup group, GridMeta g, Point3D lo, Point3D hi)
+        // 점유맵 — 전체 격자의 모든 블록(장애물) 셀을 '셀 크기' 적색 큐브로(반투명, 인접 큐브가 맞닿아
+        // 빈틈 없이 채움). 상한(cap) 초과 시에만 균등 다운샘플(메인 뷰 점유맵과 동일 정책). bbox 클리핑 없음.
+        private void AddFullOccupancy(Model3DGroup group, GridMeta g)
         {
             if (_engine == null) return;
             var cells = _engine.CopyBlocked();
             if (cells.Length == 0) return;
-            int i0 = (int)Math.Floor((lo.X - g.Ox) / g.CellMm), i1 = (int)Math.Ceiling((hi.X - g.Ox) / g.CellMm);
-            int j0 = (int)Math.Floor((lo.Y - g.Oy) / g.CellMm), j1 = (int)Math.Ceiling((hi.Y - g.Oy) / g.CellMm);
-            int k0 = (int)Math.Floor((lo.Z - g.Oz) / g.CellMm), k1 = (int)Math.Ceiling((hi.Z - g.Oz) / g.CellMm);
+            const int cap = 150_000;
+            int take = Math.Min(cap, cells.Length);
+            double stride = (double)cells.Length / take;
             double s = g.CellMm;
             var mb = new MeshBuilder(false, false);
-            int n = 0; const int cap = 60000;
-            foreach (var c in cells)
-            {
-                if (c.I < i0 || c.I > i1 || c.J < j0 || c.J > j1 || c.K < k0 || c.K > k1) continue;
-                mb.AddBox(CellToWorld(g, c), s, s, s);
-                if (++n >= cap) break;
-            }
-            if (n > 0) group.Children.Add(Geometry(mb, Color.FromRgb(130, 170, 200), 105));
+            for (int n = 0; n < take; n++) { var c = cells[(int)(n * stride)]; mb.AddBox(CellToWorld(g, c), s, s, s); }
+            group.Children.Add(Geometry(mb, Color.FromRgb(220, 70, 60), 120));   // 점유맵=적색.
         }
 
-        // 이 배관 A* 가 확장한 방문 셀(유틸 색 반투명, 점유보다 작은 큐브). 상한 초과 시 균등 다운샘플.
-        private static void AddLocalVisited(Model3DGroup group, GridMeta g, PathCell[] visited, Color col)
+        // 이 배관 A* 가 확장한 방문 셀(노란색 반투명, 점유보다 작은 큐브). 상한 초과 시 균등 다운샘플.
+        private static void AddLocalVisited(Model3DGroup group, GridMeta g, PathCell[] visited)
         {
             const int cap = 40000;
             int take = Math.Min(cap, visited.Length);
@@ -2882,28 +2922,50 @@ namespace Routing3D.Viewer.ViewModels
             double s = g.CellMm * 0.7;
             var mb = new MeshBuilder(false, false);
             for (int n = 0; n < take; n++) { var c = visited[(int)(n * stride)]; mb.AddBox(CellToWorld(g, c), s, s, s); }
-            group.Children.Add(Geometry(mb, col, 70));
+            group.Children.Add(Geometry(mb, Color.FromRgb(235, 205, 60), 80));   // 방문맵=노랑.
         }
 
-        // 최종 경로(스텁+A*+스텁) 튜브 + 시작(빨강)/종단(파랑) 구 마커.
-        private static void AddPipePath(Model3DGroup group, GridMeta g, TaskRowVM row, Color col)
+        // 최종 경로 — 경로 튜브(파랑) + 경로를 구성하는 셀 큐브(직선=파랑·꺾임=녹색) + 시작(빨강)/종단(파랑) 구.
+        private static void AddPipePath(Model3DGroup group, GridMeta g, TaskRowVM row)
         {
             double dia = Math.Max(g.CellMm * 0.35, 30);
-            if (row.Path.Length >= 1)
+            var path = row.Path;
+
+            // (1) 경로 튜브(스텁 포함) — 파랑.
+            if (path.Length >= 1)
             {
                 var pts = new List<Point3D>();
                 if (row.StartStub != null) pts.AddRange(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)));
-                pts.AddRange(row.Path.Select(c => CellToWorld(g, c)));
+                pts.AddRange(path.Select(c => CellToWorld(g, c)));
                 if (row.EndStub != null)
                     for (int k = row.EndStub.Count - 1; k >= 0; k--)
                         pts.Add(new Point3D(row.EndStub[k].X, row.EndStub[k].Y, row.EndStub[k].Z));
                 if (pts.Count >= 2)
                 {
                     var mb = new MeshBuilder(false, false);
-                    mb.AddTube(pts, dia, 10, false);
-                    group.Children.Add(Geometry(mb, col, 255));
+                    mb.AddTube(pts, dia, 12, false);
+                    group.Children.Add(Geometry(mb, Color.FromRgb(60, 150, 240), 255));   // 경로 튜브=파랑.
                 }
             }
+
+            // (2) 경로를 구성하는 셀 큐브 — 직선 셀=파랑, 방향이 바뀌는 꺾임 셀=녹색.
+            if (path.Length >= 1)
+            {
+                double s = g.CellMm * 0.55;
+                var straight = new MeshBuilder(false, false);
+                var bend = new MeshBuilder(false, false);
+                (int dx, int dy, int dz) Dir(PathCell a, PathCell b) =>
+                    (Math.Sign(b.I - a.I), Math.Sign(b.J - a.J), Math.Sign(b.K - a.K));
+                for (int i = 0; i < path.Length; i++)
+                {
+                    bool isBend = i > 0 && i < path.Length - 1 && Dir(path[i - 1], path[i]) != Dir(path[i], path[i + 1]);
+                    (isBend ? bend : straight).AddBox(CellToWorld(g, path[i]), s, s, s);
+                }
+                if (straight.Positions.Count > 0) group.Children.Add(Geometry(straight, Color.FromRgb(70, 130, 230), 205));   // 경로 셀=파랑.
+                if (bend.Positions.Count > 0) group.Children.Add(Geometry(bend, Color.FromRgb(80, 210, 110), 255));            // 꺾임 셀=녹색.
+            }
+
+            // (3) 시작/종단 구 마커.
             var sm = new MeshBuilder(false, false); sm.AddSphere(new Point3D(row.Sx, row.Sy, row.Sz), dia * 1.6);
             group.Children.Add(Geometry(sm, Color.FromRgb(230, 80, 80), 255));   // 시작=빨강.
             var em = new MeshBuilder(false, false); em.AddSphere(new Point3D(row.Gx, row.Gy, row.Gz), dia * 1.6);
@@ -2955,6 +3017,10 @@ namespace Routing3D.Viewer.ViewModels
                 else
                     sb.AppendLine("→ 종단까지 완전 차단되었습니다.\n   방문맵으로 어디까지 탐색하고 막혔는지 확인하세요(rip-up/CBS 대상).");
             }
+            sb.AppendLine();
+            sb.AppendLine("─ 색상 ─");
+            sb.AppendLine("복셀맵=회색 틀 · 점유맵=적색");
+            sb.AppendLine("방문맵=노랑 · 경로=파랑(꺾임=녹색)");
             return sb.ToString();
         }
     }

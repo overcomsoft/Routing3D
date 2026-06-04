@@ -135,6 +135,10 @@ namespace Routing3D.Viewer
             cam.LookDirection = dir * dist;
         }
 
+        // 🖼 이미지 저장 — 현재 메인 3D 뷰를 PNG/JPG 로 저장(2배 해상도).
+        private void OnSaveMainImage(object sender, RoutedEventArgs e)
+            => ViewportImage.Save(View, "routing_mainview");
+
         private void View_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             var screen = e.GetPosition(View);

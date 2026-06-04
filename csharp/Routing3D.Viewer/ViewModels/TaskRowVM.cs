@@ -39,6 +39,10 @@ namespace Routing3D.Viewer.ViewModels
         public PathCell[] Path { get; set; } = Array.Empty<PathCell>();
         public PathCell[] Visited { get; set; } = Array.Empty<PathCell>();
 
+        /// <summary>이 배관의 관경(외경, mm). 매칭되는 기존 설계배관(SOURCE_SIZE)에서 가져온다.
+        /// 0 이면 미상 → 렌더에서 격자 기반 기본 지름으로 폴백. 자동 경로 튜브를 실제 관경으로 그리는 데 쓴다.</summary>
+        public double DiameterMm { get; set; }
+
         // 스텁 라우팅: 출발/종단 스텁(고정 설계 구간, 월드 mm). A* 는 스텁 끝~끝만 탐색하고, 표시 경로는
         // [StartStub] + [A* 경로] + [reverse(EndStub)] 로 합성한다. null/빈 = 스텁 미적용(PoC 직접 라우팅).
         public System.Collections.Generic.List<Model.Pt3>? StartStub { get; set; }

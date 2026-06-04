@@ -91,6 +91,10 @@ namespace Routing3D.Viewer.Views
 
         private void OnMiniFit(object sender, RoutedEventArgs e) => FitMini();
 
+        // 🖼 저장 — 현재 미니 3D 뷰(선택 배관 복셀/점유/방문/경로)를 PNG/JPG 로 저장(2배 해상도).
+        private void OnSaveMiniImage(object sender, RoutedEventArgs e)
+            => ViewportImage.Save(MiniView, "routing_pipe");
+
         public void Begin(string label, int total)
         {
             Total = Math.Max(1, total);

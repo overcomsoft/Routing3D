@@ -34,12 +34,12 @@
                      Maximum="{Binding Total}" Value="{Binding Done}"
                      Background="#2b3548" Foreground="#385b85" BorderThickness="0"/>
 
-        <!-- 상: 진행 표 / 하: 선택 배관 상세(미니 3D + 설명). GridSplitter 로 비율 조절. -->
+        <!-- 상: 진행 표(작게) / 하: 선택 배관 상세 미니 3D(크게). GridSplitter 로 비율 조절. -->
         <Grid Grid.Row="2">
             <Grid.RowDefinitions>
-                <RowDefinition Height="2*" MinHeight="150"/>
+                <RowDefinition Height="1*" MinHeight="120"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="1*" MinHeight="230"/>
+                <RowDefinition Height="3*" MinHeight="380"/>
             </Grid.RowDefinitions>
 
             <DataGrid x:Name="RowGrid" Grid.Row="0" ItemsSource="{Binding Rows}" AutoGenerateColumns="False"
@@ -87,7 +87,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="380"/>
+                        <ColumnDefinition Width="300"/>
                     </Grid.ColumnDefinitions>
 
                     <DockPanel Grid.Column="0">
@@ -97,15 +97,17 @@
                                 <TextBlock Text="선택 배관:" FontWeight="Bold" Foreground="#bfc6d6"
                                            VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <CheckBox Content="복셀맵"  IsChecked="{Binding ShowGridLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
-                                          ToolTip="배관 로컬 영역의 격자 BBOX 12변(작업 공간 프레임)"/>
+                                          ToolTip="라우팅 영역의 격자 BBOX 12변(회색 선형 틀)"/>
                                 <CheckBox Content="점유맵"  IsChecked="{Binding ShowOccLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
-                                          ToolTip="로컬 영역의 점유(장애물) 셀 — 옅은 청회색 큐브"/>
+                                          ToolTip="로컬 영역의 장애물(점유) 셀 — 적색 큐브"/>
                                 <CheckBox Content="방문맵"  IsChecked="{Binding ShowVisLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
-                                          ToolTip="이 배관 라우팅 중 A* 가 확장한 셀(유틸 색 반투명). 실패 시 어디서 막혔는지 보임"/>
+                                          ToolTip="이 배관 라우팅 중 A* 가 확장한 방문 셀 — 노란색 반투명 큐브. 실패 시 어디서 막혔는지 보임"/>
                                 <CheckBox Content="최종경로" IsChecked="{Binding ShowPathLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
-                                          ToolTip="최종 라우팅 경로(유틸 색 튜브) + 시작(빨강)/종단(파랑) 마커 + 스텁"/>
+                                          ToolTip="경로 튜브 + 경로 구성 셀(파랑, 꺾임 셀=녹색) + 시작(빨강)/종단(파랑) 마커 + 스텁"/>
                                 <Button Content="↺ 전체보기" Click="OnMiniFit" Padding="8,2" MinWidth="0"
                                         ToolTip="미니 3D 뷰를 이 배관이 들어오도록 자동 줌"/>
+                                <Button Content="🖼 저장" Click="OnSaveMiniImage" Padding="8,2" MinWidth="0" Margin="6,0,0,0"
+                                        ToolTip="현재 미니 3D 뷰를 PNG/JPG 이미지 파일로 저장(2배 해상도)"/>
                             </StackPanel>
                         </Border>
                         <h:HelixViewport3D x:Name="MiniView" Background="#0f1320"

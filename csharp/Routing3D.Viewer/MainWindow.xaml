@@ -70,11 +70,13 @@
                 <Button  Content="↻ 다시 로드" Command="{Binding LoadProjectsCommand}"
                          ToolTip="DB 접속 정보 변경 후 프로젝트 목록을 다시 가져온다"/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
-                <Button Content="🌐 기존설계 유사 (회랑+랙)"  Command="{Binding RerouteCorridorCommand}"
-                        ToolTip="회랑(corridor) 인력 + 랙 레벨로 배관을 공용 랙에 뭉쳐 기존 설계처럼 라우팅(전체)"
+                <Button Content="🌐 기존설계 유사 (그룹배관)"  Command="{Binding RerouteCorridorCommand}"
+                        ToolTip="전체 배관을 기존설계처럼 '그룹'으로 라우팅: 끝단=기존 스텁(수직+엘보) · 자유공간=그룹배관 패턴(공용 트렁크 회랑)+매칭 기존배관 추종 · 유틸리티 순서로 self-bundling → 같은 유틸 배관이 공용 랙에 평행 다발. 셀이 50mm 보다 크면 자동으로 50mm 재적재(레인 분리 필요)."
                         Background="#3a4e7a" MinWidth="110"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
+                <Button Content="🖼 이미지 저장" Click="OnSaveMainImage" Margin="4,0,0,0"
+                        ToolTip="현재 메인 3D 뷰를 PNG/JPG 이미지 파일로 저장(2배 해상도)"/>
 
                 <!-- 진단 레이어(디버그용 복셀) — 하단 바에서 상단으로 이동 -->
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
@@ -276,7 +278,7 @@
                                       ToolTip="스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료. 표시=출발 스텁+A* 중간+종단 스텁. 매칭 없으면 PoC 직접 라우팅 폴백. 기본 ON."/>
                             <CheckBox Content="{Binding BundleStatus}"
                                       IsChecked="{Binding UseBundlePattern}" Margin="0,0,12,0"
-                                      ToolTip="그룹배관 패턴(번들, L4) — 학습한 유틸별 공용 트렁크 고도(rack_levels)+레인 회랑을 신규 라우팅에 주입해 같은 유틸 배관을 공용 랙에 다발로 뭉칩니다. 적재: python -m routing3d_py.bundle_detect --project N --write-db. 주의: 셀>pitch(약 56mm)면 레인이 뭉개져 킨크 발생 — cell≤pitch/2 권장. 기본 OFF."/>
+                                      ToolTip="그룹배관 패턴(L4) — 학습한 유틸별 공용 트렁크 고도(rack_levels)+레인 회랑을 신규 라우팅에 주입해 같은 유틸 배관을 공용 랙에 다발로 뭉칩니다. 적재: python -m routing3d_py.bundle_detect --project N --write-db. 주의: 셀>pitch(약 56mm)면 레인이 뭉개져 킨크 발생 — cell≤pitch/2 권장. 기본 ON(항상 적용)."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
