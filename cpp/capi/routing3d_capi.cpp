@@ -176,6 +176,77 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
 using ProgressCb = std::function<void(int, int, int, bool, double, int, long long, double, int, int,
                                       double, const std::vector<Cell>*)>;
 
+// ---------------------------------------------------------------- 경로 후처리: 킨크/역주행 제거
+// A→B 를 직교(직선 또는 단일 엘보)로 잇는 셀열을 axisOrder 순서로 생성(끝점 포함).
+// 안 다른 축은 자연히 건너뛴다(이동량 0).
+inline std::vector<Cell> walk_order(Cell A, Cell B, const int (&axisOrder)[3]) {
+    std::vector<Cell> v;
+    v.push_back(A);
+    Cell c = A;
+    for (int oi = 0; oi < 3; ++oi) {
+        int ax = axisOrder[oi];
+        int target = (ax == 0) ? B.i : (ax == 1) ? B.j : B.k;
+        while (true) {
+            int cur = (ax == 0) ? c.i : (ax == 1) ? c.j : c.k;
+            if (cur == target) break;
+            int s = (target > cur) ? 1 : -1;
+            if (ax == 0) c.i += s; else if (ax == 1) c.j += s; else c.k += s;
+            v.push_back(c);
+        }
+    }
+    return v;
+}
+
+// A 와 B 를 직교 ≤1엘보(축차 ≤2) 로 잇는 충돌없는 셀열을 찾는다(축순서 후보 전수). 3축 차이는 실패.
+template <class Occ>
+bool ortho_connect(const Occ& occ, Cell A, Cell B, std::vector<Cell>& out) {
+    int axes = (A.i != B.i ? 1 : 0) + (A.j != B.j ? 1 : 0) + (A.k != B.k ? 1 : 0);
+    if (axes > 2) return false;                       // 2엘보(3축)는 단축 대상에서 제외(보수적).
+    static const int orders[6][3] = {{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
+    for (const auto& ord : orders) {
+        std::vector<Cell> v = walk_order(A, B, ord);
+        bool clear = true;
+        for (const Cell& c : v) if (occ.is_blocked(c)) { clear = false; break; }
+        if (clear) { out = std::move(v); return true; }
+    }
+    return false;
+}
+
+// 경로에서 역주행/킨크 제거: 떨어진 두 경로점을 '더 짧은 직교 연결(충돌없음)'로 대체하는 그리디 단축.
+// occ(장애물+이미 깔린 배관) 충돌만 검사 → 결과는 항상 물리적 유효. mark_pipe 전에 적용하므로 후속
+// 배관이 단축경로를 회피(M1/M2 보존). 결정적(가장 먼 j 우선·고정 축순서). 길이가 줄 때만 대체(무한루프 차단).
+template <class Occ>
+std::vector<Cell> unkink_path(const Occ& occ, const std::vector<Cell>& path) {
+    const int n = static_cast<int>(path.size());
+    if (n < 4) return path;
+    std::vector<Cell> out;
+    out.reserve(static_cast<size_t>(n));
+    out.push_back(path[0]);
+    int a = 0;
+    while (a < n - 1) {
+        int best = -1;
+        std::vector<Cell> bestSeg;
+        for (int j = n - 1; j >= a + 2; --j) {   // 가장 먼 j 우선(최대 단축).
+            std::vector<Cell> seg;
+            if (!ortho_connect(occ, path[static_cast<size_t>(a)], path[static_cast<size_t>(j)], seg))
+                continue;
+            const int segSteps = static_cast<int>(seg.size()) - 1, origSteps = j - a;
+            if (segSteps > origSteps) continue;   // 길어지면 기각.
+            if (segSteps == origSteps) {
+                // 같은 길이면 꺾임이 더 적을 때만 대체(평면 톱니/지그재그 정리).
+                std::vector<Cell> slice(path.begin() + a, path.begin() + j + 1);
+                if (count_turns(seg) >= count_turns(slice)) continue;
+            }
+            best = j;
+            bestSeg = std::move(seg);
+            break;
+        }
+        if (best < 0) { out.push_back(path[static_cast<size_t>(a + 1)]); a = a + 1; }
+        else { for (size_t s = 1; s < bestSeg.size(); ++s) out.push_back(bestSeg[s]); a = best; }
+    }
+    return out;
+}
+
 // 다중 배관 순차 라우팅의 백엔드 무관 본체(Occ = Dense/Implicit). order/snap/astar/mark_pipe 동일.
 // 결과를 '원본 작업 인덱스' 에 저장해 핸들 API(get_result(task)) 매핑을 보존한다.
 // on_pipe 가 유효하면 배관마다 호출(진행 다이얼로그용) — 결과/순서에는 영향 없음.
@@ -280,6 +351,17 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                                  on_pipe ? &intra : nullptr, progress_every);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;
+        // 킨크/역주행 제거(가중 탐색 전용, w_heur>1). 골든·표준 A*(w=1)는 미적용 → 결과 바이트 불변.
+        // mark 전에 적용해 후속 배관이 단축경로를 회피(M1/M2 보존). 회랑/번들 바이어스가 만든 톱니도 정리.
+        if (ok && doc.params.w_heur > 1.0 && path.size() >= 4) {
+            std::vector<Cell> up = unkink_path(work, path);
+            if (up.size() < path.size()) {  // 더 짧아졌을 때만 채택(길이·꺾임 감소).
+                path = std::move(up);
+                res.path = path;
+                res.length_mm = (path.size() - 1) * doc.params.cell_mm;
+                res.turns = count_turns(path);
+            }
+        }
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
         if (ok) {
             mark_pipe(work, path, 0);  // 깔린 경로를 점유로 추가(다음 배관 회피).

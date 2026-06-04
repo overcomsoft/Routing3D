@@ -355,7 +355,7 @@ namespace Routing3D.Viewer.Diagnostics
             catch (Exception ex) { eng.Dispose(); return $"{label}: ROUTE-EXCEPTION {ex.Message}"; }
             sw.Stop();
 
-            int ok = 0; double tot = 0;
+            int ok = 0; double tot = 0; long totTurns = 0;   // totTurns=성공경로 총 꺾임 수(역주행/킨크 지표).
             // 랙 집중도(L3a) — 성공 경로의 수평 이동 셀 중 학습된 랙 z-셀에 놓인 비율. 번들링 강화 시 증가.
             var rackSet = rackLevels != null ? new HashSet<int>(rackLevels) : null;
             long horizCells = 0, rackCells = 0;
@@ -365,7 +365,7 @@ namespace Routing3D.Viewer.Diagnostics
                 {
                     var r = eng.GetResult(i);
                     if (!r.Success) continue;
-                    ok++; tot += r.LengthMm;
+                    ok++; tot += r.LengthMm; totTurns += r.Turns;
                     if (rackSet != null)
                         for (int p = 1; p < r.Path.Length; p++)
                         {
@@ -421,7 +421,7 @@ namespace Routing3D.Viewer.Diagnostics
             string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
             string corr = corrCells > 0 ? $" corridor={corrCells}셀 wCorr={wCorrUsed:0}" : "";
             string nr = nearPct >= 0 ? $" 번들밀집={nearPct:0.0}%" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
