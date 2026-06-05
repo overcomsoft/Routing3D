@@ -552,9 +552,10 @@ namespace Routing3D.Viewer.Diagnostics
                     if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
                 }
             }
-            // 멤버 인지(v3, GUI 미러) — 탐지 번들 멤버의 '수직 입상'도 회랑으로(수직 번들 라우팅 활용).
+            // 멤버십 기준(v3, GUI 미러) — 탐지 번들 멤버 배관의 '모든 런(수평·수직)'을 회랑으로(trunk_axis·
+            //   trunk_z 밴드 무관). 비멤버 제외. 수평·수직 그룹배관 모두 경유지. 번들 미적재면 옛 밴드 폴백.
             bool memberAware = bundles.GroupCount > 0;
-            bool laneMode = trunkZ.Count > 0 || memberAware;
+            bool laneMode = memberAware || trunkZ.Count > 0;
             const double HorizTol = 0.34, MinRunMm = 800.0;
             const int BandCells = 1, LaneDilate = 1;
 
@@ -563,25 +564,30 @@ namespace Routing3D.Viewer.Diagnostics
                 if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
                 bool isMember = memberAware && pipe.RoutePathGuid != null
                                 && bundles.GroupIdOf(pipe.RoutePathGuid) >= 0;
+                if (memberAware && !isMember) continue;   // 멤버십 모드 — 검출된 다발만.
                 for (int i = 1; i < pipe.Points.Count; i++)
                 {
                     var a = pipe.Points[i - 1]; var b = pipe.Points[i];
                     double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
                     double horiz = Math.Sqrt(dx * dx + dy * dy);
                     double len = Math.Sqrt(horiz * horiz + dz * dz);
+                    bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
                     int dl = corrRad;
-                    if (laneMode)
+                    if (memberAware)
                     {
-                        bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
+                        if (len < (vertical ? MinRunMm * 0.3 : MinRunMm)) continue;
+                        dl = LaneDilate;
+                    }
+                    else if (laneMode)
+                    {
                         if (vertical)
                         {
-                            // 수직 입상 — 트렁크 밴드 통과/접 또는 번들 멤버면 채택(수직 번들).
                             if (len < MinRunMm * 0.3) continue;
                             int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
                             int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
                             bool touches = false;
                             foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
-                            if (!touches && !isMember) continue;
+                            if (!touches) continue;
                         }
                         else
                         {
