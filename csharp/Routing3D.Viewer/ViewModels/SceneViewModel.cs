@@ -1202,7 +1202,9 @@ namespace Routing3D.Viewer.ViewModels
         //   트렁크 고도(trunk_z)는 번들 템플릿에서 조회. 트렁크 밴드(±1셀) 안 수평 런만 채택(수직 라이저·팬아웃 제외).
         //   주의: 격자 셀 > pitch 면 인접 레인이 같은 셀로 뭉개진다(예 cell=100 > pitch≈56) → 셀 크기 ≤ pitch/2 권장.
         // 템플릿 미적재/트렁크 미스면 전체 폴리라인을 넓게(±2) 까는 옵션1 동작으로 폴백(무해).
-        private int[] BuildBundleCorridorCells(IReadOnlyList<int> rowPositions, int dilate)
+        //   includeVertical=true(표시 전용) — 트렁크 고도 밴드를 통과/접하는 '수직 입상(리저)'도 함께 채택해
+        //   패턴이 수평 트렁크 + 수직 입상을 모두 보이게 한다. 라우팅(회랑 주입)은 false(수직은 스텁 담당).
+        private int[] BuildBundleCorridorCells(IReadOnlyList<int> rowPositions, int dilate, bool includeVertical = false)
         {
             var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return System.Array.Empty<int>();
             var g = s.Grid; double cell = g.CellMm, oz = g.Oz;
@@ -1241,12 +1243,27 @@ namespace Routing3D.Viewer.ViewModels
                     int dl = dilate;
                     if (laneMode)
                     {
-                        // 레인 모드: 트렁크 고도 밴드 안의 '수평 런(랙 레인)'만, 타이트하게.
-                        if (horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz || len < MinRunMm) continue;
-                        int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
-                        bool nearTrunk = false;
-                        foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
-                        if (!nearTrunk) continue;
+                        bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
+                        if (vertical)
+                        {
+                            // 수직 입상(리저) — includeVertical(표시 전용) 일 때만. 트렁크 고도 밴드를 통과/접하는
+                            // 리저만 채택(랙 ↔ 장비/덕트 연결). 너무 짧은 수직(지터)은 제외.
+                            if (!includeVertical || len < MinRunMm * 0.3) continue;
+                            int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
+                            int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
+                            bool touches = false;
+                            foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
+                            if (!touches) continue;
+                        }
+                        else
+                        {
+                            // 수평 트렁크 런(랙 레인) — 트렁크 고도 밴드 안만, 타이트하게.
+                            if (len < MinRunMm) continue;
+                            int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
+                            bool nearTrunk = false;
+                            foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
+                            if (!nearTrunk) continue;
+                        }
                         dl = LaneDilate;
                     }
                     int steps = Math.Max(1, (int)(len / (cell * 0.5)));
@@ -2264,7 +2281,7 @@ namespace Routing3D.Viewer.ViewModels
             if (ShowBundlePattern && _bundles != null)
             {
                 var scopeRows = PatternScopeRows();
-                var laneCells = BuildBundleCorridorCells(scopeRows, 2);   // 유틸별 트렁크 레인 셀(병합 ijk).
+                var laneCells = BuildBundleCorridorCells(scopeRows, 2, includeVertical: true);   // 트렁크 레인 + 입상(표시).
                 // 큐브 변 = 실제 관경×1.35(배관보다 살짝 크게) — 관경 미상이면 셀×0.9 폴백.
                 double patDia = RepresentativePipeDia(scopeRows);
                 double patCube = patDia > 0 ? patDia * 1.35 : grid.CellMm * 0.9;
@@ -3145,7 +3162,7 @@ namespace Routing3D.Viewer.ViewModels
             if (patOn && _bundles != null)
             {
                 double patCube = row.DiameterMm > 0 ? row.DiameterMm * 1.35 : grid.CellMm * 0.9;
-                AddBundlePatternVoxels(group, grid, BuildBundleCorridorCells(new List<int> { taskIndex }, 2), patCube, 95, 120_000);
+                AddBundlePatternVoxels(group, grid, BuildBundleCorridorCells(new List<int> { taskIndex }, 2, includeVertical: true), patCube, 95, 120_000);
             }
             if (vOn && row.Visited.Length > 0) AddLocalVisited(group, grid, row.Visited);
             if (pOn && row.Path.Length >= 1) AddPipePath(group, grid, row);
