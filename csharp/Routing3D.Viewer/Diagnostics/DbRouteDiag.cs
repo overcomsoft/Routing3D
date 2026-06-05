@@ -413,6 +413,46 @@ namespace Routing3D.Viewer.Diagnostics
                     nearPct = pairs > 0 ? sum / pairs * 100.0 : -1;
                 }
             }
+            // 기존배관 복제(폴리라인) 검증 — R3D_REPLICATE=on 이면 매칭 배관 폴리라인을 셀로 복제하고 막힌
+            //   구간만 eng.RouteTask 로 국소 수리, 매칭/성공/수리 통계를 보고(GUI ReplicateMatchedPipes 미러).
+            string replic = "";
+            if (string.Equals(Environment.GetEnvironmentVariable("R3D_REPLICATE"), "on", StringComparison.OrdinalIgnoreCase)
+                && (long)g.Nx * g.Ny * g.Nz <= 30_000_000L)
+            {
+                int matched = 0, repOk = 0, repFail = 0; long repairs = 0, copied = 0;
+                // 막힘 판정 박스(장애물 통과 제외 + 설비 + 덕트, minT 팽창) — 셀 AABB 겹침이면 막힘.
+                double minT = cell;
+                var boxes = new List<(double, double, double, double, double, double)>();
+                void AddB(double a, double b, double c2, double d, double e2, double f2)
+                {
+                    if (d - a < minT) { double m = (a + d) / 2; a = m - minT / 2; d = m + minT / 2; }
+                    if (e2 - b < minT) { double m = (b + e2) / 2; b = m - minT / 2; e2 = m + minT / 2; }
+                    if (f2 - c2 < minT) { double m = (c2 + f2) / 2; c2 = m - minT / 2; f2 = m + minT / 2; }
+                    boxes.Add((a, b, c2, d, e2, f2));
+                }
+                foreach (var o in sd.Obstacles) if (!o.IsPassThrough) AddB(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                foreach (var e in sd.Equipment) AddB(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                foreach (var d in sd.DuctsLaterals) AddB(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                bool Blk(int ci, int cj, int ck)
+                {
+                    double clx = g.Ox + ci * cell, chx = clx + cell, cly = g.Oy + cj * cell, chy = cly + cell,
+                           clz = g.Oz + ck * cell, chz = clz + cell;
+                    foreach (var (mnx, mny, mnz, mxx, mxy, mxz) in boxes)
+                        if (clx < mxx && chx > mnx && cly < mxy && chy > mny && clz < mxz && chz > mnz) return true;
+                    return false;
+                }
+                foreach (var t in rows)
+                {
+                    var pipe = MatchPipe(sd, t, cell);
+                    if (pipe == null || pipe.Points.Count < 2) continue;
+                    matched++;
+                    var res = ReplicateOne(sd, t, pipe, Blk, eng);
+                    if (res == null) { repFail++; continue; }
+                    repOk++; copied += res.Value.cells; repairs += res.Value.repairs;
+                }
+                replic = $" [replicate matched {matched} ok {repOk} fail {repFail} repairs {repairs} cells {copied}]";
+            }
+
             eng.Dispose();
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
@@ -421,7 +461,7 @@ namespace Routing3D.Viewer.Diagnostics
             string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
             string corr = corrCells > 0 ? $" corridor={corrCells}셀 wCorr={wCorrUsed:0}" : "";
             string nr = nearPct >= 0 ? $" 번들밀집={nearPct:0.0}%" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}{replic}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
@@ -512,13 +552,17 @@ namespace Routing3D.Viewer.Diagnostics
                     if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
                 }
             }
-            bool laneMode = trunkZ.Count > 0;
+            // 멤버 인지(v3, GUI 미러) — 탐지 번들 멤버의 '수직 입상'도 회랑으로(수직 번들 라우팅 활용).
+            bool memberAware = bundles.GroupCount > 0;
+            bool laneMode = trunkZ.Count > 0 || memberAware;
             const double HorizTol = 0.34, MinRunMm = 800.0;
             const int BandCells = 1, LaneDilate = 1;
 
             foreach (var pipe in sd.ExistingPipes)
             {
                 if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
+                bool isMember = memberAware && pipe.RoutePathGuid != null
+                                && bundles.GroupIdOf(pipe.RoutePathGuid) >= 0;
                 for (int i = 1; i < pipe.Points.Count; i++)
                 {
                     var a = pipe.Points[i - 1]; var b = pipe.Points[i];
@@ -528,11 +572,25 @@ namespace Routing3D.Viewer.Diagnostics
                     int dl = corrRad;
                     if (laneMode)
                     {
-                        if (horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz || len < MinRunMm) continue;
-                        int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
-                        bool nearTrunk = false;
-                        foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
-                        if (!nearTrunk) continue;
+                        bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
+                        if (vertical)
+                        {
+                            // 수직 입상 — 트렁크 밴드 통과/접 또는 번들 멤버면 채택(수직 번들).
+                            if (len < MinRunMm * 0.3) continue;
+                            int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
+                            int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
+                            bool touches = false;
+                            foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
+                            if (!touches && !isMember) continue;
+                        }
+                        else
+                        {
+                            if (len < MinRunMm) continue;
+                            int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
+                            bool nearTrunk = false;
+                            foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
+                            if (!nearTrunk) continue;
+                        }
                         dl = LaneDilate;
                     }
                     int steps = Math.Max(1, (int)(len / (cell * 0.5)));
@@ -605,6 +663,88 @@ namespace Routing3D.Viewer.Diagnostics
         {
             double n = Math.Sqrt(x * x + y * y + z * z);
             return n < 1e-9 ? new double[3] : new[] { x / n, y / n, z / n };
+        }
+
+        // === 기존배관 복제(폴리라인) — GUI SceneViewModel.ReplicatePath 미러(헤드리스 검증용) ===
+        // 매칭 폴리라인을 6-연결 셀로 복제하고 막힌 구간만 eng.RouteTask 로 국소 수리. 반환=(셀수, 수리횟수) 또는 null.
+        static (int cells, int repairs)? ReplicateOne(SceneData sd, TaskInfo t, ExistingPipe pipe,
+                                                      Func<int, int, int, bool> blk, Engine eng)
+        {
+            var g = sd.Grid;
+            var ps = pipe.SourcePos ?? pipe.Points[0];
+            var pe = pipe.TargetPos ?? pipe.Points[pipe.Points.Count - 1];
+            bool fwd = D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe)
+                       <= D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
+            var pts = new List<Pt3>(pipe.Points); if (!fwd) pts.Reverse();
+            pts.Insert(0, new Pt3(t.Sx, t.Sy, t.Sz)); pts.Add(new Pt3(t.Gx, t.Gy, t.Gz));
+            var cells = PolyToCells(pts, g);
+            if (cells.Count < 2) return null;
+            var outp = new List<PathCell>(); int i = 0;
+            while (i < cells.Count && blk(cells[i].I, cells[i].J, cells[i].K)) i++;
+            if (i >= cells.Count) return null;
+            outp.Add(cells[i]); i++; int reps = 0;
+            while (i < cells.Count)
+            {
+                int j = i; while (j < cells.Count && blk(cells[j].I, cells[j].J, cells[j].K)) j++;
+                if (j >= cells.Count) break;
+                var prev = outp[outp.Count - 1];
+                if (j == i && Adj(prev, cells[i])) outp.Add(cells[i]);
+                else
+                {
+                    var rep = Repair(eng, g, prev, cells[j]);
+                    if (rep == null) return null;
+                    for (int k = 1; k < rep.Length; k++) outp.Add(rep[k]);
+                    reps++;
+                }
+                i = j + 1;
+            }
+            return outp.Count >= 2 ? (outp.Count, reps) : null;
+        }
+
+        static List<PathCell> PolyToCells(IReadOnlyList<Pt3> pts, GridMeta g)
+        {
+            var outc = new List<PathCell>();
+            PathCell ToCell(Pt3 p) => new(
+                Math.Clamp((int)Math.Floor((p.X - g.Ox) / g.CellMm), 0, g.Nx - 1),
+                Math.Clamp((int)Math.Floor((p.Y - g.Oy) / g.CellMm), 0, g.Ny - 1),
+                Math.Clamp((int)Math.Floor((p.Z - g.Oz) / g.CellMm), 0, g.Nz - 1));
+            void Push(PathCell c)
+            {
+                if (outc.Count == 0) { outc.Add(c); return; }
+                if (outc[outc.Count - 1].Equals(c)) return;
+                if (!Adj(outc[outc.Count - 1], c)) Ortho(outc, c); else outc.Add(c);
+            }
+            for (int seg = 1; seg < pts.Count; seg++)
+            {
+                var a = pts[seg - 1]; var b = pts[seg];
+                double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y) + (b.Z - a.Z) * (b.Z - a.Z));
+                int steps = Math.Max(1, (int)(len / (g.CellMm * 0.5)));
+                for (int s = 0; s <= steps; s++)
+                {
+                    double tt = (double)s / steps;
+                    Push(ToCell(new Pt3(a.X + (b.X - a.X) * tt, a.Y + (b.Y - a.Y) * tt, a.Z + (b.Z - a.Z) * tt)));
+                }
+            }
+            return outc;
+        }
+
+        static void Ortho(List<PathCell> outc, PathCell to)
+        {
+            var cur = outc[outc.Count - 1];
+            while (cur.K != to.K) { cur = new PathCell(cur.I, cur.J, cur.K + Math.Sign(to.K - cur.K)); outc.Add(cur); }
+            while (cur.I != to.I) { cur = new PathCell(cur.I + Math.Sign(to.I - cur.I), cur.J, cur.K); outc.Add(cur); }
+            while (cur.J != to.J) { cur = new PathCell(cur.I, cur.J + Math.Sign(to.J - cur.J), cur.K); outc.Add(cur); }
+        }
+
+        static bool Adj(PathCell a, PathCell b)
+            => Math.Abs(a.I - b.I) + Math.Abs(a.J - b.J) + Math.Abs(a.K - b.K) == 1;
+
+        static PathCell[]? Repair(Engine eng, GridMeta g, PathCell from, PathCell to)
+        {
+            double ax = g.Ox + (from.I + 0.5) * g.CellMm, ay = g.Oy + (from.J + 0.5) * g.CellMm, az = g.Oz + (from.K + 0.5) * g.CellMm;
+            double bx = g.Ox + (to.I + 0.5) * g.CellMm, by = g.Oy + (to.J + 0.5) * g.CellMm, bz = g.Oz + (to.K + 0.5) * g.CellMm;
+            try { int task = eng.AddTask(ax, ay, az, bx, by, bz, null, null); var r = eng.RouteTask(task); return r.Success && r.Path.Length >= 1 ? r.Path : null; }
+            catch { return null; }
         }
 
         // 환경변수를 double 로 파싱(미설정/형식오류면 기본값). L2b 속도 튜닝 노브용.

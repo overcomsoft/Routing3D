@@ -49,10 +49,12 @@ namespace Routing3D.Viewer.Views
         public string DetailText { get => _detailText; set { _detailText = value; OnPc(nameof(DetailText)); } }
 
         private bool _showGridLayer = true, _showOccLayer = true, _showVisLayer = true, _showPathLayer = true;
+        private bool _showPatternLayer;   // 그룹배관 패턴(L4 트렁크 레인) — 미니 3D 에 보라색 반투명 큐브. 기본 OFF.
         public bool ShowGridLayer { get => _showGridLayer; set { _showGridLayer = value; OnPc(nameof(ShowGridLayer)); RebuildDetail(); } }
         public bool ShowOccLayer  { get => _showOccLayer;  set { _showOccLayer  = value; OnPc(nameof(ShowOccLayer));  RebuildDetail(); } }
         public bool ShowVisLayer  { get => _showVisLayer;  set { _showVisLayer  = value; OnPc(nameof(ShowVisLayer));  RebuildDetail(); } }
         public bool ShowPathLayer { get => _showPathLayer; set { _showPathLayer = value; OnPc(nameof(ShowPathLayer)); RebuildDetail(); } }
+        public bool ShowPatternLayer { get => _showPatternLayer; set { _showPatternLayer = value; OnPc(nameof(ShowPatternLayer)); RebuildDetail(); } }
 
         public RoutingProgressWindow()
         {
@@ -73,7 +75,7 @@ namespace Routing3D.Viewer.Views
         private void RebuildDetail()
         {
             if (DetailProvider == null || _selectedTaskIndex < 0 || MiniModelVisual == null) return;
-            var layers = new[] { _showGridLayer, _showOccLayer, _showVisLayer, _showPathLayer };
+            var layers = new[] { _showGridLayer, _showOccLayer, _showVisLayer, _showPathLayer, _showPatternLayer };
             PipeDetail d;
             try { d = DetailProvider(_selectedTaskIndex, layers); }
             catch (Exception ex) { DetailText = "상세 생성 오류: " + ex.Message; return; }
@@ -90,6 +92,10 @@ namespace Routing3D.Viewer.Views
         }
 
         private void OnMiniFit(object sender, RoutedEventArgs e) => FitMini();
+
+        // 🖼 저장 — 현재 미니 3D 뷰(선택 배관 복셀/점유/방문/경로)를 PNG/JPG 로 저장(2배 해상도).
+        private void OnSaveMiniImage(object sender, RoutedEventArgs e)
+            => ViewportImage.Save(MiniView, "routing_pipe");
 
         public void Begin(string label, int total)
         {

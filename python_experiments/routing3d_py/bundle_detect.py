@@ -23,14 +23,18 @@ r"""그룹(번들) 배관 탐지 — 기하 유사도 분석으로 평행 다발
 사람이 설계한 기존배관(route_db.ExistingPipe)을 장비명(owner_name)·유틸리티(utility)별로 묶어,
 경로 '형태 패턴'의 유사도를 분석해 함께 다발(Bundle)로 깔린 배관 그룹을 자동 추출한다.
 
-  번들(그룹) 배관 정의 = 여러 배관이 '동일 이격간격'으로 나란히 가면서, 각 배관이 '2번 이상의
-  수직·수평 꺾임'을 공유하는 묶음(파이프 랙 다발). 두 조건을 모두 만족해야 번들로 인정한다.
+  번들(그룹) 배관 정의(v3) = 여러 배관이 '동일 이격간격'으로 나란히(평행) '함께 진행'하는 묶음.
+    · 진행축은 수평(x·y) 뿐 아니라 수직(z, 입상/리저)도 포함한다.
+    · 각 배관은 진행하는 동안 자기 '레인'(진행축과 직교하는 고정 좌표)을 ±10mm 안에서 유지한다(레인 유지).
+    · 꺾임(밴딩)이 있으면, 같은 각도(±2°)로 함께 꺾이는 배관은 한 그룹으로 이어서 포함한다(코너 추종).
+    · 꺾임 자체는 필수가 아니다 — 직선 평행 다발도 번들이다(옛 '≥2꺾임 필수' 게이트 폐기).
 
 [3단계 파이프라인]  (개발계획: docs/routing3d_bundle_detection_plan.md)
-  Phase 1  개별 경로 특징 추출 : 방향 런 압축 → Arrow Coding(R/H/D) · 꺾임 수 · 방향벡터 · 길이 · 규모.
-  Phase 2  복합 유사도(4대 지표): 형태 30%(Levenshtein) + 방향 30%(코사인) + 길이 20% + 규모 20%.
-  Phase 3  그룹화·트렁크 탐지   : (장비,유틸) 키 내 Union-Find(임계 0.70) → 번들 게이트(≥2꺾임 + 동일 pitch)
-                                 → 트렁크 z·다발 폭·이격간격 산출.
+  Phase 1  개별 경로 특징 추출 : 방향 런 압축 → Arrow Coding(R/H/D) · 꺾임 수 · 방향벡터 · 길이 · 규모(유사도 참고).
+  Phase 2  복합 유사도(4대 지표): 형태 30%(Levenshtein) + 방향 30%(코사인) + 길이 20% + 규모 20% (참고 메트릭).
+  Phase 3  공간 동시진행 검출   : (장비,유틸) 키 → 배관을 '축정렬 직선 런'으로 분해(레인 유지 ±10mm)
+                                 → 같은 축·겹치는 진행구간·공유 직교좌표(±10mm)로 동시진행 묶음
+                                 → perp 등간격 분할(outlier 제외) → 코너(멤버≥2 공유) 병합 → trunk_axis·z·pitch 산출.
 
 [단위]  좌표·치수 모두 mm. 라우트=BIM 동일 월드 프레임. 직교(맨해튼) 형상 가정.
 ================================================================================
@@ -49,13 +53,22 @@ from .route_db import ExistingPipe
 Vec3 = tuple[float, float, float]
 
 # ------------------------------------------------------------------ 파라미터(기본값)
-SIM_THRESHOLD = 0.70    # Union-Find union 임계(인포그래픽 70%).
-W_SHAPE, W_DIR, W_LEN, W_SCALE = 0.30, 0.30, 0.20, 0.20   # 4대 지표 가중(합=1).
-MIN_BENDS = 2           # 번들 게이트: 최소 수직·수평 꺾임 수.
-PITCH_CV_MAX = 0.30     # 동일 이격간격 허용 변동계수(std/mean).
+SIM_THRESHOLD = 0.70    # (참고) 유사도 메트릭 임계 — v3 검출 게이트엔 미사용(CLI 호환).
+W_SHAPE, W_DIR, W_LEN, W_SCALE = 0.30, 0.30, 0.20, 0.20   # 4대 지표 가중(합=1, 참고 메트릭).
+MIN_BENDS = 0           # 번들 게이트: 최소 수직·수평 꺾임 수(v3 기본 0 — 직선 평행 다발도 번들).
+PITCH_CV_MAX = 0.30     # (참고) 동일 이격간격 허용 변동계수 — v3 미사용(CLI 호환).
 RESAMPLE_N = 24         # 방향 유사도 리샘플 세그먼트 수(점 개수).
 DIAG_TOL = 0.34         # R/H 판정 tol — 비우세 성분이 우세 성분의 이 비율 이하라야 직교(아니면 D).
 Z_BIN_MM = 100.0        # 트렁크 z 최빈 버킷(mm).
+
+# ── v3 공간 동시진행(co-travel) 검출 파라미터 ──
+LANE_TOL_MM = 10.0       # 레인 유지: 진행 중 직교(perp) 좌표 변동 허용(±). 사용자 정의 핵심값.
+BEND_ANGLE_TOL_DEG = 2.0  # 밴딩 각도 동일 허용(±). 직교 BIM 데이터는 축 분류로 흡수(명시 검사 불필요).
+MIN_RUN_MM = 800.0       # 동시진행 '런'으로 인정할 최소 진행길이(짧은 지터·스텁 제외).
+MIN_OVERLAP_MM = 300.0   # 두 런이 '함께 진행'한다고 볼 최소 진행방향 겹침.
+PITCH_GAP_FACTOR = 2.5   # 등간격 분할 — 인접 간격이 기준 런의 이 배수보다 크면 다른 다발로 끊음.
+MIN_RACK_MEMBERS = 2     # 한 번들로 인정할 최소 멤버(배관) 수.
+Z_MERGE_MM = 400.0       # (참고) 트렁크 z 근접 병합 임계.
 
 # 6직교 축: 0..5 = +x,-x,+y,-y,+z,-z.
 AXIS_NAMES = ["+x", "-x", "+y", "-y", "+z", "-z"]
@@ -321,6 +334,7 @@ class BundleGroup:
     pitch_mm: float
     n_ortho_bends: int
     arrow_code: str
+    trunk_axis: int = 0          # 주 진행축 0=x · 1=y · 2=z(수직/입상). 2 면 trunk_z 는 랙고도 아님(중앙값).
 
 
 def _trunk_z(feats: list[PipeFeature]) -> float:
@@ -341,24 +355,198 @@ def _trunk_z(feats: list[PipeFeature]) -> float:
     return max(acc.items(), key=lambda kv: kv[1])[0]
 
 
-def _pitch_stats(feats: list[PipeFeature], trunk_axis: int) -> tuple[float, float, float]:
-    """멤버 중심선을 주축의 수직 수평축에 투영 → (pitch 중앙값, pitch 변동계수, 다발 폭).
+def _avg_pair_similarity(mfeats: list["PipeFeature"], max_pairs: int = 200) -> float:
+    """번들 멤버 쌍 평균 형태유사도(참고 메트릭). 멤버가 많으면 앞쪽 쌍을 표본화(O(n²) 회피)."""
+    n = len(mfeats)
+    if n < 2:
+        return 1.0
+    sims: list[float] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            sims.append(composite_similarity(mfeats[i], mfeats[j]))
+            if len(sims) >= max_pairs:
+                return statistics.fmean(sims)
+    return statistics.fmean(sims) if sims else 1.0
 
-    trunk_axis(0=x,1=y) 와 직교하는 수평축(perp)으로 멤버 centroid offset 을 정렬해
-    인접 간격(pitch)을 본다. 멤버 1개면 (0,0,0). 2개면 CV=0(자명한 등간격).
+
+# ================================================================== v3 — 공간 동시진행 검출
+@dataclass
+class _Run:
+    """배관 1개의 '축정렬 직선 런' 1개 — 레인 유지(±LANE_TOL) 구간.
+
+    pipe_idx : 소속 배관 인덱스(멤버 식별).
+    axis     : 진행축 0=x · 1=y · 2=z.
+    t0,t1    : 진행축 좌표 구간(t0<t1, mm).
+    perp     : 진행축과 직교하는 두 축의 고정 좌표(perp_axes 순서, mm).
+    perp_axes: 직교 두 축 인덱스 (a,b)  (a<b).
+    length   : 진행 길이(t1-t0).
     """
-    perp = 1 - trunk_axis               # 0↔1 (x↔y).
-    offs = sorted(f.centroid[perp] for f in feats)
-    spread = offs[-1] - offs[0]
-    if len(offs) < 2:
-        return 0.0, 0.0, 0.0
-    pitches = [offs[i] - offs[i - 1] for i in range(1, len(offs))]
-    med = statistics.median(pitches)
-    if len(pitches) == 1:
-        return med, 0.0, spread
-    mean = statistics.fmean(pitches)
-    cv = (statistics.pstdev(pitches) / mean) if mean > 1e-9 else 0.0
-    return med, cv, spread
+
+    pipe_idx: int
+    axis: int
+    t0: float
+    t1: float
+    perp: tuple[float, float]
+    perp_axes: tuple[int, int]
+    length: float
+
+
+def _extract_runs(pipe_idx: int, pts: list[Vec3]) -> list[_Run]:
+    """폴리라인을 '축정렬 직선 런'으로 분해한다(레인 유지 ±LANE_TOL).
+
+    각 세그먼트의 우세축으로 분류하고, 같은 축이 이어지는 동안 직교(perp) 좌표 밴드가 ±LANE_TOL 을
+    넘지 않으면 한 런으로 병합한다. 밴드를 넘으면(=레인 이탈/꺾임) 런을 끊는다. 사선(perp 드리프트가
+    LANE_TOL 초과) 세그먼트는 깨끗한 런을 못 이루므로 자연히 제외된다(밴드 게이트). 90° 밴딩은 우세축
+    전환으로 검출되어 ±2° 오차를 흡수한다(직교 BIM 가정). MIN_RUN_MM 미만 런은 버린다(지터·스텁).
+    """
+    band = 2.0 * LANE_TOL_MM             # perp 변동 허용 폭(±LANE_TOL → 폭 2×).
+    cur: dict | None = None
+    raw: list[dict] = []
+
+    def close():
+        if cur is not None:
+            raw.append(cur)
+
+    for i in range(1, len(pts)):
+        a, b = pts[i - 1], pts[i]
+        d = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        if _norm(d) < 1e-6:
+            continue
+        ax = max(range(3), key=lambda k: abs(d[k]))
+        pax = tuple(k for k in range(3) if k != ax)     # (a,b) a<b.
+        pmin = [min(a[pax[0]], b[pax[0]]), min(a[pax[1]], b[pax[1]])]
+        pmax = [max(a[pax[0]], b[pax[0]]), max(a[pax[1]], b[pax[1]])]
+        tlo, thi = (a[ax], b[ax]) if a[ax] <= b[ax] else (b[ax], a[ax])
+        if cur is not None and cur["axis"] == ax:
+            nmin = [min(cur["pmin"][j], pmin[j]) for j in range(2)]
+            nmax = [max(cur["pmax"][j], pmax[j]) for j in range(2)]
+            if all(nmax[j] - nmin[j] <= band for j in range(2)):
+                cur["tlo"] = min(cur["tlo"], tlo); cur["thi"] = max(cur["thi"], thi)
+                cur["pmin"], cur["pmax"] = nmin, nmax
+                continue
+        close()
+        cur = {"axis": ax, "tlo": tlo, "thi": thi, "pmin": pmin, "pmax": pmax, "pax": pax}
+    close()
+
+    out: list[_Run] = []
+    for r in raw:
+        length = r["thi"] - r["tlo"]
+        if length < MIN_RUN_MM:
+            continue
+        # 깨끗한 레인만(perp 밴드 ≤ band) — 사선/드리프트 런 제외.
+        if any(r["pmax"][j] - r["pmin"][j] > band for j in range(2)):
+            continue
+        perp = ((r["pmin"][0] + r["pmax"][0]) / 2.0, (r["pmin"][1] + r["pmax"][1]) / 2.0)
+        out.append(_Run(pipe_idx, r["axis"], r["tlo"], r["thi"], perp, r["pax"], length))
+    return out
+
+
+def _overlap(a: _Run, b: _Run) -> float:
+    """두 런의 진행방향 겹침 길이(없으면 0 이하)."""
+    return min(a.t1, b.t1) - max(a.t0, b.t0)
+
+
+def _cotravel_components(runs: list[_Run]) -> list[list[_Run]]:
+    """같은 sh-좌표 클러스터 내 런들을 '진행 겹침'(≥MIN_OVERLAP)으로 연결된 성분으로 묶는다."""
+    n = len(runs)
+    uf = UnionFind(n)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _overlap(runs[i], runs[j]) >= MIN_OVERLAP_MM:
+                uf.union(i, j)
+    comp: dict[int, list[_Run]] = {}
+    for i, r in enumerate(runs):
+        comp.setdefault(uf.find(i), []).append(r)
+    return list(comp.values())
+
+
+def _split_equal_spacing(runs: list[_Run], sp_idx: int) -> list[list[_Run]]:
+    """동시진행 런들을 spread 축 좌표로 정렬해 '등간격 다발'로 분할(outlier 분리).
+
+    인접 간격이 기준 런 간격(비0 간격의 작은 절반 중앙값)의 PITCH_GAP_FACTOR 배보다 크면 끊는다.
+    각 다발은 서로 다른 배관 ≥MIN_RACK_MEMBERS 개여야 채택.
+    """
+    runs = sorted(runs, key=lambda r: r.perp[sp_idx])
+    offs = [r.perp[sp_idx] for r in runs]
+    gaps = [offs[i] - offs[i - 1] for i in range(1, len(offs))]
+    nz = sorted(g for g in gaps if g > LANE_TOL_MM)
+    ref = statistics.median(nz[:max(1, len(nz) // 2)]) if nz else 0.0
+
+    out: list[list[_Run]] = []
+    cur = [runs[0]]
+    for i in range(1, len(runs)):
+        if ref > 1e-6 and gaps[i - 1] > PITCH_GAP_FACTOR * ref:
+            if len({r.pipe_idx for r in cur}) >= MIN_RACK_MEMBERS:
+                out.append(cur)
+            cur = [runs[i]]
+        else:
+            cur.append(runs[i])
+    if len({r.pipe_idx for r in cur}) >= MIN_RACK_MEMBERS:
+        out.append(cur)
+    return out
+
+
+def _axis_bundles(runs: list[_Run]) -> list[list[_Run]]:
+    """한 진행축의 런들에서 평행 동시진행 다발(런 묶음)을 찾는다.
+
+    직교 두 축 중 한 축을 '공유(sh)', 다른 축을 '간격(sp)'으로 보고:
+      sh 좌표 ±LANE_TOL 로 클러스터 → 진행 겹침 성분 → sp 등간격 분할.
+    두 (sh,sp) 선택을 모두 시도하되, 동일 멤버집합 다발은 중복 제거한다(평면 랙은 한쪽만 채택됨).
+    """
+    out: list[list[_Run]] = []
+    seen: set[frozenset] = set()
+    for sh_idx in (0, 1):
+        sp_idx = 1 - sh_idx
+        rs = sorted(runs, key=lambda r: r.perp[sh_idx])
+        # sh 근접 클러스터.
+        cluster: list[_Run] = [rs[0]]
+        clusters: list[list[_Run]] = []
+        for r in rs[1:]:
+            if r.perp[sh_idx] - cluster[-1].perp[sh_idx] <= LANE_TOL_MM:
+                cluster.append(r)
+            else:
+                clusters.append(cluster); cluster = [r]
+        clusters.append(cluster)
+        for shc in clusters:
+            if len(shc) < MIN_RACK_MEMBERS:
+                continue
+            for comp in _cotravel_components(shc):
+                if len(comp) < MIN_RACK_MEMBERS:
+                    continue
+                for bundle in _split_equal_spacing(comp, sp_idx):
+                    key = frozenset(r.pipe_idx for r in bundle)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(bundle)
+    return out
+
+
+def _bundle_stats(bundle: list[_Run], feat_by_idx: dict[int, PipeFeature],
+                  axis: int) -> tuple[float, float, float]:
+    """런 묶음 → (pitch 중앙값, 다발 폭, 트렁크 대표 z). 멤버별 sp 좌표로 pitch 산출."""
+    # spread 축 = 두 perp 축 중 분산 큰 축(평면 랙은 한쪽이 펼쳐짐).
+    spreads = []
+    for j in (0, 1):
+        vals = sorted({round(r.perp[j], 3) for r in bundle})
+        spreads.append((max(vals) - min(vals)) if len(vals) > 1 else 0.0)
+    sp_j = 0 if spreads[0] >= spreads[1] else 1
+    # 멤버(배관)별 대표 sp 좌표.
+    per_pipe: dict[int, float] = {}
+    for r in bundle:
+        per_pipe.setdefault(r.pipe_idx, r.perp[sp_j])
+    offs = sorted(per_pipe.values())
+    spread = offs[-1] - offs[0] if len(offs) > 1 else 0.0
+    gaps = [offs[i] - offs[i - 1] for i in range(1, len(offs))]
+    nz = [g for g in gaps if g > LANE_TOL_MM]
+    pitch = statistics.median(nz) if nz else 0.0
+    # 트렁크 z — 수평축이면 멤버 features 의 수평 런 최빈 z, 수직축(z 진행)이면 런 중앙 z.
+    idxs = list(per_pipe.keys())
+    if axis == 2:
+        trunk_z = statistics.fmean((r.t0 + r.t1) / 2.0 for r in bundle)
+    else:
+        trunk_z = _trunk_z([feat_by_idx[i] for i in idxs])
+    return pitch, spread, trunk_z
 
 
 def detect_bundles(
@@ -368,74 +556,98 @@ def detect_bundles(
     min_bends: int = MIN_BENDS,
     pitch_cv_max: float = PITCH_CV_MAX,
 ) -> list[BundleGroup]:
-    """기존배관 리스트에서 번들 그룹을 탐지한다(Phase 1~3 전체).
+    """기존배관 리스트에서 번들 그룹을 탐지한다(v3 — 공간 동시진행 검출).
 
     [흐름]
-      ① 특징 추출 → ② (owner_name, utility) 키 pre-filter
-      → ③ 키 내 Union-Find(sim≥threshold) → ④ 번들 게이트(≥min_bends 꺾임 + pitch CV≤pitch_cv_max)
-      → ⑤ 트렁크 z·다발 폭·이격간격 산출.
+      ① 특징 추출(유사도 메트릭용) + 런 분해(_extract_runs, 레인 유지 ±LANE_TOL)
+      → ② (owner_name, utility) 키 pre-filter
+      → ③ 축별 평행 동시진행 다발 검출(_axis_bundles: sh 공유 ±LANE_TOL · 진행 겹침 · sp 등간격)
+      → ④ 코너 병합(멤버 ≥2 공유 다발을 한 그룹으로 — 같은 배관들이 꺾여 이어지는 부분)
+      → ⑤ trunk_axis·z·pitch·spread·꺾임·대표코드 산출.
+
+    ※ v3 — 수평(x·y) 뿐 아니라 수직(z, 입상/리저) 다발도 검출하고, 꺾임은 필수가 아니다(직선 평행도
+       번들). '레인 유지 ±10mm'(진행 중 직교좌표 일정)로 깨끗한 평행 런만 묶는다. threshold·pitch_cv_max
+       인자는 무시(CLI 호환). min_bends 기본 0(>0 이면 꺾임 게이트로 직선 다발 제외).
     """
     feats = [extract_feature(p) for p in pipes if len(p.points) >= 2]
+    # 런 분해 — feats 순서(=배관 인덱스) 기준.
+    feat_by_idx = {i: f for i, f in enumerate(feats)}
+    runs_by_idx: dict[int, list[_Run]] = {
+        i: _extract_runs(i, f.pipe.points) for i, f in enumerate(feats)
+    }
 
     # ② (장비, 유틸) 키로 pre-filter.
     by_key: dict[tuple, list[int]] = {}
-    for idx, f in enumerate(feats):
-        by_key.setdefault((f.pipe.owner_name, f.pipe.utility), []).append(idx)
+    for i, f in enumerate(feats):
+        by_key.setdefault((f.pipe.owner_name, f.pipe.utility), []).append(i)
 
     groups: list[BundleGroup] = []
     gid = 0
     for (owner, util), idxs in by_key.items():
-        if len(idxs) < 2:
+        if len(idxs) < MIN_RACK_MEMBERS:
             continue
-        # ③ 키 내 Union-Find.
-        local = {gi: li for li, gi in enumerate(idxs)}      # 전역 idx → 로컬 0..
-        uf = UnionFind(len(idxs))
-        sim_cache: dict[tuple[int, int], float] = {}
-        for a in range(len(idxs)):
-            for b in range(a + 1, len(idxs)):
-                s = composite_similarity(feats[idxs[a]], feats[idxs[b]])
-                sim_cache[(a, b)] = s
-                if s >= threshold:
-                    uf.union(a, b)
+        # ③ 키 내 모든 런을 축별로 모아 평행 다발 검출.
+        by_axis: dict[int, list[_Run]] = {0: [], 1: [], 2: []}
+        for i in idxs:
+            for r in runs_by_idx[i]:
+                by_axis[r.axis].append(r)
 
-        # 클러스터 모으기.
-        clusters: dict[int, list[int]] = {}
-        for li in range(len(idxs)):
-            clusters.setdefault(uf.find(li), []).append(li)
-
-        for members_local in clusters.values():
-            if len(members_local) < 2:
+        raw_bundles: list[tuple[int, set[int], list[_Run]]] = []  # (axis, member set, runs)
+        for ax in (0, 1, 2):
+            arr = by_axis[ax]
+            if len(arr) < MIN_RACK_MEMBERS:
                 continue
-            mfeats = [feats[idxs[li]] for li in members_local]
-            # ④ 번들 게이트 — 꺾임.
+            for bundle in _axis_bundles(arr):
+                members = {r.pipe_idx for r in bundle}
+                if len(members) >= MIN_RACK_MEMBERS:
+                    raw_bundles.append((ax, members, bundle))
+
+        if not raw_bundles:
+            continue
+
+        # ④ 코너 병합 — 멤버를 ≥2 공유하는 다발은 같은 물리 번들(꺾여 이어짐)로 union.
+        nb = len(raw_bundles)
+        uf = UnionFind(nb)
+        for a in range(nb):
+            for b in range(a + 1, nb):
+                if len(raw_bundles[a][1] & raw_bundles[b][1]) >= 2:
+                    uf.union(a, b)
+        merged: dict[int, list[int]] = {}
+        for a in range(nb):
+            merged.setdefault(uf.find(a), []).append(a)
+
+        for comp in merged.values():
+            members: set[int] = set()
+            all_runs: list[_Run] = []
+            for a in comp:
+                members |= raw_bundles[a][1]
+                all_runs.extend(raw_bundles[a][2])
+            if len(members) < MIN_RACK_MEMBERS:
+                continue
+            # ⑤ 주 진행축 = 총 런 길이가 가장 큰 축.
+            len_by_axis = {0: 0.0, 1: 0.0, 2: 0.0}
+            for r in all_runs:
+                len_by_axis[r.axis] += r.length
+            trunk_axis = max((0, 1, 2), key=lambda k: len_by_axis[k])
+            trunk_runs = [r for r in all_runs if r.axis == trunk_axis]
+            mfeats = [feat_by_idx[i] for i in members]
             med_bends = int(statistics.median(f.n_bends for f in mfeats))
             if med_bends < min_bends:
                 continue
-            # 트렁크 주축 = 멤버 다수결.
-            taxis = statistics.mode([f.trunk_axis for f in mfeats]) \
-                if len({f.trunk_axis for f in mfeats}) > 1 else mfeats[0].trunk_axis
-            pitch, cv, spread = _pitch_stats(mfeats, taxis)
-            # ④ 번들 게이트 — 동일 이격간격.
-            if cv > pitch_cv_max:
-                continue
-            # ⑤ 지표.
-            sims = [sim_cache[(min(a, b), max(a, b))]
-                    for ai, a in enumerate(members_local)
-                    for b in members_local[ai + 1:]]
-            avg_sim = statistics.fmean(sims) if sims else 1.0
+            pitch, spread, trunk_z = _bundle_stats(trunk_runs, feat_by_idx, trunk_axis)
             codes = [f.code for f in mfeats]
             rep_code = statistics.mode(codes) if codes else ""
             groups.append(BundleGroup(
                 group_id=gid, owner_name=owner, utility=util,
-                member_guids=[f.pipe.route_path_guid for f in mfeats
-                              if f.pipe.route_path_guid],
-                n_members=len(mfeats), avg_similarity=avg_sim,
-                trunk_z=_trunk_z(mfeats), trunk_xy_spread=spread,
-                pitch_mm=pitch, n_ortho_bends=med_bends, arrow_code=rep_code,
+                member_guids=[feat_by_idx[i].pipe.route_path_guid for i in members
+                              if feat_by_idx[i].pipe.route_path_guid],
+                n_members=len(members), avg_similarity=_avg_pair_similarity(mfeats),
+                trunk_z=trunk_z, trunk_xy_spread=spread, pitch_mm=pitch,
+                n_ortho_bends=med_bends, arrow_code=rep_code, trunk_axis=trunk_axis,
             ))
             gid += 1
+
     groups.sort(key=lambda g: (-g.n_members, -g.avg_similarity))
-    # group_id 를 정렬 후 재부여(안정적 번호).
     for new_id, g in enumerate(groups):
         g.group_id = new_id
     return groups
@@ -444,14 +656,17 @@ def detect_bundles(
 # ================================================================== 리포트·적재
 def report(groups: list[BundleGroup]) -> str:
     """탐지 번들을 표로 요약(검수용)."""
-    lines = [f"탐지 번들 그룹: {len(groups)}", ""]
-    lines.append(f"  {'gid':>3} {'owner':18} {'util':10} {'n':>3} {'avg~':>5} "
+    axis_n = {0: "x", 1: "y", 2: "z"}
+    n_vert = sum(1 for g in groups if g.trunk_axis == 2)
+    lines = [f"탐지 번들 그룹: {len(groups)}  (수직/입상 {n_vert})", ""]
+    lines.append(f"  {'gid':>3} {'owner':18} {'util':10} {'n':>3} {'ax':>2} {'avg~':>5} "
                  f"{'bends':>5} {'pitch':>8} {'spread':>8} {'trunk_z':>9}  code")
     for g in groups:
         lines.append(
             f"  {g.group_id:3d} {(g.owner_name or '')[:18]:18} {(g.utility or '')[:10]:10} "
-            f"{g.n_members:3d} {g.avg_similarity:5.2f} {g.n_ortho_bends:5d} "
-            f"{g.pitch_mm:8.0f} {g.trunk_xy_spread:8.0f} {g.trunk_z:9.0f}  {g.arrow_code[:20]}")
+            f"{g.n_members:3d} {axis_n.get(g.trunk_axis, '?'):>2} {g.avg_similarity:5.2f} "
+            f"{g.n_ortho_bends:5d} {g.pitch_mm:8.0f} {g.trunk_xy_spread:8.0f} "
+            f"{g.trunk_z:9.0f}  {g.arrow_code[:20]}")
     return "\n".join(lines)
 
 
@@ -478,11 +693,11 @@ def write_db(source_file: str, groups: list[BundleGroup], conn) -> int:
         cur.execute(
             'INSERT INTO route_bundle_group '
             '(source_file, group_id, owner_name, utility, n_members, avg_similarity, '
-            ' trunk_z, trunk_xy_spread, pitch_mm, n_ortho_bends, arrow_code, member_guids) '
-            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            ' trunk_z, trunk_xy_spread, pitch_mm, n_ortho_bends, arrow_code, trunk_axis, member_guids) '
+            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
             (source_file, g.group_id, g.owner_name, g.utility, g.n_members,
              g.avg_similarity, g.trunk_z, g.trunk_xy_spread, g.pitch_mm,
-             g.n_ortho_bends, g.arrow_code, g.member_guids))
+             g.n_ortho_bends, g.arrow_code, g.trunk_axis, g.member_guids))
     conn.commit()
     return len(groups)
 
@@ -512,7 +727,8 @@ def aggregate_templates(groups: list[BundleGroup]) -> list[BundleTemplate]:
         by_key.setdefault((g.owner_name, g.utility), []).append(g)
     out: list[BundleTemplate] = []
     for (owner, util), gs in by_key.items():
-        zs = sorted({round(g.trunk_z) * 1.0 for g in gs})
+        # trunk_zs = '수평 트렁크 랙 고도'만(수직 입상 번들의 trunk_z 는 중앙값이라 랙고도 아님 → 제외).
+        zs = sorted({round(g.trunk_z) * 1.0 for g in gs if g.trunk_axis != 2})
         codes = [g.arrow_code for g in gs]
         out.append(BundleTemplate(
             owner_name=owner, utility=util, trunk_zs=zs,

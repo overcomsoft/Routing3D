@@ -5,9 +5,12 @@ r"""그룹(번들) 배관 탐지 단위 테스트 — bundle_detect
 
 [구성]
   순수 로직(DB 불필요): 합성 폴리라인으로 특징 추출·복합 유사도·번들 탐지 검증.
-    - 평행 다발(동일 pitch, 2엘보) → 1 번들.
-    - 직선/1엘보 → 번들 아님(꺾임 게이트 탈락).
-    - 불규칙 간격 평행 → 번들 아님(pitch CV 탈락).
+    v3 정의 — 동일간격 평행 '동시진행'(레인 유지 ±10mm). 수평·수직(입상) 모두. 꺾임 불필요.
+    - 평행 다발(동일 pitch, 2엘보) → 1 번들(코너 병합).
+    - 직선/1엘보 평행 다발 → 번들(v3: 꺾임 게이트 폐기).
+    - 수직 입상 평행 다발 → 번들(trunk_axis=z).
+    - 진행 겹침 없음 → 번들 아님.
+    - 멀리 떨어진 outlier → 다발에서 분리.
 ================================================================================
 """
 
@@ -91,24 +94,61 @@ def test_detect_parallel_bundle():
     assert g.owner_name == "EQ1" and g.utility == "ACID"
 
 
-def test_straight_pipes_not_bundle():
-    """직선 평행 배관 → 꺾임 0 이므로 번들 아님."""
+def test_straight_parallel_is_bundle():
+    """v3 — 직선 평행 등간격 다발도 번들(꺾임 게이트 폐기). 진행축 x, trunk_axis=0."""
     pipes = [_pipe(f"s{i}", [(0, i * 500.0, 0), (6000, i * 500.0, 0)]) for i in range(3)]
-    assert bd.detect_bundles(pipes) == []
+    groups = bd.detect_bundles(pipes)
+    assert len(groups) == 1
+    g = groups[0]
+    assert g.n_members == 3
+    assert g.trunk_axis == 0                      # 진행축 x(수평).
+    assert abs(g.pitch_mm - 500.0) < 1.0
+    assert g.n_ortho_bends == 0                   # 직선 — 꺾임 0(그래도 번들).
 
 
-def test_single_elbow_not_bundle():
-    """1엘보 평행 배관 → 꺾임 1 < 2 이므로 번들 아님."""
+def test_single_elbow_parallel_is_bundle():
+    """v3 — 1엘보 평행 다발도 번들. 수직 입상 + 수평 트렁크가 코너 병합돼 1 그룹."""
     pipes = [_pipe(f"e{i}", [(0, i * 500.0, 0), (0, i * 500.0, 3000), (5000, i * 500.0, 3000)])
              for i in range(3)]
+    groups = bd.detect_bundles(pipes)
+    assert len(groups) == 1
+    assert groups[0].n_members == 3
+
+
+def test_vertical_riser_bundle():
+    """v3 — 수직(입상) 평행 등간격 다발 → 번들(trunk_axis=2). x 로 등간격 떨어진 라이저 3개."""
+    pipes = [_pipe(f"r{i}", [(i * 500.0, 0, 0), (i * 500.0, 0, 4000)]) for i in range(3)]
+    groups = bd.detect_bundles(pipes)
+    assert len(groups) == 1
+    g = groups[0]
+    assert g.n_members == 3
+    assert g.trunk_axis == 2                      # 진행축 z(수직/입상).
+    assert abs(g.pitch_mm - 500.0) < 1.0
+
+
+def test_non_overlapping_not_bundle():
+    """평행하지만 진행구간이 겹치지 않으면(앞·뒤로 떨어짐) 동시진행 아님 → 번들 아님."""
+    pipes = [
+        _pipe("a", [(0, 0.0, 0), (3000, 0.0, 0)]),         # x 0..3000
+        _pipe("b", [(6000, 500.0, 0), (9000, 500.0, 0)]),  # x 6000..9000 (겹침 0)
+    ]
     assert bd.detect_bundles(pipes) == []
 
 
-def test_irregular_pitch_not_bundle():
-    """불규칙 간격(0, 500, 3000) 평행 → pitch CV 큼 → 번들 아님."""
+def test_outlier_split_from_rack():
+    """v2 — 공간 랙 검출: 멀리 떨어진 배관(outlier)은 랙에서 분리된다.
+
+    perp 간격 [500, 2500] — 0·500 은 한 레인 쌍(밀집), 3000 은 outlier(레인 간격의 5배 갭).
+    → 밀집 쌍 [0,500] 만 2멤버 번들로, 3000 은 분리돼 단독(번들 아님).
+    (옛 '불규칙 피치 = 번들 아님' 게이트는 폐기 — 실제 플랜트 랙은 공통 트렁크 공유·불규칙 피치라
+     균일 피치를 요구하면 진짜 트렁크가 전부 기각된다. 대신 공간 분할로 outlier 만 떼어낸다.)
+    """
     offs = [0.0, 500.0, 3000.0]
     pipes = [_bundle_member(f"g{i}", offs[i]) for i in range(3)]
-    assert bd.detect_bundles(pipes, pitch_cv_max=0.30) == []
+    groups = bd.detect_bundles(pipes)
+    assert len(groups) == 1
+    assert groups[0].n_members == 2                    # 밀집 쌍만(outlier 3000 제외).
+    assert abs(groups[0].pitch_mm - 500.0) < 1.0
 
 
 def test_different_utility_not_grouped():
