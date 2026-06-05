@@ -82,20 +82,20 @@
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
                 <TextBlock Text="진단:" FontWeight="Bold" Foreground="#bfc6d6"
                            VerticalAlignment="Center" Margin="2,0,6,0"/>
-                <CheckBox Content="격자맵" IsChecked="{Binding ShowGridFrame}"
+                <CheckBox Content="격자맵" IsChecked="{Binding ShowGridFrame}" Foreground="#7ADFB0"
                           VerticalAlignment="Center" Margin="0,0,10,0"
                           ToolTip="복셀 전체맵 — 작업 공간의 격자 BBOX 12변을 가는 실린더로 표시"/>
-                <CheckBox Content="점유맵" IsChecked="{Binding ShowOccupancyVoxels}"
+                <CheckBox Content="점유맵" IsChecked="{Binding ShowOccupancyVoxels}" Foreground="#82AAC8"
                           VerticalAlignment="Center" Margin="0,0,4,0"
                           ToolTip="엔진이 voxelize 한 블록 셀을 옅은 청회색 큐브로 표시"/>
                 <Button Content="{Binding OccupancyResolutionLabel}"
                         Command="{Binding ToggleOccupancyResCommand}"
                         Margin="0,0,10,0" Padding="8,1" MinWidth="0" VerticalAlignment="Center"
                         ToolTip="점유맵 해상도 전환: 원본(전체 셀, 정확하지만 느릴 수 있음) ↔ 다운샘플(상한 15만, 빠름)"/>
-                <CheckBox Content="통과맵" IsChecked="{Binding ShowPassthroughVoxels}"
+                <CheckBox Content="통과맵" IsChecked="{Binding ShowPassthroughVoxels}" Foreground="#5AC8A0"
                           VerticalAlignment="Center" Margin="0,0,10,0"
                           ToolTip="통과 객체(바닥/천장/격자보)가 점유는 하되 경로탐색은 통과하는 셀을 청록 큐브로 표시"/>
-                <CheckBox Content="방문맵" IsChecked="{Binding ShowVisitedMap}"
+                <CheckBox Content="방문맵" IsChecked="{Binding ShowVisitedMap}" Foreground="#EBCD3C"
                           VerticalAlignment="Center" Margin="0,0,4,0"
                           ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>
             </StackPanel>
@@ -227,16 +227,16 @@
                             <!-- ───── 객체: BIM 객체 렌더링(경로탐색 무관) ───── -->
                             <TextBlock Text="객체" Foreground="#7f8aa3" FontWeight="SemiBold"
                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <CheckBox Content="장애물"
+                            <CheckBox Content="장애물" Foreground="#AFAFAF"
                                       IsChecked="{Binding ShowObstacles}" Margin="0,0,12,0"
                                       ToolTip="장애물 (TB_BIM_OBSTACLES) AABB"/>
-                            <CheckBox Content="장비"
+                            <CheckBox Content="장비" Foreground="#FF8C00"
                                       IsChecked="{Binding ShowEquipment}" Margin="0,0,12,0"
                                       ToolTip="TB_BIM_EQUIPMENT(SOURCE_FILE 조건)의 장비를 주황 큐브 박스로 표시(메인은 진하게)"/>
-                            <CheckBox Content="레터럴"
+                            <CheckBox Content="레터럴" Foreground="#5AD282"
                                       IsChecked="{Binding ShowLaterals}" Margin="0,0,12,0"
                                       ToolTip="TB_DUCT_LATERAL 의 CATEGORY=LATERAL 을 초록 박스로 표시"/>
-                            <CheckBox Content="덕트"
+                            <CheckBox Content="덕트" Foreground="#6EAFDC"
                                       IsChecked="{Binding ShowDucts}" Margin="0,0,12,0"
                                       ToolTip="TB_DUCT_LATERAL 의 CATEGORY=DUCT 을 청색 박스로 표시"/>
                             <CheckBox Content="공간"
@@ -253,19 +253,19 @@
                             <CheckBox Content="자동경로"
                                       IsChecked="{Binding ShowPaths}" Margin="0,0,12,0"
                                       ToolTip="자동 라우팅 경로 (유틸리티별 색 튜브)"/>
-                            <CheckBox Content="스텁"
+                            <CheckBox Content="스텁" Foreground="#E23030"
                                       IsChecked="{Binding ShowStubs}" Margin="0,0,12,0"
                                       ToolTip="기존 설계배관의 출발(빨강)·종단(파랑) 스텁 = 수직배관 + 엘보(수직→수평 전환)를 굵은 색 튜브로 강조합니다. 유틸리티 그룹/유틸을 선택하면 그 그룹의 기존배관 스텁만 보입니다."/>
-                            <CheckBox Content="PoC 마커"
+                            <CheckBox Content="PoC 마커" Foreground="#E65050"
                                       IsChecked="{Binding ShowPocMarkers}" Margin="0,0,12,0"
                                       ToolTip="모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시. 유틸 필터·선택 그룹을 동일 적용."/>
-                            <CheckBox Content="충돌"
+                            <CheckBox Content="충돌" Foreground="#E646E6"
                                       IsChecked="{Binding ShowCollisions}" Margin="0,0,12,0"
                                       ToolTip="충돌 셀 (≥2 배관이 공유하는 셀, 빨간 큐브)"/>
                             <CheckBox Content="{Binding BundleGroupStatus}"
                                       IsChecked="{Binding ShowBundleGroups}" Margin="0,0,12,0"
                                       ToolTip="그룹배관 강조 — 탐지된 번들(동일 이격간격·2회 이상 꺾임 평행 다발)을 그룹별 고유 색으로, 비멤버는 흐리게. DB 적재 필요: python -m routing3d_py.bundle_detect --project N --write-db. 미적재면 비활성."/>
-                            <CheckBox Content="{Binding BundlePatternStatus}"
+                            <CheckBox Content="{Binding BundlePatternStatus}" Foreground="#BE78EB"
                                       IsChecked="{Binding ShowBundlePattern}" Margin="0,0,12,0"
                                       ToolTip="그룹배관 패턴 표시 — 기존설계에서 학습한 유틸별 '공용 트렁크 레인'(L4)을 보라색 반투명 큐브로 메인 3D 에 그립니다. 이 셀들이 곧 자동 라우팅에 주입되는 회랑이라, 새 경로가 어떤 레인을 따라 다발로 뭉칠지 미리 보입니다. 좌측에서 그룹/유틸을 선택하면 그 부분집합 패턴만. DB 적재 필요(bundle_detect --write-db). 미적재면 비활성."/>
 
