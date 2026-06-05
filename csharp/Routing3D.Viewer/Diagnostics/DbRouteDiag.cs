@@ -552,13 +552,17 @@ namespace Routing3D.Viewer.Diagnostics
                     if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
                 }
             }
-            bool laneMode = trunkZ.Count > 0;
+            // 멤버 인지(v3, GUI 미러) — 탐지 번들 멤버의 '수직 입상'도 회랑으로(수직 번들 라우팅 활용).
+            bool memberAware = bundles.GroupCount > 0;
+            bool laneMode = trunkZ.Count > 0 || memberAware;
             const double HorizTol = 0.34, MinRunMm = 800.0;
             const int BandCells = 1, LaneDilate = 1;
 
             foreach (var pipe in sd.ExistingPipes)
             {
                 if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
+                bool isMember = memberAware && pipe.RoutePathGuid != null
+                                && bundles.GroupIdOf(pipe.RoutePathGuid) >= 0;
                 for (int i = 1; i < pipe.Points.Count; i++)
                 {
                     var a = pipe.Points[i - 1]; var b = pipe.Points[i];
@@ -568,11 +572,25 @@ namespace Routing3D.Viewer.Diagnostics
                     int dl = corrRad;
                     if (laneMode)
                     {
-                        if (horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz || len < MinRunMm) continue;
-                        int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
-                        bool nearTrunk = false;
-                        foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
-                        if (!nearTrunk) continue;
+                        bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
+                        if (vertical)
+                        {
+                            // 수직 입상 — 트렁크 밴드 통과/접 또는 번들 멤버면 채택(수직 번들).
+                            if (len < MinRunMm * 0.3) continue;
+                            int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
+                            int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
+                            bool touches = false;
+                            foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
+                            if (!touches && !isMember) continue;
+                        }
+                        else
+                        {
+                            if (len < MinRunMm) continue;
+                            int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
+                            bool nearTrunk = false;
+                            foreach (var tz in trunkZ) if (Math.Abs(zk - tz) <= BandCells) { nearTrunk = true; break; }
+                            if (!nearTrunk) continue;
+                        }
                         dl = LaneDilate;
                     }
                     int steps = Math.Max(1, (int)(len / (cell * 0.5)));

@@ -1082,8 +1082,10 @@ namespace Routing3D.Viewer.ViewModels
             // 번들 공용 트렁크 회랑(L4) — 같은 유틸 기존배관 전체를 '하나의 공용 트렁크 회랑'으로 주입해, 새 배관
             // 들이 흩어지지 않고 한 스파인에 모이게 한다(높이만 유도하던 rack_levels 의 한계 보완: xy 트렁크 제공).
             // test_attract 가 증명한 메커니즘 — w_corridor>0 + 공유 회랑 셀이면 둘째 배관이 첫 배관 곁으로 뭉친다.
+            // includeVertical:true — 수평 트렁크 레인 + 번들 멤버의 '수직 입상'까지 회랑으로 주입(v3).
+            //   수직(입상) 번들도 신규 라우팅이 학습된 입상 레인을 따라가게 한다(수직 번들 라우팅 활용).
             int[] bundleCorr = (_useBundlePattern && _bundles != null)
-                ? BuildBundleCorridorCells(rowPositions, 2) : System.Array.Empty<int>();
+                ? BuildBundleCorridorCells(rowPositions, 2, includeVertical: true) : System.Array.Empty<int>();
             bool hasBundleCorr = bundleCorr.Length > 0;
             // 회랑(0.5)은 랙(0.2)보다 강한 설계추종. L2b 또는 번들 트렁크 회랑이 있으면 0.5, 랙만이면 0.2.
             // 그룹 모드도 회랑 0.5(설계추종) — self-bundling(mark_pipe+add_corridor_cells)은 wCorr>0 이면
@@ -1226,7 +1228,10 @@ namespace Routing3D.Viewer.ViewModels
                         if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
                     }
                 }
-            bool laneMode = trunkZ.Count > 0;          // 트렁크 고도를 알면 레인 모드(타이트), 아니면 옵션1 폴백.
+            // 멤버 인지(member-aware): 탐지된 번들(route_bundle_group)의 멤버 배관이면, 트렁크 밴드와
+            //   무관하게 그 '수직 입상'도 회랑으로 채택한다 → 수직(입상) 번들도 라우팅이 따라간다(v3).
+            bool memberAware = _bundles != null && _bundles.GroupCount > 0;
+            bool laneMode = trunkZ.Count > 0 || (includeVertical && memberAware);
             const double HorizTol = 0.34, MinRunMm = 800.0;
             const int BandCells = 1, LaneDilate = 1;   // 트렁크 ±1셀, 레인 두께 ±1셀(타이트).
 
@@ -1234,6 +1239,8 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pipe in s.ExistingPipes)
             {
                 if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
+                bool isMember = memberAware && pipe.RoutePathGuid != null
+                                && _bundles!.GroupIdOf(pipe.RoutePathGuid) >= 0;
                 for (int i = 1; i < pipe.Points.Count; i++)
                 {
                     var a = pipe.Points[i - 1]; var b = pipe.Points[i];
@@ -1246,14 +1253,14 @@ namespace Routing3D.Viewer.ViewModels
                         bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
                         if (vertical)
                         {
-                            // 수직 입상(리저) — includeVertical(표시 전용) 일 때만. 트렁크 고도 밴드를 통과/접하는
-                            // 리저만 채택(랙 ↔ 장비/덕트 연결). 너무 짧은 수직(지터)은 제외.
+                            // 수직 입상(리저) — includeVertical 일 때만. 트렁크 고도 밴드를 통과/접하거나,
+                            //   번들 멤버 배관이면 채택(수직 번들 = 입상 다발). 너무 짧은 수직(지터)은 제외.
                             if (!includeVertical || len < MinRunMm * 0.3) continue;
                             int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
                             int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
                             bool touches = false;
                             foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
-                            if (!touches) continue;
+                            if (!touches && !isMember) continue;
                         }
                         else
                         {

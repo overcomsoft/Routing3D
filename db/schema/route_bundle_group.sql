@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS route_bundle_group (
     pitch_mm        double precision,                -- 인접 배관 대표 이격간격(중앙값, mm)
     n_ortho_bends   int,                             -- 대표 수직·수평 꺾임 수(>=2)
     arrow_code      text,                            -- 대표 형태 부호(R/H/D 시퀀스)
+    trunk_axis      int         NOT NULL DEFAULT 0,  -- 주 진행축 0=x · 1=y · 2=z(수직/입상 다발)
 
     -- ── 멤버 ──
     member_guids    text[],                          -- 멤버 ROUTE_PATH_GUID 목록
@@ -41,6 +42,9 @@ CREATE TABLE IF NOT EXISTS route_bundle_group (
     UNIQUE (source_file, group_id)
 );
 
+-- 기존 설치 마이그레이션 — trunk_axis 컬럼 추가(없으면).
+ALTER TABLE route_bundle_group ADD COLUMN IF NOT EXISTS trunk_axis int NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS ix_rbg_src ON route_bundle_group (source_file);
 CREATE INDEX IF NOT EXISTS ix_rbg_key ON route_bundle_group (source_file, owner_name, utility);
 
@@ -48,17 +52,21 @@ CREATE INDEX IF NOT EXISTS ix_rbg_key ON route_bundle_group (source_file, owner_
 -- route_bundle_template — (source_file, owner_name, utility) 키별 '대표 번들 패턴'.
 --   신규 배관설계 시 조회용. 한 키에 번들이 여러 개면 트렁크 고도를 모두 모으고(공용 랙 후보),
 --   pitch 는 중앙값, 형태코드는 최빈을 대표로 쓴다. 유틸리티 단위 폴백은 뷰어가 집계한다.
+--   trunk_zs 는 '수평 트렁크(trunk_axis<2)' 다발의 고도만 모은다(수직/입상 다발의 trunk_z 는 랙고도가
+--   아닌 중앙값이라 rack_levels 오염 방지). 수직 다발 수는 n_vert 로 별도 노출.
 -- =============================================================================
 CREATE OR REPLACE VIEW route_bundle_template AS
 SELECT
     source_file,
     owner_name,
     utility,
-    array_agg(DISTINCT round(trunk_z::numeric, 0)::double precision)       AS trunk_zs,
+    array_agg(DISTINCT round(trunk_z::numeric, 0)::double precision)
+        FILTER (WHERE trunk_axis < 2)                                      AS trunk_zs,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY pitch_mm)                  AS pitch_mm,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY trunk_xy_spread)           AS trunk_xy_spread,
     sum(n_members)::int                                                    AS n_members,
     mode() WITHIN GROUP (ORDER BY arrow_code)                             AS arrow_code,
-    count(*)::int                                                          AS n_groups
+    count(*)::int                                                          AS n_groups,
+    count(*) FILTER (WHERE trunk_axis = 2)::int                            AS n_vert
 FROM route_bundle_group
 GROUP BY source_file, owner_name, utility;
