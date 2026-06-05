@@ -1198,14 +1198,13 @@ namespace Routing3D.Viewer.ViewModels
             return arr;
         }
 
-        // 번들 공용 트렁크 회랑 + pitch 레인(L4) — 같은 유틸 기존배관의 '트렁크 고도 수평 런'(=평행 랙 레인)만
-        // 타이트하게(±1셀) 회랑으로 만든다. 전체 폴리라인을 넓게 깔던 옵션1과 달리, 레인만 좁게 깔면 route_multi 의
-        // 충돌회피(mark_pipe)가 새 배관들을 '인접 레인'에 분산 배치 → 사람 설계처럼 등간격 평행 다발로 패킹된다.
-        //   트렁크 고도(trunk_z)는 번들 템플릿에서 조회. 트렁크 밴드(±1셀) 안 수평 런만 채택(수직 라이저·팬아웃 제외).
-        //   주의: 격자 셀 > pitch 면 인접 레인이 같은 셀로 뭉개진다(예 cell=100 > pitch≈56) → 셀 크기 ≤ pitch/2 권장.
-        // 템플릿 미적재/트렁크 미스면 전체 폴리라인을 넓게(±2) 까는 옵션1 동작으로 폴백(무해).
-        //   includeVertical=true(표시 전용) — 트렁크 고도 밴드를 통과/접하는 '수직 입상(리저)'도 함께 채택해
-        //   패턴이 수평 트렁크 + 수직 입상을 모두 보이게 한다. 라우팅(회랑 주입)은 false(수직은 스텁 담당).
+        // 번들 회랑 + 패턴 표시 셀(L4, v3 멤버십 기준) — 탐지된 번들(route_bundle_group)의 '멤버 배관'의
+        //   모든 런(수평·수직)을 타이트(±1셀) 레인 셀로 만든다. 표시(ShowBundlePattern)와 라우팅 회랑이 같은
+        //   셀집합을 공유 → 보이는 패턴이 곧 신규경로의 경유지. trunk_axis 라벨·trunk_z 밴드와 무관하므로
+        //   수평 그룹배관·수직(입상) 그룹배관·ㄴ자(둘 다) 번들이 모두 경유지/표시에 포함된다. 비멤버는 제외
+        //   (단독 배관 가짜양성 제거). route_multi 충돌회피(mark_pipe)가 새 배관을 인접 레인에 분산 → 등간격 패킹.
+        //   주의: 격자 셀 > pitch 면 인접 레인이 같은 셀로 뭉개진다(cell=100>pitch≈56) → 셀 ≤ pitch/2 권장.
+        // 번들 미적재(GroupCount=0) 시에만 옛 트렁크 z밴드 휴리스틱으로 폴백(includeVertical 은 이 폴백에서만 의미).
         private int[] BuildBundleCorridorCells(IReadOnlyList<int> rowPositions, int dilate, bool includeVertical = false)
         {
             var s = _scene; if (s == null || s.ExistingPipes.Count == 0) return System.Array.Empty<int>();
@@ -1228,12 +1227,16 @@ namespace Routing3D.Viewer.ViewModels
                         if (zk >= 0 && zk < g.Nz) trunkZ.Add(zk);
                     }
                 }
-            // 멤버 인지(member-aware): 탐지된 번들(route_bundle_group)의 멤버 배관이면, 트렁크 밴드와
-            //   무관하게 그 '수직 입상'도 회랑으로 채택한다 → 수직(입상) 번들도 라우팅이 따라간다(v3).
+            // 멤버십 기준(member-driven, v3) — 탐지된 번들(route_bundle_group)의 '멤버 배관'이면 그 배관의
+            //   '모든 런(수평·수직)'을 trunk_axis 라벨·trunk_z 밴드와 무관하게 회랑/표시로 채택한다. 비멤버는
+            //   제외(단독 배관이 그룹으로 보이던 가짜양성 제거). → 수평 그룹배관과 수직(입상) 그룹배관이 모두
+            //   신규경로의 경유지가 된다. ㄴ자(수평+수직) 번들도 trunk_axis 가 z 로 라벨돼도 수평부까지 포함.
+            // 번들 미적재(GroupCount=0) 시에만 옛 트렁크 z밴드 휴리스틱으로 폴백(무해).
             bool memberAware = _bundles != null && _bundles.GroupCount > 0;
-            bool laneMode = trunkZ.Count > 0 || (includeVertical && memberAware);
+            bool laneMode = memberAware || trunkZ.Count > 0;
             const double HorizTol = 0.34, MinRunMm = 800.0;
-            const int BandCells = 1, LaneDilate = 1;   // 트렁크 ±1셀, 레인 두께 ±1셀(타이트).
+            const int LaneDilate = 1;                  // 레인 두께 ±1셀(타이트). 폴백 밴드 ±1셀은 BandCells.
+            const int BandCells = 1;
 
             var set = new HashSet<(int, int, int)>();
             foreach (var pipe in s.ExistingPipes)
@@ -1241,30 +1244,36 @@ namespace Routing3D.Viewer.ViewModels
                 if (pipe.Utility == null || !utils.Contains(pipe.Utility) || pipe.Points.Count < 2) continue;
                 bool isMember = memberAware && pipe.RoutePathGuid != null
                                 && _bundles!.GroupIdOf(pipe.RoutePathGuid) >= 0;
+                // 멤버십 모드에서 비멤버 배관은 통째 건너뛴다(검출된 다발만 경유지/표시).
+                if (memberAware && !isMember) continue;
                 for (int i = 1; i < pipe.Points.Count; i++)
                 {
                     var a = pipe.Points[i - 1]; var b = pipe.Points[i];
                     double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
                     double horiz = Math.Sqrt(dx * dx + dy * dy);
                     double len = Math.Sqrt(horiz * horiz + dz * dz);
+                    bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
                     int dl = dilate;
-                    if (laneMode)
+                    if (memberAware)
                     {
-                        bool vertical = horiz <= 1e-6 || Math.Abs(dz) > HorizTol * horiz;
+                        // 멤버 배관의 모든 런(수평·수직) 채택 — 짧은 지터만 제외(수직은 더 짧은 것까지).
+                        if (len < (vertical ? MinRunMm * 0.3 : MinRunMm)) continue;
+                        dl = LaneDilate;
+                    }
+                    else if (laneMode)
+                    {
+                        // 폴백(번들 미적재) — 옛 트렁크 z밴드 휴리스틱.
                         if (vertical)
                         {
-                            // 수직 입상(리저) — includeVertical 일 때만. 트렁크 고도 밴드를 통과/접하거나,
-                            //   번들 멤버 배관이면 채택(수직 번들 = 입상 다발). 너무 짧은 수직(지터)은 제외.
                             if (!includeVertical || len < MinRunMm * 0.3) continue;
                             int zk0 = (int)Math.Floor((Math.Min(a.Z, b.Z) - oz) / cell);
                             int zk1 = (int)Math.Floor((Math.Max(a.Z, b.Z) - oz) / cell);
                             bool touches = false;
                             foreach (var tz in trunkZ) if (zk1 >= tz - BandCells && zk0 <= tz + BandCells) { touches = true; break; }
-                            if (!touches && !isMember) continue;
+                            if (!touches) continue;
                         }
                         else
                         {
-                            // 수평 트렁크 런(랙 레인) — 트렁크 고도 밴드 안만, 타이트하게.
                             if (len < MinRunMm) continue;
                             int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - oz) / cell);
                             bool nearTrunk = false;
