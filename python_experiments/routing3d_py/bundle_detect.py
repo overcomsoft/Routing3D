@@ -352,13 +352,96 @@ def _pitch_stats(feats: list[PipeFeature], trunk_axis: int) -> tuple[float, floa
     spread = offs[-1] - offs[0]
     if len(offs) < 2:
         return 0.0, 0.0, 0.0
+    # 인접 간격 중 '비0'(=실제 평행 레인 간격)만으로 피치·CV 산출. 다수가 공통 트렁크를 공유(간격 0)해도
+    #   레인 간격이 의미를 갖도록. 전부 0(완전 공유 트렁크)이면 pitch=0.
     pitches = [offs[i] - offs[i - 1] for i in range(1, len(offs))]
-    med = statistics.median(pitches)
-    if len(pitches) == 1:
+    nz = [p for p in pitches if p > 1e-6]
+    if not nz:
+        return 0.0, 0.0, spread
+    med = statistics.median(nz)
+    if len(nz) == 1:
         return med, 0.0, spread
-    mean = statistics.fmean(pitches)
-    cv = (statistics.pstdev(pitches) / mean) if mean > 1e-9 else 0.0
+    mean = statistics.fmean(nz)
+    cv = (statistics.pstdev(nz) / mean) if mean > 1e-9 else 0.0
     return med, cv, spread
+
+
+def _pipe_trunk_z(f: "PipeFeature") -> float:
+    """배관 1개의 '수평 트렁크 런' 최빈 z(랙 높이). _trunk_z 단일 적용."""
+    return _trunk_z([f])
+
+
+# 큰 갭(다른 랙)으로 분할할 임계 — 인접 간격이 런 중앙값의 이 배수보다 크면 끊는다.
+PITCH_GAP_FACTOR = 2.5
+# 한 랙(번들)으로 인정할 최소 멤버 수.
+MIN_RACK_MEMBERS = 2
+# 같은 랙 높이로 볼 z-근접 임계(mm) — 연속 trunk_z 간격이 이하면 한 랙(고정 버킷 경계 분할 방지).
+Z_MERGE_MM = 400.0
+
+
+def _split_into_racks(
+    mfeats: list["PipeFeature"], trunk_axis: int
+) -> list[list["PipeFeature"]]:
+    """형태 유사 클러스터(공간상 흩어졌을 수 있음)를 '물리적 서브랙'으로 분할한다.
+
+    ① 트렁크 z-높이를 '근접 군집'(연속 간격 ≤ Z_MERGE_MM)으로 묶어 같은 랙 높이끼리 모으고
+       (고정 버킷의 경계 분할 방지: 14900/15000/15100 이 한 랙으로),
+    ② 같은 높이 안에서 perp(주축의 직교 수평축) 오프셋으로 정렬한 뒤 인접 간격이 런 중앙값의
+       PITCH_GAP_FACTOR 배보다 크면 끊어(다른 랙) 균일 피치 런으로 분할.
+    → 거대 클러스터가 실제 평행 다발(등간격) 단위로 나뉜다. 각 런(≥MIN_RACK_MEMBERS)이 번들.
+    """
+    perp = 1 - trunk_axis
+    tz = {id(f): _pipe_trunk_z(f) for f in mfeats}     # 배관별 랙 높이(1회 산출).
+
+    # ① z-근접 군집.
+    zsorted = sorted(mfeats, key=lambda f: tz[id(f)])
+    z_groups: list[list[PipeFeature]] = []
+    cur_z = [zsorted[0]]
+    for f in zsorted[1:]:
+        if tz[id(f)] - tz[id(cur_z[-1])] <= Z_MERGE_MM:
+            cur_z.append(f)
+        else:
+            z_groups.append(cur_z)
+            cur_z = [f]
+    z_groups.append(cur_z)
+
+    racks: list[list[PipeFeature]] = []
+    for group in z_groups:
+        if len(group) < MIN_RACK_MEMBERS:
+            continue
+        # ② perp 오프셋 정렬 후 피치 갭으로 분할.
+        group.sort(key=lambda f: f.centroid[perp])
+        offs = [f.centroid[perp] for f in group]
+        gaps = [offs[i] - offs[i - 1] for i in range(1, len(offs))]
+        # 강건 '레인 간격' 기준 = 비0 간격의 작은 절반 중앙값(소수의 큰 랙-경계 갭에 휘둘리지 않음).
+        #   인접 간격이 이 기준의 PITCH_GAP_FACTOR 배보다 크면 다른 랙으로 끊는다(outlier 분리).
+        nz = sorted(g for g in gaps if g > 1e-6)
+        ref = statistics.median(nz[:max(1, len(nz) // 2)]) if nz else 0.0
+        cur = [group[0]]
+        for i in range(1, len(group)):
+            if ref > 1e-6 and gaps[i - 1] > PITCH_GAP_FACTOR * ref:
+                if len(cur) >= MIN_RACK_MEMBERS:
+                    racks.append(cur)
+                cur = [group[i]]
+            else:
+                cur.append(group[i])
+        if len(cur) >= MIN_RACK_MEMBERS:
+            racks.append(cur)
+    return racks
+
+
+def _avg_pair_similarity(mfeats: list["PipeFeature"], max_pairs: int = 200) -> float:
+    """랙 멤버 쌍 평균 형태유사도(참고 메트릭). 멤버가 많으면 앞쪽 쌍을 표본화(O(n²) 회피)."""
+    n = len(mfeats)
+    if n < 2:
+        return 1.0
+    sims: list[float] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            sims.append(composite_similarity(mfeats[i], mfeats[j]))
+            if len(sims) >= max_pairs:
+                return statistics.fmean(sims)
+    return statistics.fmean(sims) if sims else 1.0
 
 
 def detect_bundles(
@@ -372,68 +455,53 @@ def detect_bundles(
 
     [흐름]
       ① 특징 추출 → ② (owner_name, utility) 키 pre-filter
-      → ③ 키 내 Union-Find(sim≥threshold) → ④ 번들 게이트(≥min_bends 꺾임 + pitch CV≤pitch_cv_max)
-      → ⑤ 트렁크 z·다발 폭·이격간격 산출.
+      → ③ 공간 랙 검출(트렁크 축별 → z-근접·등간격 _split_into_racks)
+      → ④ 번들 게이트(≥min_bends 꺾임 + pitch CV≤pitch_cv_max) → ⑤ 트렁크 z·다발 폭·이격간격 산출.
+
+    ※ v2 — 형태 유사도 Union-Find 폐기. 랙(평행 다발)은 '형태'가 아니라 '공간(같은 트렁크 축·높이에
+       등간격 평행)'으로 정의된다. 같은 랙 배관들은 분기 지점이 달라 길이가 제각각이라, 유사도의 길이·규모
+       항이 composite 를 임계 아래로 끌어내려 클러스터를 잘게 부쉈다(실측: 4번들·각 2멤버, ALKA 전멸).
+       공간 직접 검출로 큰 랙(UPW_S 60·AKWW 50·ALKA 11×다수 …)을 잡는다. threshold 인자는 무시(호환 유지).
     """
     feats = [extract_feature(p) for p in pipes if len(p.points) >= 2]
 
     # ② (장비, 유틸) 키로 pre-filter.
-    by_key: dict[tuple, list[int]] = {}
-    for idx, f in enumerate(feats):
-        by_key.setdefault((f.pipe.owner_name, f.pipe.utility), []).append(idx)
+    by_key: dict[tuple, list[PipeFeature]] = {}
+    for f in feats:
+        by_key.setdefault((f.pipe.owner_name, f.pipe.utility), []).append(f)
 
     groups: list[BundleGroup] = []
     gid = 0
-    for (owner, util), idxs in by_key.items():
-        if len(idxs) < 2:
+    for (owner, util), kfeats in by_key.items():
+        if len(kfeats) < MIN_RACK_MEMBERS:
             continue
-        # ③ 키 내 Union-Find.
-        local = {gi: li for li, gi in enumerate(idxs)}      # 전역 idx → 로컬 0..
-        uf = UnionFind(len(idxs))
-        sim_cache: dict[tuple[int, int], float] = {}
-        for a in range(len(idxs)):
-            for b in range(a + 1, len(idxs)):
-                s = composite_similarity(feats[idxs[a]], feats[idxs[b]])
-                sim_cache[(a, b)] = s
-                if s >= threshold:
-                    uf.union(a, b)
-
-        # 클러스터 모으기.
-        clusters: dict[int, list[int]] = {}
-        for li in range(len(idxs)):
-            clusters.setdefault(uf.find(li), []).append(li)
-
-        for members_local in clusters.values():
-            if len(members_local) < 2:
-                continue
-            mfeats = [feats[idxs[li]] for li in members_local]
-            # ④ 번들 게이트 — 꺾임.
-            med_bends = int(statistics.median(f.n_bends for f in mfeats))
-            if med_bends < min_bends:
-                continue
-            # 트렁크 주축 = 멤버 다수결.
-            taxis = statistics.mode([f.trunk_axis for f in mfeats]) \
-                if len({f.trunk_axis for f in mfeats}) > 1 else mfeats[0].trunk_axis
-            pitch, cv, spread = _pitch_stats(mfeats, taxis)
-            # ④ 번들 게이트 — 동일 이격간격.
-            if cv > pitch_cv_max:
-                continue
-            # ⑤ 지표.
-            sims = [sim_cache[(min(a, b), max(a, b))]
-                    for ai, a in enumerate(members_local)
-                    for b in members_local[ai + 1:]]
-            avg_sim = statistics.fmean(sims) if sims else 1.0
-            codes = [f.code for f in mfeats]
-            rep_code = statistics.mode(codes) if codes else ""
-            groups.append(BundleGroup(
-                group_id=gid, owner_name=owner, utility=util,
-                member_guids=[f.pipe.route_path_guid for f in mfeats
-                              if f.pipe.route_path_guid],
-                n_members=len(mfeats), avg_similarity=avg_sim,
-                trunk_z=_trunk_z(mfeats), trunk_xy_spread=spread,
-                pitch_mm=pitch, n_ortho_bends=med_bends, arrow_code=rep_code,
-            ))
-            gid += 1
+        # ③ 공간 랙 검출 — 트렁크 주축(0=x,1=y)별로 나눠 z-근접·등간격 랙으로 분할.
+        by_axis: dict[int, list[PipeFeature]] = {}
+        for f in kfeats:
+            by_axis.setdefault(f.trunk_axis, []).append(f)
+        for ax, afeats in by_axis.items():
+            for mfeats in _split_into_racks(afeats, ax):
+                # ④ 번들 게이트 — 꺾임.
+                med_bends = int(statistics.median(f.n_bends for f in mfeats))
+                if med_bends < min_bends:
+                    continue
+                pitch, cv, spread = _pitch_stats(mfeats, ax)
+                # ④ pitch CV 게이트는 제거 — 실제 플랜트 랙은 공통 트렁크 공유(간격 0)·불규칙 피치라 CV 가
+                #   크다(실측 CV 4↑). 균일 피치를 요구하면 진짜 트렁크가 전부 기각된다. cv 는 참고 지표로만.
+                #   pitch_cv_max 인자는 호환 유지(미사용). 공간(같은 축·z-근접·perp-런) + 꺾임으로 충분.
+                # ⑤ 지표 — 랙 멤버 쌍 평균 형태유사도(참고용 메트릭). 멤버 많으면 비용 위해 표본화.
+                avg_sim = _avg_pair_similarity(mfeats)
+                codes = [f.code for f in mfeats]
+                rep_code = statistics.mode(codes) if codes else ""
+                groups.append(BundleGroup(
+                    group_id=gid, owner_name=owner, utility=util,
+                    member_guids=[f.pipe.route_path_guid for f in mfeats
+                                  if f.pipe.route_path_guid],
+                    n_members=len(mfeats), avg_similarity=avg_sim,
+                    trunk_z=_trunk_z(mfeats), trunk_xy_spread=spread,
+                    pitch_mm=pitch, n_ortho_bends=med_bends, arrow_code=rep_code,
+                ))
+                gid += 1
     groups.sort(key=lambda g: (-g.n_members, -g.avg_similarity))
     # group_id 를 정렬 후 재부여(안정적 번호).
     for new_id, g in enumerate(groups):

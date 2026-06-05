@@ -104,11 +104,20 @@ def test_single_elbow_not_bundle():
     assert bd.detect_bundles(pipes) == []
 
 
-def test_irregular_pitch_not_bundle():
-    """불규칙 간격(0, 500, 3000) 평행 → pitch CV 큼 → 번들 아님."""
+def test_outlier_split_from_rack():
+    """v2 — 공간 랙 검출: 멀리 떨어진 배관(outlier)은 랙에서 분리된다.
+
+    perp 간격 [500, 2500] — 0·500 은 한 레인 쌍(밀집), 3000 은 outlier(레인 간격의 5배 갭).
+    → 밀집 쌍 [0,500] 만 2멤버 번들로, 3000 은 분리돼 단독(번들 아님).
+    (옛 '불규칙 피치 = 번들 아님' 게이트는 폐기 — 실제 플랜트 랙은 공통 트렁크 공유·불규칙 피치라
+     균일 피치를 요구하면 진짜 트렁크가 전부 기각된다. 대신 공간 분할로 outlier 만 떼어낸다.)
+    """
     offs = [0.0, 500.0, 3000.0]
     pipes = [_bundle_member(f"g{i}", offs[i]) for i in range(3)]
-    assert bd.detect_bundles(pipes, pitch_cv_max=0.30) == []
+    groups = bd.detect_bundles(pipes)
+    assert len(groups) == 1
+    assert groups[0].n_members == 2                    # 밀집 쌍만(outlier 3000 제외).
+    assert abs(groups[0].pitch_mm - 500.0) < 1.0
 
 
 def test_different_utility_not_grouped():
