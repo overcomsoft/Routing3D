@@ -417,7 +417,7 @@ namespace Routing3D.Viewer.Diagnostics
             //   구간만 eng.RouteTask 로 국소 수리, 매칭/성공/수리 통계를 보고(GUI ReplicateMatchedPipes 미러).
             string replic = "";
             if (string.Equals(Environment.GetEnvironmentVariable("R3D_REPLICATE"), "on", StringComparison.OrdinalIgnoreCase)
-                && (long)g.Nx * g.Ny * g.Nz <= 30_000_000L)
+                && (long)g.Nx * g.Ny * g.Nz <= 300_000_000L)
             {
                 int matched = 0, repOk = 0, repFail = 0; long repairs = 0, copied = 0;
                 // 막힘 판정 박스(장애물 통과 제외 + 설비 + 덕트, minT 팽창) — 셀 AABB 겹침이면 막힘.
@@ -453,6 +453,82 @@ namespace Routing3D.Viewer.Diagnostics
                 replic = $" [replicate matched {matched} ok {repOk} fail {repFail} repairs {repairs} cells {copied}]";
             }
 
+            // 그룹패턴 경유(코너 waypoint) 검증 — R3D_GROUPCORNER=on 이면 매칭 그룹배관의 꺾임점을 추출해
+            //   코너 사이를 Repair(A*)로 잇는다(GUI RouteThroughGroupCorners 미러). 매칭/성공/평균길이 보고.
+            string gcorn = "";
+            if (string.Equals(Environment.GetEnvironmentVariable("R3D_GROUPCORNER"), "on", StringComparison.OrdinalIgnoreCase)
+                && (long)g.Nx * g.Ny * g.Nz <= 300_000_000L)
+            {
+                using var crep = new Engine();
+                crep.SetGrid(cell, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
+                // 수리 A* 는 표준 A*(w_heur=1.0) — w_turn=500 페널티가 지배해 최소꺾임 경로를 찾는다(weighted
+                //   그리디는 꺾임 폭증). 수리는 국소 구간이라 w=1 도 빠르며, 막혀 12M 초과 시 null→A* 폴백.
+                crep.SetParams(cell, 500, 10, 2, 6, wHeur: 1.0, wHeurNear: 0.0);
+                foreach (var o in sd.Obstacles)
+                    if (o.IsPassThrough) crep.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                    else crep.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                double mt = cell;
+                void Bx(double a, double b, double c2, double d, double e2, double f2)
+                {
+                    if (d - a < mt) { double m = (a + d) / 2; a = m - mt / 2; d = m + mt / 2; }
+                    if (e2 - b < mt) { double m = (b + e2) / 2; b = m - mt / 2; e2 = m + mt / 2; }
+                    if (f2 - c2 < mt) { double m = (c2 + f2) / 2; c2 = m - mt / 2; f2 = m + mt / 2; }
+                    crep.AddObstacle(a, b, c2, d, e2, f2);
+                }
+                foreach (var e in sd.Equipment) Bx(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                foreach (var d in sd.DuctsLaterals) Bx(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                // 막힘 판정 박스(스킵+수리용) — crep 와 동일 장애물 집합.
+                var cboxes = new List<(double, double, double, double, double, double)>();
+                void CBx(double a, double b, double c2, double d, double e2, double f2)
+                {
+                    if (d - a < mt) { double m = (a + d) / 2; a = m - mt / 2; d = m + mt / 2; }
+                    if (e2 - b < mt) { double m = (b + e2) / 2; b = m - mt / 2; e2 = m + mt / 2; }
+                    if (f2 - c2 < mt) { double m = (c2 + f2) / 2; c2 = m - mt / 2; f2 = m + mt / 2; }
+                    cboxes.Add((a, b, c2, d, e2, f2));
+                }
+                foreach (var o in sd.Obstacles) if (!o.IsPassThrough) CBx(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                foreach (var e in sd.Equipment) CBx(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                foreach (var d in sd.DuctsLaterals) CBx(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                bool CBlk(int ci, int cj, int ck)
+                {
+                    double clx = g.Ox + ci * cell, chx = clx + cell, cly = g.Oy + cj * cell, chy = cly + cell,
+                           clz = g.Oz + ck * cell, chz = clz + cell;
+                    foreach (var (mnx, mny, mnz, mxx, mxy, mxz) in cboxes)
+                        if (clx < mxx && chx > mnx && cly < mxy && chy > mny && clz < mxz && chz > mnz) return true;
+                    return false;
+                }
+
+                // 경로 꺾임(turns) = 진행 축이 바뀌는 셀 수. 톱니(staircase)가 심하면 폭증 → 수정 효과 정량 지표.
+                static int Turns(PathCell[] p)
+                {
+                    int t = 0;
+                    for (int i = 2; i < p.Length; i++)
+                    {
+                        int a0 = (p[i - 1].I - p[i - 2].I) != 0 ? 0 : (p[i - 1].J - p[i - 2].J) != 0 ? 1 : 2;
+                        int a1 = (p[i].I - p[i - 1].I) != 0 ? 0 : (p[i].J - p[i - 1].J) != 0 ? 1 : 2;
+                        if (a0 != a1) t++;
+                    }
+                    return t;
+                }
+                // 번들 레인 1:1 배정(GUI AssignBundleLanes 미러) — 같은 번들 작업을 distinct 멤버에 흩어 평행
+                //   다발 재현. bundles 미적재면 빈 맵 → MatchPipe 폴백. lane 분산 지표(distinct 멤버/작업)도 보고.
+                var lane = AssignBundleLanes(sd, rows, cell, bundles);
+                int laneTasks = lane.Count, laneDistinct = lane.Values.Distinct().Count();
+                int gm = 0, gok = 0; double gpath = 0; long gturns = 0, gcorners = 0, greps = 0;
+                foreach (var t in rows)
+                {
+                    var pipe = lane.TryGetValue(t, out var lp) ? lp : MatchPipe(sd, t, cell);
+                    if (pipe == null || pipe.Points.Count < 2) continue;
+                    gm++;
+                    var path = GroupCornerRoute(sd, t, pipe, CBlk, crep, out int cc, out int rr);
+                    if (path == null) continue;
+                    gok++; gpath += (path.Length - 1) * cell; gturns += Turns(path); gcorners += cc; greps += rr;
+                }
+                // avgTurns≈avgCorners 면 군더더기 꺾임 0(설계 코너만), avgReps=막힘 A* 우회 빈도.
+                // lane: 번들 작업 N개가 distinct 멤버 M개에 배정(M=N 이면 레인 붕괴 0=완전 평행).
+                gcorn = $" [groupcorner matched {gm} ok {gok} avgLen {(gok > 0 ? gpath / gok : 0):0} avgTurns {(gok > 0 ? (double)gturns / gok : 0):0.0} avgCorners {(gok > 0 ? (double)gcorners / gok : 0):0.0} avgReps {(gok > 0 ? (double)greps / gok : 0):0.0} lane {laneDistinct}/{laneTasks}]";
+            }
+
             eng.Dispose();
             string cb = mode == "multi" ? $" [progress cb {cbCount}, fail {cbFail}]" : "";
             string fe = failExp.Count > 0 ? $" failExpanded=[{string.Join(",", failExp)}]" : "";
@@ -461,7 +537,7 @@ namespace Routing3D.Viewer.Diagnostics
             string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
             string corr = corrCells > 0 ? $" corridor={corrCells}셀 wCorr={wCorrUsed:0}" : "";
             string nr = nearPct >= 0 ? $" 번들밀집={nearPct:0.0}%" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}{replic}";
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}{replic}{gcorn}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
@@ -621,6 +697,61 @@ namespace Routing3D.Viewer.Diagnostics
         }
 
         // 작업(TaskInfo) ↔ 기존 설계배관(TB_ROUTE_PATH) 매칭 — 양 끝 PoC 거리 합 최소(양방향), 임계 내. (GUI FindMatchingExistingPipe 미러)
+        // 같은 번들 그룹 작업을 distinct 멤버 배관에 1:1(탐욕 최근접) 배정(GUI SceneViewModel.AssignBundleLanes 미러).
+        static Dictionary<TaskInfo, ExistingPipe> AssignBundleLanes(SceneData sd, List<TaskInfo> rows,
+                                                                    double cell, BundleStore? bundles)
+        {
+            var result = new Dictionary<TaskInfo, ExistingPipe>();
+            if (bundles == null || bundles.GroupCount == 0) return result;
+            double Score(TaskInfo t, ExistingPipe p)
+            {
+                var ps = p.SourcePos ?? p.Points[0]; var pe = p.TargetPos ?? p.Points[p.Points.Count - 1];
+                return Math.Min(D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe),
+                                D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps));
+            }
+            var taskGid = new Dictionary<TaskInfo, int>();
+            foreach (var t in rows)
+            {
+                var m = MatchPipe(sd, t, cell);
+                if (m?.RoutePathGuid == null) continue;
+                int gid = bundles.GroupIdOf(m.RoutePathGuid);
+                if (gid >= 0) taskGid[t] = gid;
+            }
+            if (taskGid.Count == 0) return result;
+            var members = new Dictionary<int, List<ExistingPipe>>();
+            foreach (var p in sd.ExistingPipes)
+            {
+                if (p.RoutePathGuid == null || p.Points.Count < 2) continue;
+                int gid = bundles.GroupIdOf(p.RoutePathGuid);
+                if (gid < 0) continue;
+                if (!members.TryGetValue(gid, out var lst)) members[gid] = lst = new List<ExistingPipe>();
+                lst.Add(p);
+            }
+            foreach (var grp in taskGid.Values.Distinct())
+            {
+                var tasks = taskGid.Where(kv => kv.Value == grp).Select(kv => kv.Key).ToList();
+                if (tasks.Count < 2) continue;
+                if (!members.TryGetValue(grp, out var mem) || mem.Count == 0) continue;
+                var pairs = new List<(double cost, TaskInfo t, ExistingPipe p)>();
+                foreach (var t in tasks) foreach (var p in mem) pairs.Add((Score(t, p), t, p));
+                pairs.Sort((a, b) => a.cost.CompareTo(b.cost));
+                var usedPipe = new HashSet<ExistingPipe>();
+                foreach (var (cost, t, p) in pairs)
+                {
+                    if (result.ContainsKey(t) || usedPipe.Contains(p)) continue;
+                    result[t] = p; usedPipe.Add(p);
+                }
+                foreach (var t in tasks)
+                {
+                    if (result.ContainsKey(t)) continue;
+                    ExistingPipe? best = null; double bs = double.MaxValue;
+                    foreach (var p in mem) { double c = Score(t, p); if (c < bs) { bs = c; best = p; } }
+                    if (best != null) result[t] = best;
+                }
+            }
+            return result;
+        }
+
         static ExistingPipe? MatchPipe(SceneData sd, TaskInfo t, double cell)
         {
             if (sd.ExistingPipes.Count == 0) return null;
@@ -683,67 +814,133 @@ namespace Routing3D.Viewer.Diagnostics
                        <= D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
             var pts = new List<Pt3>(pipe.Points); if (!fwd) pts.Reverse();
             pts.Insert(0, new Pt3(t.Sx, t.Sy, t.Sz)); pts.Add(new Pt3(t.Gx, t.Gy, t.Gz));
-            var cells = PolyToCells(pts, g);
-            if (cells.Count < 2) return null;
-            var outp = new List<PathCell>(); int i = 0;
-            while (i < cells.Count && blk(cells[i].I, cells[i].J, cells[i].K)) i++;
-            if (i >= cells.Count) return null;
-            outp.Add(cells[i]); i++; int reps = 0;
-            while (i < cells.Count)
-            {
-                int j = i; while (j < cells.Count && blk(cells[j].I, cells[j].J, cells[j].K)) j++;
-                if (j >= cells.Count) break;
-                var prev = outp[outp.Count - 1];
-                if (j == i && Adj(prev, cells[i])) outp.Add(cells[i]);
-                else
-                {
-                    var rep = Repair(eng, g, prev, cells[j]);
-                    if (rep == null) return null;
-                    for (int k = 1; k < rep.Length; k++) outp.Add(rep[k]);
-                    reps++;
-                }
-                i = j + 1;
-            }
-            return outp.Count >= 2 ? (outp.Count, reps) : null;
+            var path = CellPathWithRepair(pts, g, blk, eng, out int reps);
+            return path == null ? null : (path.Length, reps);
         }
 
-        static List<PathCell> PolyToCells(IReadOnlyList<Pt3> pts, GridMeta g)
+        // 월드 폴리라인 → 6-연결 셀 경로: 자유 구간은 그대로, 막힌(또는 비인접) 구간만 Repair(A*) 우회.
+        //   선두/꼬리 막힘 스킵(묻힌 PoC 대응). ReplicateOne(전체) + GroupCornerRoute(코너만) 공용.
+        // 정점쌍을 충돌없는 직교 L(양 축순서)로 잇고, 둘 다 막힐 때만 A* 수리(+직선화). 코너는 앵커로 보존.
+        //   GUI SceneViewModel.ReplicateCellPath 미러.
+        static PathCell[]? CellPathWithRepair(IReadOnlyList<Pt3> pts, GridMeta g,
+                                              Func<int, int, int, bool> blk, Engine eng, out int reps)
         {
-            var outc = new List<PathCell>();
+            reps = 0;
             PathCell ToCell(Pt3 p) => new(
                 Math.Clamp((int)Math.Floor((p.X - g.Ox) / g.CellMm), 0, g.Nx - 1),
                 Math.Clamp((int)Math.Floor((p.Y - g.Oy) / g.CellMm), 0, g.Ny - 1),
                 Math.Clamp((int)Math.Floor((p.Z - g.Oz) / g.CellMm), 0, g.Nz - 1));
-            void Push(PathCell c)
+            var wp = new List<PathCell>();
+            foreach (var p in pts) { var c = ToCell(p); if (wp.Count == 0 || !wp[wp.Count - 1].Equals(c)) wp.Add(c); }
+            if (wp.Count < 2) return null;
+            int s = 0; while (s < wp.Count && blk(wp[s].I, wp[s].J, wp[s].K)) s++;
+            if (s >= wp.Count) return null;
+            var outp = new List<PathCell> { wp[s] };
+            for (int w = s + 1; w < wp.Count; w++)
             {
-                if (outc.Count == 0) { outc.Add(c); return; }
-                if (outc[outc.Count - 1].Equals(c)) return;
-                if (!Adj(outc[outc.Count - 1], c)) Ortho(outc, c); else outc.Add(c);
+                var target = wp[w];
+                if (blk(target.I, target.J, target.K)) continue;
+                var prev = outp[outp.Count - 1];
+                if (prev.Equals(target)) continue;
+                var L = FreeOrthoL(prev, target, blk);
+                if (L != null) { outp.AddRange(L); continue; }
+                var rep = Repair(eng, g, prev, target);
+                if (rep == null) return null;
+                rep = StraightenOrtho(rep, blk);
+                for (int k = 1; k < rep.Length; k++) outp.Add(rep[k]);
+                reps++;
             }
-            for (int seg = 1; seg < pts.Count; seg++)
-            {
-                var a = pts[seg - 1]; var b = pts[seg];
-                double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y) + (b.Z - a.Z) * (b.Z - a.Z));
-                int steps = Math.Max(1, (int)(len / (g.CellMm * 0.5)));
-                for (int s = 0; s <= steps; s++)
-                {
-                    double tt = (double)s / steps;
-                    Push(ToCell(new Pt3(a.X + (b.X - a.X) * tt, a.Y + (b.Y - a.Y) * tt, a.Z + (b.Z - a.Z) * tt)));
-                }
-            }
-            return outc;
+            return outp.Count >= 2 ? outp.ToArray() : null;
         }
 
-        static void Ortho(List<PathCell> outc, PathCell to)
+        // 매칭 그룹배관의 꺾임점(축 전환 코너, 챔퍼<250mm 병합)을 추출해 코너 사이를 Repair(A*)로 잇는다
+        //   (각 코너 강제 경유). GUI RouteThroughGroupCorners + GroupCornerWaypoints + RouteThroughWaypoints 미러.
+        static PathCell[]? GroupCornerRoute(SceneData sd, TaskInfo t, ExistingPipe pipe,
+                                            Func<int, int, int, bool> blk, Engine rep,
+                                            out int corners, out int reps)
         {
-            var cur = outc[outc.Count - 1];
-            while (cur.K != to.K) { cur = new PathCell(cur.I, cur.J, cur.K + Math.Sign(to.K - cur.K)); outc.Add(cur); }
-            while (cur.I != to.I) { cur = new PathCell(cur.I + Math.Sign(to.I - cur.I), cur.J, cur.K); outc.Add(cur); }
-            while (cur.J != to.J) { cur = new PathCell(cur.I, cur.J + Math.Sign(to.J - cur.J), cur.K); outc.Add(cur); }
+            corners = 0; reps = 0;
+            var g = sd.Grid;
+            var ps = pipe.SourcePos ?? pipe.Points[0];
+            var pe = pipe.TargetPos ?? pipe.Points[pipe.Points.Count - 1];
+            bool fwd = D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe)
+                       <= D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
+            var pts = new List<Pt3>(pipe.Points); if (!fwd) pts.Reverse();
+            const double MergeMm = 250.0;
+            static int Axis(Pt3 a, Pt3 b)
+            {
+                double dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y), dz = Math.Abs(b.Z - a.Z);
+                return dz >= dx && dz >= dy ? 2 : (dx >= dy ? 0 : 1);
+            }
+            var wps = new List<Pt3> { new Pt3(t.Sx, t.Sy, t.Sz) };   // ts + 코너 + te (코너만 폴리라인).
+            for (int i = 1; i < pts.Count - 1; i++)
+                if (Axis(pts[i - 1], pts[i]) != Axis(pts[i], pts[i + 1]))
+                {
+                    var last = wps[wps.Count - 1];
+                    if (wps.Count == 1 || D(last.X, last.Y, last.Z, pts[i]) > MergeMm) wps.Add(pts[i]);
+                }
+            wps.Add(new Pt3(t.Gx, t.Gy, t.Gz));
+            if (wps.Count < 2) return null;
+            corners = wps.Count - 2;   // 양 끝(ts/te) 제외한 설계 코너 수.
+            return CellPathWithRepair(wps, g, blk, rep, out reps);   // 코너 사이 자유=직선, 막힘만 A* 우회.
         }
 
         static bool Adj(PathCell a, PathCell b)
             => Math.Abs(a.I - b.I) + Math.Abs(a.J - b.J) + Math.Abs(a.K - b.K) == 1;
+
+        // 직교 경로의 계단·킨크를 충돌 없는 L 로 펴서 꺾임 제거(GUI SceneViewModel.StraightenOrtho 미러).
+        static PathCell[] StraightenOrtho(IReadOnlyList<PathCell> path, Func<int, int, int, bool> blk)
+        {
+            int n = path.Count;
+            if (n < 3) return path is PathCell[] a ? a : path.ToArray();
+            var outp = new List<PathCell> { path[0] };
+            int i = 0;
+            while (i < n - 1)
+            {
+                int pick = i + 1; PathCell[]? pickL = null;
+                for (int j = n - 1; j >= i + 2; j--)
+                {
+                    var L = FreeOrthoL(path[i], path[j], blk);
+                    if (L != null) { pick = j; pickL = L; break; }
+                }
+                if (pickL != null) outp.AddRange(pickL); else outp.Add(path[i + 1]);
+                i = pick;
+            }
+            return outp.ToArray();
+        }
+
+        static PathCell[]? FreeOrthoL(PathCell a, PathCell b, Func<int, int, int, bool> blk)
+        {
+            int dI = b.I - a.I, dJ = b.J - a.J, dK = b.K - a.K;
+            int ax = (dI != 0 ? 1 : 0) + (dJ != 0 ? 1 : 0) + (dK != 0 ? 1 : 0);
+            if (ax == 0 || ax == 3) return null;
+            int[][] orders;
+            if (ax == 1) orders = new[] { new[] { 0, 1, 2 } };
+            else
+            {
+                var nz = new List<int>(); if (dI != 0) nz.Add(0); if (dJ != 0) nz.Add(1); if (dK != 0) nz.Add(2);
+                orders = new[] { new[] { nz[0], nz[1] }, new[] { nz[1], nz[0] } };
+            }
+            foreach (var ord in orders)
+            {
+                var cells = new List<PathCell>(); var cur = a;
+                foreach (var axis in ord)
+                {
+                    int d = axis == 0 ? dI : axis == 1 ? dJ : dK; int s = Math.Sign(d);
+                    while ((axis == 0 && cur.I != b.I) || (axis == 1 && cur.J != b.J) || (axis == 2 && cur.K != b.K))
+                    {
+                        cur = axis == 0 ? new PathCell(cur.I + s, cur.J, cur.K)
+                            : axis == 1 ? new PathCell(cur.I, cur.J + s, cur.K)
+                                        : new PathCell(cur.I, cur.J, cur.K + s);
+                        cells.Add(cur);
+                    }
+                }
+                bool free = true;
+                foreach (var c in cells) if (blk(c.I, c.J, c.K)) { free = false; break; }
+                if (free) return cells.ToArray();
+            }
+            return null;
+        }
 
         static PathCell[]? Repair(Engine eng, GridMeta g, PathCell from, PathCell to)
         {

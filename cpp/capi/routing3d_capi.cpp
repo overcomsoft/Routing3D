@@ -723,13 +723,28 @@ extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) 
     if (!e) return R3D_ERR_ARG;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
     try {
-        DenseOccupancy occ = occupancy_from_doc(e->doc);
         const RouteTask& t = e->doc.tasks[static_cast<size_t>(task)];
-        AStarResult r = astar_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
-                                       e->doc.params, -1, e->collect_visited);
+        // 백엔드 선택(route_multi 와 동일 정책): 작은 격자(≤5M, 골든)는 DenseOccupancy 로 기존 동작·
+        //   바이트 결과 완전 불변. 거대 격자(>5M, 25mm/10mm)는 복셀화 없는 ImplicitOccupancy(O(장애물)) +
+        //   탐색 상한(12M, 메모리 폭증·런어웨이 방지)으로 전환 → C# 코너/복제 후처리의 단일 수리 A* 가
+        //   1.3억 셀 격자에서도 매 호출 130M 복셀화 없이 빠르게 동작(그룹패턴/기존설계추종 후처리 활성화).
+        const long long cells =
+            static_cast<long long>(e->doc.shape.i) * e->doc.shape.j * e->doc.shape.k;
+        SceneResult sr;
+        if (cells > 5000000LL) {
+            ImplicitOccupancy occ = implicit_from_doc(e->doc);
+            AStarResult r = astar_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
+                                           e->doc.params, 12000000LL, e->collect_visited);
+            sr = to_scene_result(r);
+        } else {
+            DenseOccupancy occ = occupancy_from_doc(e->doc);
+            AStarResult r = astar_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
+                                           e->doc.params, -1, e->collect_visited);
+            sr = to_scene_result(r);
+        }
         if (e->doc.results.size() != e->doc.tasks.size())
             e->doc.results.resize(e->doc.tasks.size());
-        e->doc.results[static_cast<size_t>(task)] = to_scene_result(r);
+        e->doc.results[static_cast<size_t>(task)] = sr;
         if (out) fill_result(*out, e->doc.results[static_cast<size_t>(task)]);
         return R3D_OK;
     } catch (...) {

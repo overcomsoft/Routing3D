@@ -96,15 +96,22 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="선택 배관:" FontWeight="Bold" Foreground="#bfc6d6"
                                            VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <!-- 체크박스 라벨 색 = 미니 3D 오버레이 색과 동일(복셀맵=회색·점유맵=적색·방문맵=
+                                     노랑·최종경로=파랑·그룹배관패턴=보라). 색상으로 어떤 레이어인지 즉시 식별. -->
                                 <CheckBox Content="복셀맵"  IsChecked="{Binding ShowGridLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          Foreground="#9698A0"
                                           ToolTip="라우팅 영역의 격자 BBOX 12변(회색 선형 틀)"/>
                                 <CheckBox Content="점유맵"  IsChecked="{Binding ShowOccLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          Foreground="#DC463C"
                                           ToolTip="로컬 영역의 장애물(점유) 셀 — 적색 큐브"/>
                                 <CheckBox Content="방문맵"  IsChecked="{Binding ShowVisLayer}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          Foreground="#EBCD3C"
                                           ToolTip="이 배관 라우팅 중 A* 가 확장한 방문 셀 — 노란색 반투명 큐브. 실패 시 어디서 막혔는지 보임"/>
                                 <CheckBox Content="최종경로" IsChecked="{Binding ShowPathLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          Foreground="#3C96F0"
                                           ToolTip="경로 튜브 + 경로 구성 셀(파랑, 꺾임 셀=녹색) + 시작(빨강)/종단(파랑) 마커 + 스텁"/>
                                 <CheckBox Content="그룹배관패턴" IsChecked="{Binding ShowPatternLayer}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          Foreground="#BE78EB"
                                           ToolTip="이 배관 유틸리티의 학습된 공용 트렁크 레인(L4, 기존설계 그룹배관 패턴) — 보라색 반투명 큐브. 자동경로가 이 레인을 따라 다발로 뭉칩니다. 미적재면 빈 표시."/>
                                 <Button Content="↺ 전체보기" Click="OnMiniFit" Padding="8,2" MinWidth="0"
                                         ToolTip="미니 3D 뷰를 이 배관이 들어오도록 자동 줌"/>

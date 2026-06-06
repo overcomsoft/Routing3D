@@ -279,12 +279,19 @@
                             <CheckBox Content="스텁 라우팅"
                                       IsChecked="{Binding UseStubRouting}" Margin="0,0,12,0"
                                       ToolTip="스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료. 표시=출발 스텁+A* 중간+종단 스텁. 매칭 없으면 PoC 직접 라우팅 폴백. 기본 ON."/>
-                            <CheckBox Content="기존배관 복제"
-                                      IsChecked="{Binding UseDesignReplicate}" Margin="0,0,12,0"
-                                      ToolTip="기존배관 복제(폴리라인) — 매칭되는 기존 설계배관이 있으면 그 폴리라인을 그대로 복제하고, 현재 점유에서 막힌(장애물이 달라진) 구간만 A*로 국소 우회 수리합니다. 가장 강한 '기존설계 유사' = 기존설계 그대로 + 변경된 곳만 우회. 매칭 없으면 일반 A* 결과 유지. 경로를 크게 바꾸므로 기본 OFF."/>
-                            <CheckBox Content="{Binding BundleStatus}"
-                                      IsChecked="{Binding UseBundlePattern}" Margin="0,0,12,0"
-                                      ToolTip="그룹배관 패턴(L4) — 학습한 유틸별 공용 트렁크 고도(rack_levels)+레인 회랑을 신규 라우팅에 주입해 같은 유틸 배관을 공용 랙에 다발로 뭉칩니다. 적재: python -m routing3d_py.bundle_detect --project N --write-db. 주의: 셀>pitch(약 56mm)면 레인이 뭉개져 킨크 발생 — cell≤pitch/2 권장. 기본 ON(항상 적용)."/>
+                            <Border Width="1" Background="#404a64" Margin="2,1,8,1"/>
+                            <!-- 경로 방식 3-모드 선택(상호 배타) -->
+                            <TextBlock Text="경로 방식:" Foreground="#7f8aa3" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <RadioButton Content="최단경로" GroupName="RouteMode" Margin="0,0,8,0"
+                                         VerticalAlignment="Center" IsChecked="{Binding IsModeShortest}"
+                                         ToolTip="최단경로 — 그룹/기존설계 패턴을 무시하고 순수 최단 A*로 라우팅합니다(스텁·면투영 토글은 별도)."/>
+                            <RadioButton Content="그룹패턴 경유" GroupName="RouteMode" Margin="0,0,8,0"
+                                         VerticalAlignment="Center" IsChecked="{Binding IsModeGroupPattern}"
+                                         ToolTip="그룹패턴 경유 — 매칭되는 그룹배관(기존설계)의 꺾임점(수직↔수평·수평간 꺾임)을 '반드시 경유'하도록 코너 사이를 A*로 잇습니다. 코너 사이는 최단, 코너는 강제 통과 → 그룹배관 골격을 따라 다발로 모입니다. 매칭 없으면 최단 폴백. 기본값."/>
+                            <RadioButton Content="기존설계 추종" GroupName="RouteMode" Margin="0,0,12,0"
+                                         VerticalAlignment="Center" IsChecked="{Binding IsModeFollowExisting}"
+                                         ToolTip="기존설계 추종 — 매칭 기존배관 폴리라인을 그대로 복제하고, 현재 점유에서 막힌(장애물이 달라진) 구간만 A*로 국소 우회합니다. 가장 강한 추종. 매칭 없으면 최단 폴백."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
