@@ -115,6 +115,17 @@ namespace Routing3D.Viewer.Model
             $"[{(string.IsNullOrEmpty(Group) ? "?" : Group)}] {(string.IsNullOrEmpty(Utility) ? "?" : Utility)}";
     }
 
+    /// <summary>배관 자재(연결부) 1개 — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속(ELBOW/TEE/VALVE/FLANGE 등).
+    /// 위치=세그먼트디테일 FROM/TO 중점(월드 mm). TYPE=부속 분류(PIPE/POC/BENDING 은 제외).</summary>
+    public sealed class PipeFitting
+    {
+        public string Type { get; set; } = string.Empty;   // TB_ROUTE_SEGMENT_DETAIL.TYPE (ELBOW, TEE, VALVE...).
+        public string? Size { get; set; }                   // SIZE (호칭경 원문, 예 "40A").
+        public double X, Y, Z;                              // 부속 중심(월드 mm).
+        public string? Utility { get; set; }                // 상위 route 의 SOURCE_UTILITY(옵션).
+        public double DiameterMm { get; set; }              // SIZE → 외경 근사(mm). 0=미상.
+    }
+
     /// <summary>3D 점(월드 mm) — Model 레이어가 WPF 의존 없이 좌표를 담는 경량 구조체.</summary>
     public struct Pt3
     {
@@ -132,6 +143,7 @@ namespace Routing3D.Viewer.Model
         public List<EquipmentBox> Equipment { get; } = new();   // 장비 박스(시각화용). DB 로드 시에만.
         public List<DuctLateral> DuctsLaterals { get; } = new();   // 덕트/레터럴 박스(시각화용). DB 로드 시에만.
         public List<ExistingPipe> ExistingPipes { get; } = new();   // 기존 설계배관 폴리라인(시각화용). DB 로드 시에만.
+        public List<PipeFitting> Fittings { get; } = new();         // 배관 자재(연결부, TB_ROUTE_SEGMENT_DETAIL). DB 로드 시에만.
         public string SourceFile { get; set; } = string.Empty;      // 프로젝트 SOURCE_FILE(DB 로드 시). 번들 템플릿 조회 키.
         public string RawText { get; set; } = string.Empty;
     }
