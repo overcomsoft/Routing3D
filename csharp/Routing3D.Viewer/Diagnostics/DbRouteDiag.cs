@@ -514,7 +514,25 @@ namespace Routing3D.Viewer.Diagnostics
                 //   다발 재현. bundles 미적재면 빈 맵 → MatchPipe 폴백. lane 분산 지표(distinct 멤버/작업)도 보고.
                 var lane = AssignBundleLanes(sd, rows, cell, bundles);
                 int laneTasks = lane.Count, laneDistinct = lane.Values.Distinct().Count();
-                int gm = 0, gok = 0; double gpath = 0; long gturns = 0, gcorners = 0, greps = 0;
+                // 짧은런(말림=jog) 카운트 — 첫/끝 제외 ≤2셀 런(코너의 양자화 계단). 0 이면 자연스러운 단일 엘보.
+                static int ShortJogs(PathCell[] p)
+                {
+                    var lens = new List<int>();
+                    if (p.Length >= 2)
+                    {
+                        int ax(PathCell a, PathCell b) => (b.I - a.I) != 0 ? 0 : (b.J - a.J) != 0 ? 1 : 2;
+                        int cur = ax(p[0], p[1]), run = 1;
+                        for (int k = 2; k < p.Length; k++)
+                        {
+                            int a = ax(p[k - 1], p[k]);
+                            if (a == cur) run++; else { lens.Add(run); cur = a; run = 1; }
+                        }
+                        lens.Add(run);
+                    }
+                    int j = 0; for (int i = 1; i < lens.Count - 1; i++) if (lens[i] <= 2) j++;
+                    return j;
+                }
+                int gm = 0, gok = 0; double gpath = 0; long gturns = 0, gcorners = 0, greps = 0, gjogs = 0;
                 foreach (var t in rows)
                 {
                     var pipe = lane.TryGetValue(t, out var lp) ? lp : MatchPipe(sd, t, cell);
@@ -522,11 +540,11 @@ namespace Routing3D.Viewer.Diagnostics
                     gm++;
                     var path = GroupCornerRoute(sd, t, pipe, CBlk, crep, out int cc, out int rr);
                     if (path == null) continue;
-                    gok++; gpath += (path.Length - 1) * cell; gturns += Turns(path); gcorners += cc; greps += rr;
+                    gok++; gpath += (path.Length - 1) * cell; gturns += Turns(path); gcorners += cc; greps += rr; gjogs += ShortJogs(path);
                 }
                 // avgTurns≈avgCorners 면 군더더기 꺾임 0(설계 코너만), avgReps=막힘 A* 우회 빈도.
                 // lane: 번들 작업 N개가 distinct 멤버 M개에 배정(M=N 이면 레인 붕괴 0=완전 평행).
-                gcorn = $" [groupcorner matched {gm} ok {gok} avgLen {(gok > 0 ? gpath / gok : 0):0} avgTurns {(gok > 0 ? (double)gturns / gok : 0):0.0} avgCorners {(gok > 0 ? (double)gcorners / gok : 0):0.0} avgReps {(gok > 0 ? (double)greps / gok : 0):0.0} lane {laneDistinct}/{laneTasks}]";
+                gcorn = $" [groupcorner matched {gm} ok {gok} avgLen {(gok > 0 ? gpath / gok : 0):0} avgTurns {(gok > 0 ? (double)gturns / gok : 0):0.0} avgCorners {(gok > 0 ? (double)gcorners / gok : 0):0.0} avgReps {(gok > 0 ? (double)greps / gok : 0):0.0} avgJogs {(gok > 0 ? (double)gjogs / gok : 0):0.0} lane {laneDistinct}/{laneTasks}]";
             }
 
             eng.Dispose();
@@ -850,7 +868,10 @@ namespace Routing3D.Viewer.Diagnostics
                 for (int k = 1; k < rep.Length; k++) outp.Add(rep[k]);
                 reps++;
             }
-            return outp.Count >= 2 ? outp.ToArray() : null;
+            if (outp.Count < 2) return null;
+            // 전체 경로 직선화 — 코너의 짧은 2축 계단(말림=Y4 X2 등)을 충돌없는 L 로 흡수해 자연스러운 단일
+            //   엘보로. 3축 전환(주요 코너)은 FreeOrthoL(≤2축)이 못 잇어 보존된다.
+            return StraightenOrtho(outp, blk);
         }
 
         // 매칭 그룹배관의 꺾임점(축 전환 코너, 챔퍼<250mm 병합)을 추출해 코너 사이를 Repair(A*)로 잇는다
