@@ -3,7 +3,7 @@
 이 파일은 다른 PC / 새 세션에서 프로젝트를 재개할 때 필요한 핵심 정보를 한곳에 모은 것이다.
 세부 사항은 git 이력과 `docs/`, `cpp/`, `csharp/`, `python_experiments/` 가 정답.
 
-> 마지막 갱신: 2026-06-06 · 단위 mm · 기본 셀 50mm · DB=DDW_AI_DB
+> 마지막 갱신: 2026-06-06 · 단위 mm · 기본 셀 50mm · DB=DDW_AI_DB (뷰어 표시보강 PR #25~#31 포함)
 
 ---
 
@@ -233,7 +233,7 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 | `docs/routing3d_stub_example_exhaust.{docx,pdf}` | **실측 워크드 예시** — Clean 장비 WTNHJ02_ Exhaust(ACID) 배관 1개(GUID 2014e40a, 150mm)로 출발(EQUIP −z)/종단(DUCT +z) 스텁 추출·특징벡터·집계대표·활용을 실제 좌표로 |
 | `docs/csharp_helix_interop_design.md` | C ABI/뷰어 설계 + 로드맵 P0~P3j |
 | `docs/phase2_input_notes.md` | Phase 2 동결 입력 노트 |
-| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_gen_pattern_learning_plan.py` · `_gen_stub_pattern_doc.py` · `_gen_stub_example_exhaust.py` · `_docx_to_pdf.ps1` |
+| 생성기 (gitignore 예외 추적) | `python_experiments/out/_gen_dev_report.py` · `_gen_regression_report.py` · `_gen_spec_docs.py` · `_gen_pattern_learning_plan.py` · `_gen_stub_pattern_doc.py` · `_gen_stub_example_exhaust.py` · `_gen_route_analysis_xlsx.py`(DDW 전수 분석 엑셀) · `_md_to_pdf.py` · `_docx_to_pdf.ps1` |
 
 ---
 
@@ -272,7 +272,14 @@ DDW_AI_DB 는 `SOURCE_FILE` 가 없고 좌표는 `AABB_MIN/MAX_*`(+OBB), PoC 는
 
 **작업 생성(완전교체)**: `TB_ROUTE_PATH`(SOURCE_POS→TARGET_POS, SOURCE_OWNER_NAME→PoC명, TARGET_OWNER_NAME→종단명)를 그룹 AABB 공간교차로 스코프해 작업화. PoC 메타는 `SOURCE_GUID = TB_POCINSTANCES.INSTANCE_ID` 조인.
 **스코프 필터**: 선택 그룹(`TB_SPACE_GROUP_INFO`)의 AABB ± `ScopeMarginMm`(500) 공간교차로 장애물·장비·덕트·작업 한정.
-**격자(중요)**: origin·shape 를 **그룹 AABB 박스(3축 전부)** 로 클램프(`ComputeFromGroupBox`) — 거대 공유 슬래브(건물 전체 X 0~443m·Z 48m)가 공간필터로 새어 28억 셀 폭발하던 것을 차단. 실측 그룹 WTNHJ02: 136×149×91 ≈ 184만 셀(Dense).
+**격자(중요)**: origin·shape 를 **그룹 AABB 박스(3축 전부)** 로 클램프(`ComputeGrid`) — 거대 공유 슬래브(건물 전체 X 0~443m·Z 48m)가 공간필터로 새어 28억 셀 폭발하던 것을 차단. 실측 그룹 WTNHJ02: 136×149×91 ≈ 184만 셀(Dense).
+
+**뷰어 표시 보강(2026-06-06, PR #25~#31)**:
+- **그룹 AABB 클리핑**: 공간영역(`TB_SPACE_INFO` 층, 건물 전체 443m)·장애물(바닥/천장 슬래브)을 그룹 AABB 3축으로 클리핑(작업영역 크기로 제한). **공간영역=와이어프레임**(cube box 아님), 장애물 클리핑은 **라우팅 불변**(엔진이 이미 장애물∩격자만 복셀화, 146/151·totalLen 동일, 1177→1139=작업 Z 밖 38개 제외).
+- **배관 자재**: 흰색 cube 를 휴리스틱(폴리라인 정점)→**실제 부속**으로. `TB_ROUTE_SEGMENT_DETAIL.TYPE` 이 PIPE/POC/BENDING 이 아닌 것(ELBOW/TEE/VALVE/FLANGE/REDUCER/UNION/GLAND/GASKET/FILTER/TAKEOFF…)을 FROM/TO 중점에 타입별 색 cube 로, 독립 토글 `ShowFittings`(UI '배관자재'). 모델 `SceneData.PipeFitting`·로더 `LoadFittings`.
+- **3D 클릭 정보 확장**: `SelectObjectAt` 에 배관 자재(작은 박스)·기존배관(중심선 거리 `DistPointToSeg`, 큰 장애물보다 우선·부속이 더 구체적)·PoC 마커(시작/종단 구) 추가. 객체별 `Describe*` + 모달리스 `ObjectInfoWindow`. 좌측 그룹/유틸 필터 동일 적용.
+- **종단 PoC 데이터 주의**: 종단명=`TB_ROUTE_PATH.TARGET_OWNER_NAME`, 위치=`TARGET_POS`, 실체=`TARGET_GUID`→`TB_POCINSTANCES`. **종단이 Duct 가 아니라 Damper/Elbow/Takeoff 로 보이는 건 정상**(설계상 배기 배관이 덕트 부속[댐퍼 등]에 접속). 실측 Exhaust 종단: DUCT 669·Damper 122·PIPE 88·… 댐퍼 소유자는 `OWNER_INSTANCE_TYPE='MODEL'`(TB_DUCT/OBSTACLE 에 없어 화면엔 PoC 만).
+- **전수 분석 엑셀**: `python python_experiments/out/_gen_route_analysis_xlsx.py` → `out/ddw_route_analysis.xlsx`(전체 7,052 경로 + '종단소유자 분석' 교차표). 의존성 openpyxl. `TB_ROUTE_PATH` + `TB_POCINSTANCES` 조인(PoC 소유자타입·관경 보강).
 
 ### SpaceAI (인접 프로젝트, `..\SpaceAI\`)
 
