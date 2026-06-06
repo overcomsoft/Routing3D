@@ -2087,7 +2087,11 @@ namespace Routing3D.Viewer.ViewModels
                 repair = StraightenOrtho(repair, blocked);        // 수리 A* 톱니/킨크를 자유 L 로 정리.
                 for (int k = 1; k < repair.Length; k++) outp.Add(repair[k]);
             }
-            return outp.Count >= 2 ? outp.ToArray() : null;
+            if (outp.Count < 2) return null;
+            // 전체 경로 직선화 — 코너의 짧은 2축 계단(말림: 양자화로 생긴 Y4·X2 같은 잔 jog)을 충돌 없는
+            //   단일 L 로 흡수해 '한 번에 꺾이는' 자연스러운 엘보로 만든다(물리적 밴딩 가능). 주요 패턴 코너
+            //   (수평↔수평·수평↔수직 = 3축 전환/방향 반전)는 FreeOrthoL(≤2축)이 못 잇어 보존된다.
+            return StraightenOrtho(outp, blocked);
         }
 
         private static bool Adjacent(PathCell a, PathCell b)
