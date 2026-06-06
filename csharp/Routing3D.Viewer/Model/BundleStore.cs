@@ -62,28 +62,34 @@ namespace Routing3D.Viewer.Model
 
                 using var conn = new NpgsqlConnection(config.ConnectionString);
                 conn.Open();
-                using var cmd = new NpgsqlCommand(
+                // 첫 reader 는 '블록 스코프'로 즉시 닫아야 한다 — Npgsql 은 MARS(다중 활성 reader)를 지원하지
+                //   않으므로, 이 reader 가 열린 채로 아래 route_bundle_group 두 번째 reader 를 같은 connection 에서
+                //   실행하면 예외 → 그룹 멤버십(_guidGroup/_groupCount)이 통째로 유실된다(멤버십 표시·회랑·레인
+                //   배정 무력화). using var(메서드 끝까지 유지) 대신 using(...){} 로 스코프 종료 시 닫는다.
+                using (var cmd = new NpgsqlCommand(
                     "SELECT owner_name, utility, trunk_zs, pitch_mm, n_members " +
-                    "FROM route_bundle_template WHERE source_file=@sf", conn);
-                cmd.Parameters.AddWithValue("@sf", sourceFile);
-                using var r = cmd.ExecuteReader();
-                while (r.Read())
+                    "FROM route_bundle_template WHERE source_file=@sf", conn))
                 {
-                    string owner = Norm(r.IsDBNull(0) ? null : r.GetString(0));
-                    string util = Norm(r.IsDBNull(1) ? null : r.GetString(1));
-                    double[] zs = r.IsDBNull(2) ? Array.Empty<double>() : r.GetFieldValue<double[]>(2);
-                    double pitch = r.IsDBNull(3) ? 0 : r.GetDouble(3);
-                    int nmem = r.IsDBNull(4) ? 0 : r.GetInt32(4);
-
-                    store._byKey[(owner, util)] = new BundleTemplate
+                    cmd.Parameters.AddWithValue("@sf", sourceFile);
+                    using var r = cmd.ExecuteReader();
+                    while (r.Read())
                     {
-                        OwnerName = owner, Utility = util, TrunkZs = zs, PitchMm = pitch, NMembers = nmem,
-                    };
-                    if (!utilZ.TryGetValue(util, out var zset)) utilZ[util] = zset = new SortedSet<double>();
-                    foreach (var z in zs) zset.Add(z);
-                    if (!utilPitch.TryGetValue(util, out var pl)) utilPitch[util] = pl = new List<double>();
-                    if (pitch > 0) pl.Add(pitch);
-                    utilMem[util] = (utilMem.TryGetValue(util, out var m) ? m : 0) + nmem;
+                        string owner = Norm(r.IsDBNull(0) ? null : r.GetString(0));
+                        string util = Norm(r.IsDBNull(1) ? null : r.GetString(1));
+                        double[] zs = r.IsDBNull(2) ? Array.Empty<double>() : r.GetFieldValue<double[]>(2);
+                        double pitch = r.IsDBNull(3) ? 0 : r.GetDouble(3);
+                        int nmem = r.IsDBNull(4) ? 0 : r.GetInt32(4);
+
+                        store._byKey[(owner, util)] = new BundleTemplate
+                        {
+                            OwnerName = owner, Utility = util, TrunkZs = zs, PitchMm = pitch, NMembers = nmem,
+                        };
+                        if (!utilZ.TryGetValue(util, out var zset)) utilZ[util] = zset = new SortedSet<double>();
+                        foreach (var z in zs) zset.Add(z);
+                        if (!utilPitch.TryGetValue(util, out var pl)) utilPitch[util] = pl = new List<double>();
+                        if (pitch > 0) pl.Add(pitch);
+                        utilMem[util] = (utilMem.TryGetValue(util, out var m) ? m : 0) + nmem;
+                    }
                 }
 
                 foreach (var (util, zset) in utilZ)
