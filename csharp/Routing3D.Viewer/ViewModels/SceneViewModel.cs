@@ -3511,9 +3511,14 @@ namespace Routing3D.Viewer.ViewModels
                 var lo = new Point3D(sp.MinX, sp.MinY, sp.MinZ);
                 var hi = new Point3D(sp.MaxX, sp.MaxY, sp.MaxZ);
                 var color = colorMap.TryGetValue(sp.Name, out var c) ? c : Colors.Gold;
-                // 변 굵기 = 영역 크기에 비례(너무 가늘면 안 보이고 너무 굵으면 장애물 가림).
-                double r = Math.Max((hi.X - lo.X + hi.Y - lo.Y) * 0.0008, 25);
-                AddBoxFrame(group, lo, hi, color, r, 235);
+                // 공간영역 = 그룹 AABB 로 클리핑된 박스를 cube box(반투명 솔리드)로 그린다.
+                //   장애물이 비치도록 alpha 낮게(38). 경계가 보이게 가는 와이어프레임을 함께 덧그린다.
+                var center = new Point3D((lo.X + hi.X) / 2, (lo.Y + hi.Y) / 2, (lo.Z + hi.Z) / 2);
+                var mb = new MeshBuilder(false, false);
+                mb.AddBox(center, hi.X - lo.X, hi.Y - lo.Y, hi.Z - lo.Z);
+                group.Children.Add(Geometry(mb, color, 38));
+                double r = Math.Max((hi.X - lo.X + hi.Y - lo.Y) * 0.0006, 20);   // 경계 와이어(가늘게).
+                AddBoxFrame(group, lo, hi, color, r, 180);
                 // 텍스트 라벨 위치 = 영역 박스 '바깥'(+X 면에서 더 떨어진 곳), 각 층의 수직 중앙.
                 // 층(CSF/A/F/CR)이 Z 로 쌓이므로 같은 옆면에 서로 다른 높이로 나란히 표시된다.
                 double offset = Math.Max((hi.X - lo.X) * 0.06, 800);
