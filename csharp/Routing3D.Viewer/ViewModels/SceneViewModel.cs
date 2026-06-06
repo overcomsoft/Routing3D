@@ -83,6 +83,62 @@ namespace Routing3D.Viewer.ViewModels
             private set => Set(ref _selectedObjectInfo, value);
         }
 
+        // ── 자동설계 분석 결과(오른쪽 하단 2단 영역) ─────────────────────
+        // 전체 작업의 성공률·총/평균 길이·평균 꺾임·실패 사유·유틸리티별 집계를 한 문자열로.
+        // BuildModel 끝(라우팅/표시 갱신마다)에서 UpdateAnalysis 로 다시 계산한다.
+        private string? _analysisReport;
+        public string? AnalysisReport
+        {
+            get => _analysisReport;
+            private set => Set(ref _analysisReport, value);
+        }
+
+        private void UpdateAnalysis()
+        {
+            // 결과 리스트에서 한 배관(행)을 선택하면 하단을 '그 배관의 경로 분석'으로 전환한다(ExplainPipe:
+            //   길이·우회율·꺾임·탐색 셀·스텁·성패 설명). 미선택이면 아래 '집계 분석'(필터 범위 전체).
+            if (_selectedTask != null) { AnalysisReport = ExplainPipe(_selectedTask.Index); return; }
+
+            // 분석 범위 = 오른쪽 결과 리스트와 동일(좌측 그룹/유틸 필터 반영). 비었으면 전체로 폴백.
+            var src = ResultList.Count > 0 ? (IList<TaskRowVM>)ResultList : Tasks;
+            if (src.Count == 0) { AnalysisReport = "작업이 없습니다. 좌측에서 그룹/유틸리티 라우팅을 실행하세요."; return; }
+            string scope = !string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility)
+                ? $"유틸 '{_selectedUtility}'"
+                : !string.IsNullOrEmpty(_selectedGroup) ? $"그룹 '{_selectedGroup}'" : "전체";
+            int total = src.Count;
+            int ok = 0, routed = 0;
+            double sumLen = 0; int sumTurns = 0, turnSamples = 0;
+            var perUtil = new Dictionary<string, (int ok, int n, double len)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in src)
+            {
+                bool done = t.Path != null && t.Path.Length >= 2;
+                if (done) routed++;
+                if (t.Success) { ok++; sumLen += t.LengthMm; sumTurns += t.TurnCount; turnSamples++; }
+                string u = string.IsNullOrEmpty(t.Utility) ? "(미상)" : t.Utility!;
+                (int ok, int n, double len) cur = perUtil.TryGetValue(u, out var v) ? v : (0, 0, 0.0);
+                perUtil[u] = (cur.ok + (t.Success ? 1 : 0), cur.n + 1, cur.len + (t.Success ? t.LengthMm : 0));
+            }
+            int fail = routed - ok;
+            double rate = total > 0 ? 100.0 * ok / total : 0;
+            double avgLen = ok > 0 ? sumLen / ok : 0;
+            double avgTurn = turnSamples > 0 ? (double)sumTurns / turnSamples : 0;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"■ 요약 ({scope})");
+            sb.AppendLine($"  작업 {total} · 라우팅됨 {routed} · 성공 {ok} · 실패 {fail}");
+            sb.AppendLine($"  성공률 {rate:0.0}%");
+            sb.AppendLine($"  총 길이 {sumLen:N0} mm · 평균 {avgLen:N0} mm");
+            sb.AppendLine($"  평균 꺾임 {avgTurn:0.0}");
+            sb.AppendLine();
+            sb.AppendLine($"■ 유틸리티별");
+            foreach (var kv in perUtil.OrderByDescending(k => k.Value.n))
+            {
+                var (uok, un, ulen) = kv.Value;
+                sb.AppendLine($"  {kv.Key,-12} 성공 {uok}/{un} · {ulen:N0} mm");
+            }
+            AnalysisReport = sb.ToString().TrimEnd();
+        }
+
         public void SelectObjectAt(Point3D p)
         {
             var s = _scene;
@@ -347,6 +403,7 @@ namespace Routing3D.Viewer.ViewModels
                 bool wasCompare = _compareMode;
                 _compareMode = false;            // 새 배관 선택 → 비교 포커스 해제(숨겼던 기존배관 복원).
                 UpdateSelectionHighlight();      // → UpdateComparison(): 새 배관 매칭 오버레이/분석.
+                UpdateAnalysis();                // 하단 '분석결과'를 선택 배관 경로 분석으로 전환(미선택=집계).
                 if (wasCompare && _scene != null && _engine != null) BuildModel();
             }
         }
@@ -561,6 +618,25 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>3단계: 선택 (그룹,유틸)의 개별 PoC(작업) 목록.</summary>
         public ObservableCollection<TaskRowVM> PocList { get; } = new();
 
+        /// <summary>오른쪽 '자동설계 결과 경로' 리스트 — 좌측 그룹/유틸 선택에 따라 필터된 작업.
+        /// 미선택=전체 · 그룹만 선택=그 그룹 · 그룹+유틸 선택=그 유틸리티.</summary>
+        public ObservableCollection<TaskRowVM> ResultList { get; } = new();
+
+        // 결과 리스트(오른쪽 상단) 멤버십을 좌측 드릴다운 선택으로 필터. Success/길이는 행 INotify 로 자동 갱신.
+        private void RebuildResultList()
+        {
+            ResultList.Clear();
+            IEnumerable<TaskRowVM> q;
+            if (!string.IsNullOrEmpty(_selectedGroup) && !string.IsNullOrEmpty(_selectedUtility))
+                q = Tasks.Where(t => GroupKey(t.Group) == _selectedGroup && UtilityKey(t.Utility) == _selectedUtility);
+            else if (!string.IsNullOrEmpty(_selectedGroup))
+                q = Tasks.Where(t => GroupKey(t.Group) == _selectedGroup);
+            else
+                q = Tasks;
+            foreach (var row in q) ResultList.Add(row);
+            UpdateAnalysis();   // 분석결과도 같은 필터 범위로 갱신.
+        }
+
         /// <summary>선택된 유틸리티 그룹. 선택 시 유틸리티 목록을 채우고 상단 범위를 '그룹별'로 동기화.</summary>
         public string? SelectedGroup
         {
@@ -569,6 +645,7 @@ namespace Routing3D.Viewer.ViewModels
             {
                 if (!Set(ref _selectedGroup, value)) return;
                 RebuildUtilityList();
+                RebuildResultList();   // 오른쪽 결과 리스트를 이 그룹으로 필터.
                 RebuildIfReady();   // 기존 설계배관을 선택 그룹만 표시(미선택=전체)하도록 3D 갱신.
                 if (!_suppressDrillCascade && !string.IsNullOrEmpty(value))
                     SyncTopScope(RouteScope.ByGroup, value);   // '경로 탐색 실행'이 이 그룹을 라우팅.
@@ -583,6 +660,7 @@ namespace Routing3D.Viewer.ViewModels
             {
                 if (!Set(ref _selectedUtility, value)) return;
                 RebuildPocList();
+                RebuildResultList();   // 오른쪽 결과 리스트를 이 유틸리티로 필터.
                 if (!_suppressDrillCascade && !string.IsNullOrEmpty(value))
                     SyncTopScope(RouteScope.ByUtility, value);   // '경로 탐색 실행'이 이 유틸을 라우팅.
             }
@@ -641,6 +719,7 @@ namespace Routing3D.Viewer.ViewModels
             PocList.Clear();
             SelectedUtility = null;
             _suppressDrillCascade = false;
+            RebuildResultList();         // 선택 없음 → 전체 작업 표시.
         }
 
         // 2단계: 선택 그룹의 유틸리티 목록.
@@ -1926,14 +2005,19 @@ namespace Routing3D.Viewer.ViewModels
                 // 번들 레인 배정이 있으면 그 멤버 배관을, 없으면 최근접 매칭 배관을 골격으로.
                 var pipe = lane.TryGetValue(pos, out var lp) ? lp : FindMatchingExistingPipe(row);
                 if (pipe == null || pipe.Points.Count < 2) continue;   // 매칭 없음 → A*(최단) 유지.
-                var wps = GroupCornerWaypoints(row, pipe);             // ts + 코너 + te (코너만 폴리라인).
+                // 코너 폴리라인 = [출발 스텁 끝] + 트렁크 코너 + [종단 스텁 끝]. 스텁이 PoC→랙 라이저를
+                //   담당하고, 중간(랙↔랙)만 코너 경유로 잇는다(스텁은 GroupCornerWaypoints 가 끝점으로 사용).
+                var wps = GroupCornerWaypoints(row, pipe);
                 if (wps.Count < 2) continue;
                 // 코너 폴리라인을 복제 로직으로 — 코너 사이 자유 구간은 직선(최단), 막힌 구간만 A* 우회.
                 //   결과가 그룹배관 코너(수직↔수평·수평간 꺾임)를 강제 경유한다.
                 var path = ReplicateCellPath(wps, g, Blocked, rep);
                 if (path == null || path.Length < 2) continue;          // 실패 → A*(최단) 유지.
-                row.Path = path; row.StartStub = null; row.EndStub = null;
-                row.Success = true; row.LengthMm = (path.Length - 1) * g.CellMm;
+                // 스텁(StartStub/EndStub)을 '유지'한다 — 렌더가 [출발스텁]+[중간경로]+[reverse(종단스텁)] 로
+                //   합성해 시작 PoC→랙→…→랙→종단 PoC 완전 경로를 그린다(과거엔 null 로 지워 라이저가 끊겼다).
+                row.Path = path;
+                row.Success = true;
+                row.LengthMm = (path.Length - 1) * g.CellMm + PolylineLen(row.StartStub) + PolylineLen(row.EndStub);
                 routed++;
             }
             return routed;
@@ -2008,18 +2092,44 @@ namespace Routing3D.Viewer.ViewModels
             return result;
         }
 
-        // 매칭 기존배관(작업 PoC 방향 정렬)의 꺾임점(축 전환 코너)을 waypoint 열로 — 양 끝은 작업 실제 PoC.
+        // 폴리라인(월드 mm)의 누적 길이. null/1점이면 0. 스텁 길이를 경로 길이에 더하는 데 쓴다.
+        private static double PolylineLen(System.Collections.Generic.List<Pt3>? pl)
+        {
+            if (pl == null || pl.Count < 2) return 0;
+            double len = 0;
+            for (int i = 1; i < pl.Count; i++) len += Dist(pl[i - 1], pl[i]);
+            return len;
+        }
+
+        // 매칭 기존배관(작업 PoC 방향 정렬)의 꺾임점(축 전환 코너)을 waypoint 열로.
         //   짧은 런(<MergeMm)의 챔퍼/지터 코너는 인접 코너로 흡수해 주요 코너(수직↔수평·수평간)만 남긴다.
+        //   양 끝점: 스텁이 있으면 '스텁 끝(랙)' — 스텁이 PoC→랙 라이저를 담당하고 중간만 코너로 잇는다.
+        //   스텁이 없으면 작업 실제 PoC(폴백, 비스텁 모드).
         private List<Pt3> GroupCornerWaypoints(TaskRowVM row, ExistingPipe pipe)
         {
             Pt3 ps = pipe.SourcePos ?? pipe.Points[0];
             Pt3 pe = pipe.TargetPos ?? pipe.Points[pipe.Points.Count - 1];
-            var ts = new Pt3(row.Sx, row.Sy, row.Sz); var te = new Pt3(row.Gx, row.Gy, row.Gz);
-            bool fwd = Dist(ts, ps) + Dist(te, pe) <= Dist(ts, pe) + Dist(te, ps);
+            var tsPoc = new Pt3(row.Sx, row.Sy, row.Sz); var tePoc = new Pt3(row.Gx, row.Gy, row.Gz);
+            bool fwd = Dist(tsPoc, ps) + Dist(tePoc, pe) <= Dist(tsPoc, pe) + Dist(tePoc, ps);
+            // 경유 경로의 시작/끝 = 스텁 끝(랙). row.StartStub/EndStub 는 이미 작업 시작/끝 쪽으로 정렬돼 있다.
+            bool hasS = row.StartStub != null && row.StartStub.Count >= 2;
+            bool hasE = row.EndStub != null && row.EndStub.Count >= 2;
+            Pt3 ts = hasS ? row.StartStub![row.StartStub!.Count - 1] : tsPoc;
+            Pt3 te = hasE ? row.EndStub![row.EndStub!.Count - 1] : tePoc;
             var pts = new List<Pt3>(pipe.Points);
             if (!fwd) pts.Reverse();
 
+            // 누적 호장(arc-length)과 스텁 끝의 호장 위치 — 스텁 영역(라이저·엘보·리드인)의 코너를 제외해
+            //   '스텁끝→엘보로 백트랙(=T자)' 을 막는다. 스텁이 이미 그 구간을 담당하므로 중간은 트렁크만.
+            var arc = new double[pts.Count];
+            for (int i = 1; i < pts.Count; i++) arc[i] = arc[i - 1] + Dist(pts[i - 1], pts[i]);
+            double total = arc[pts.Count - 1];
+            double startArc = hasS ? NearestArcLen(pts, arc, ts) : 0.0;
+            double endArc = hasE ? NearestArcLen(pts, arc, te) : total;
+            if (endArc < startArc) { var tmp = startArc; startArc = endArc; endArc = tmp; }   // 안전(역전 방지).
+
             const double MergeMm = 250.0;
+            const double ClipMm = 1.0;     // 스텁 끝 호장에서 이 여유 안쪽 코너는 스텁 영역으로 보고 제외.
             static int Axis(Pt3 a, Pt3 b)
             {
                 double dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y), dz = Math.Abs(b.Z - a.Z);
@@ -2027,13 +2137,35 @@ namespace Routing3D.Viewer.ViewModels
             }
             var corners = new List<Pt3>();
             for (int i = 1; i < pts.Count - 1; i++)
+            {
+                if (arc[i] <= startArc + ClipMm || arc[i] >= endArc - ClipMm) continue;   // 스텁 영역 코너 제외.
                 if (Axis(pts[i - 1], pts[i]) != Axis(pts[i], pts[i + 1]))
                     if (corners.Count == 0 || Dist(corners[corners.Count - 1], pts[i]) > MergeMm)
                         corners.Add(pts[i]);
+            }
             var outp = new List<Pt3> { ts };
             outp.AddRange(corners);
             outp.Add(te);
             return outp;
+        }
+
+        // 점 p 를 폴리라인(pts) 각 세그먼트에 사영해 가장 가까운 지점의 누적 호장(arc) 위치를 반환.
+        //   스텁 끝(세그먼트 중간일 수 있음)이 폴리라인 상 어디인지 정확히 찾아 코너 클리핑 기준으로 쓴다.
+        private static double NearestArcLen(IReadOnlyList<Pt3> pts, double[] arc, Pt3 p)
+        {
+            double best = 0, bestD = double.MaxValue;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                var a = pts[i - 1]; var b = pts[i];
+                double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                double seg2 = dx * dx + dy * dy + dz * dz;
+                double t = seg2 > 1e-9 ? ((p.X - a.X) * dx + (p.Y - a.Y) * dy + (p.Z - a.Z) * dz) / seg2 : 0.0;
+                t = Math.Max(0.0, Math.Min(1.0, t));
+                double px = a.X + dx * t, py = a.Y + dy * t, pz = a.Z + dz * t;
+                double d = (p.X - px) * (p.X - px) + (p.Y - py) * (p.Y - py) + (p.Z - pz) * (p.Z - pz);
+                if (d < bestD) { bestD = d; best = arc[i - 1] + (arc[i] - arc[i - 1]) * t; }
+            }
+            return best;
         }
 
 
@@ -2238,7 +2370,6 @@ namespace Routing3D.Viewer.ViewModels
                                           bool showProgress = false)
         {
             if (_scene == null || rowPositions.Count == 0) return;
-            RoutingProgressWindow? dlg = null;
             try
             {
                 // 그룹 라우팅(corridor)에서 '다건'(2개 이상)은 셀 ≤ 50mm 라야 인접 레인이 분리돼 다발이
@@ -2272,35 +2403,19 @@ namespace Routing3D.Viewer.ViewModels
                 // coarse 셀 ≈ 160mm 가 되도록 factor 산출(4~24 클램프), 통로 반경 2 coarse 셀.
                 int factor = Math.Clamp((int)Math.Round(160.0 / Math.Max(1.0, cellMm)), 4, 24);
 
-                // 진행 다이얼로그 — 그룹 모드 또는 showProgress 일 때(계층 corridor 제외) 배관별 콜백 실시간 표시.
-                bool useProgress = (showProgress || cor) && !hier;
+                // 진행 표시 — 그룹 모드 또는 showProgress 일 때(계층 corridor 제외) 배관별 콜백으로
+                //   오른쪽 '자동설계 결과 경로' 리스트의 해당 행을 라이브 갱신(성공/길이/꺾임) + 3D 라이브
+                //   오버레이를 점진 표시한다. (별도 진행 다이얼로그는 띄우지 않는다 — 메인뷰 우측 리스트로 충분.)
+                bool liveProgress = (showProgress || cor) && !hier;
                 var grid = _scene.Grid;
-                // 엔진 작업 인덱스(=added 순서)별 메타/색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
-                // Brush(.Color)·컬렉션 접근이 불가). 콜백은 이 값 배열만 참조 → 스레드 안전.
-                var meta = new (string grp, string util, string sp, string ep, Color col)[added.Count];
+                // 엔진 작업 인덱스(=added 순서)별 색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
+                // Brush(.Color) 접근이 불가). 콜백은 이 배열·added 만 참조 → 스레드 안전.
+                var col = new Color[added.Count];
                 for (int k = 0; k < added.Count; k++)
-                {
-                    var tr = Tasks[added[k]];
-                    string sp = string.IsNullOrEmpty(tr.PocName) ? $"({tr.Sx:0},{tr.Sy:0},{tr.Sz:0})" : tr.PocName!;
-                    string ep = string.IsNullOrEmpty(tr.EndName) ? $"({tr.Gx:0},{tr.Gy:0},{tr.Gz:0})" : tr.EndName!;
-                    Color col = (tr.Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
-                    meta[k] = (tr.Group ?? "", tr.Utility ?? "", sp, ep, col);
-                }
-                if (useProgress)
-                {
-                    ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
-                    dlg = new RoutingProgressWindow { Owner = System.Windows.Application.Current?.MainWindow };
-                    dlg.Begin(label, added.Count);
-                    // 표 행 클릭 → 그 배관 로컬 미니 3D/설명 생성 + 메인 뷰 줌/선택(라우팅 완료 후에도 동작).
-                    // 콜백 ti = '엔진 task 인덱스'(이번 배치의 부분집합 순서) → 전역 Tasks 인덱스(added[ti])로 매핑.
-                    // (부분집합 라우팅 시 엔진은 0..N-1 만 갖고, 전역 Tasks 는 전체 작업이므로 매핑 필수.)
-                    var addedMap = added;
-                    int MapTi(int ti) => (ti >= 0 && ti < addedMap.Count) ? addedMap[ti] : ti;
-                    dlg.DetailProvider = (ti, layers) => BuildPipeDetail(MapTi(ti), layers);
-                    dlg.FocusInMainView = ti => FocusPipeInMainView(MapTi(ti));
-                    dlg.Show();
-                }
+                    col[k] = (Tasks[added[k]].Swatch as SolidColorBrush)?.Color ?? Colors.Cyan;
+                if (liveProgress) ResetLiveRoute();   // 이전 라이브 오버레이 제거 → 이번 배치만 점진 표시.
                 var disp = System.Windows.Application.Current?.Dispatcher;
+                double cellLive = grid.CellMm;
 
                 await Task.Run(() =>
                 {
@@ -2310,22 +2425,27 @@ namespace Routing3D.Viewer.ViewModels
                         // priority 순차 + mark_pipe 로 배관 간 충돌 0.
                         engine.RouteCorridorMulti(factor, 2, priority, 0);
                     }
-                    else if (useProgress)
+                    else if (liveProgress)
                     {
-                        var d = dlg!;
                         engine.RouteMultiProgress(priority, p =>
                         {
+                            // 배관 완료(phase 1) 시 그 행을 라이브 갱신 + 3D 오버레이 추가. ti(엔진 인덱스)→added[ti](전역 행).
+                            if (p.Phase != 1) return;
                             int ti = p.TaskIndex;
-                            var m = (ti >= 0 && ti < meta.Length)
-                                ? meta[ti]
-                                : (grp: "", util: "", sp: "", ep: "", col: Colors.Cyan);
-                            d.ReportPipe(p, m.grp, m.util, m.sp, m.ep);
-                            // 배관 완료(성공) 시 즉시 3D 라이브 오버레이에 그 경로를 추가.
-                            if (p.Phase == 1 && p.Success && p.Path.Length >= 1)
+                            if (ti < 0 || ti >= added.Count) return;
+                            int gpos = added[ti];
+                            var path = p.Path; bool success = p.Success; var c = col[ti];
+                            disp?.BeginInvoke(new Action(() =>
                             {
-                                var path = p.Path; var col = m.col;
-                                disp?.BeginInvoke(new Action(() => AppendLivePipe(path, col, grid)));
-                            }
+                                var row = Tasks[gpos];
+                                if (success && path.Length >= 1)
+                                {
+                                    row.Path = path;
+                                    row.LengthMm = (path.Length - 1) * cellLive;   // 라이브 근사(최종은 CacheResults).
+                                    AppendLivePipe(path, c, grid);
+                                }
+                                row.Success = success;   // StatusText/StatusBrush/TurnCount 갱신 → 리스트 행 즉시 반영.
+                            }));
                         });
                     }
                     else
@@ -2333,7 +2453,6 @@ namespace Routing3D.Viewer.ViewModels
                         engine.RouteMulti(priority);
                     }
                 });
-                dlg?.Complete();
                 CacheResults(added);
                 // 경로 방식별 후처리 — 그룹패턴(코너 경유 waypoint) / 기존설계추종(폴리라인 복제). 최단은 후처리 없음.
                 int replicated = 0, cornered = 0;
@@ -2359,7 +2478,6 @@ namespace Routing3D.Viewer.ViewModels
             catch (Exception ex)
             {
                 Status = "경로 탐색 오류: " + ex.Message;
-                dlg?.Complete(failedToRun: true, error: ex.Message);
             }
         }
 
@@ -2733,6 +2851,9 @@ namespace Routing3D.Viewer.ViewModels
                 // 출발(빨강)·종단(파랑) 스텁 강조 — 학습 StubExtractor 로 잘라낸 수직+엘보 구간을 굵은 색 튜브로.
                 var startStubMb = new MeshBuilder(false, false);
                 var endStubMb = new MeshBuilder(false, false);
+                // 배관-배관 연결 자재(엘보·티·커플링 등) — 폴리라인 내부 정점(세그먼트 조인트)을 cube box 로.
+                var fittingMb = new MeshBuilder(false, false);
+                int fittingCnt = 0;
                 int drawn = 0, stubDrawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
                 {
@@ -2763,6 +2884,16 @@ namespace Routing3D.Viewer.ViewModels
                     }
                     mb.AddTube(pts, dia, 10, false);
                     drawn++;
+
+                    // 배관 자재(연결부) — 내부 정점(세그먼트 조인트)마다 cube box. 양 끝(0·마지막)은 장비/덕트
+                    //   연결(PoC)이라 제외하고, '배관과 배관을 연결하는' 내부 조인트만 자재로 표시한다.
+                    //   자재 크기는 관경에 비례(×1.4)해 배관보다 살짝 볼록한 부속처럼 보이게 한다.
+                    double fitSize = Math.Max(dia * 1.4, grid.CellMm * 0.4);
+                    for (int vi = 1; vi < pts.Count - 1; vi++)
+                    {
+                        fittingMb.AddBox(pts[vi], fitSize, fitSize, fitSize);
+                        fittingCnt++;
+                    }
 
                     // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 튜브로 강조.
                     // 실제 관경보다 살짝 굵게(×1.35) + 반투명으로 그린다 → 실제 배관(원색·불투명)을 감싸는
@@ -2806,6 +2937,16 @@ namespace Routing3D.Viewer.ViewModels
                             Swatch = new SolidColorBrush(Color.FromArgb(235, 160, 160, 160)),
                             Label = $"기존 설계배관 {drawn} (유틸 색·관경)"
                         });
+                }
+                // 배관 자재(연결부) cube box — 메탈 색(은회색)으로 배관 위 조인트마다 표시.
+                if (fittingCnt > 0)
+                {
+                    group.Children.Add(Geometry(fittingMb, Color.FromRgb(205, 210, 222), 255));
+                    Legend.Add(new LegendItem
+                    {
+                        Swatch = new SolidColorBrush(Color.FromRgb(205, 210, 222)),
+                        Label = $"배관 자재(연결부) {fittingCnt}"
+                    });
                 }
                 if (ShowStubs && stubDrawn > 0)
                 {
@@ -2878,6 +3019,7 @@ namespace Routing3D.Viewer.ViewModels
 
             SceneModel = group;
             UpdateSelectionHighlight();   // 라우팅 후 선택 경로의 꺾임 마커·단계 목록 갱신.
+            UpdateAnalysis();             // 오른쪽 하단 '분석결과' 갱신(성공률·길이·유틸별).
             Status = $"장애물 {scene.Obstacles.Count} · 작업 {scene.Tasks.Count} · 성공 {ok}/{scene.Tasks.Count} · 총 {total:0} mm · 충돌 {collisions}{occNote}   |   engine: {Engine.Version}";
             SceneRebuilt?.Invoke();
         }

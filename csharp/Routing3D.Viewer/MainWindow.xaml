@@ -297,164 +297,82 @@
                 </Border>
             </Grid>
 
-            <!-- ===== RIGHT: 범례 + 선택 작업 + 종단점 편집 ===== -->
+            <!-- ===== RIGHT: 세로 2단 — 위) 자동설계 결과 경로 리스트 / 아래) 분석결과 ===== -->
             <Border Grid.Column="2" Background="#252b3d" BorderBrush="#404a64"
                     BorderThickness="1,0,0,0">
-                <DockPanel LastChildFill="True" Margin="6">
+                <Grid Margin="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="3*" MinHeight="200"/>   <!-- 위: 결과 경로 리스트 -->
+                        <RowDefinition Height="Auto"/>                 <!-- 스플리터 -->
+                        <RowDefinition Height="2*" MinHeight="140"/>   <!-- 아래: 분석결과 -->
+                    </Grid.RowDefinitions>
 
-                    <!-- 범례 -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
-                        <StackPanel>
-                            <TextBlock Text="범례 (유틸리티)" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ItemsControl ItemsSource="{Binding Legend}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                                            <Rectangle Width="14" Height="14" Fill="{Binding Swatch}"
-                                                       Stroke="#888" StrokeThickness="0.5"/>
-                                            <TextBlock Text="{Binding Label}" Margin="6,0,0,0"
-                                                       VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 마커 안내 (선택 배관 강조 마커 색상) -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
-                        <StackPanel>
-                            <TextBlock Text="마커 안내 (선택 배관)" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#FF2D2D" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="● 시작점 (시작 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#3278FF" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="● 끝점 (종단 PoC)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Ellipse Width="14" Height="14" Fill="#FF50DC" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="● 꺾임 (방향 전환 지점)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="White" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="■ 선택 구간 강조 (단계 클릭)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="#FFCD46" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="■ A* 탐색 셀 (단계별 탐색)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="Magenta" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="■ 충돌 셀 (≥2 배관 공유)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <TextBlock Text="경로·장애물·장비·레터럴·덕트 등 레이어 색은 위 '범례'를 참고하세요."
-                                       Foreground="#9aa3b8" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 객체 속성 (3D 클릭) -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
-                        <StackPanel>
-                            <TextBlock Text="객체 속성 (3D 클릭)" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <TextBlock Text="{Binding SelectedObjectInfo, TargetNullValue='3D 뷰에서 장애물·장비·덕트·공간을 클릭하면 속성이 표시됩니다. (종단점 지정 모드가 아닐 때)'}"
-                                       Foreground="#cdd6f4" TextWrapping="Wrap"
-                                       FontFamily="Consolas" FontSize="11"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 선택 작업 정보 + 종단점 편집 -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
-                        <StackPanel>
-                            <TextBlock Text="선택 배관 — 종단점 편집 (mm)"
-                                       FontWeight="Bold" Margin="0,0,0,4"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="36"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition/>
-                                    <RowDefinition/>
-                                    <RowDefinition/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="X" TextAlignment="Center" Foreground="#9aa3b8"/>
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Y" TextAlignment="Center" Foreground="#9aa3b8"/>
-                                <TextBlock Grid.Row="0" Grid.Column="3" Text="Z" TextAlignment="Center" Foreground="#9aa3b8"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="시작" VerticalAlignment="Center" Margin="0,2"/>
-                                <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding SelectedTask.Sx, Mode=TwoWay}"/>
-                                <TextBox  Grid.Row="1" Grid.Column="2" Text="{Binding SelectedTask.Sy, Mode=TwoWay}"/>
-                                <TextBox  Grid.Row="1" Grid.Column="3" Text="{Binding SelectedTask.Sz, Mode=TwoWay}"/>
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="끝" VerticalAlignment="Center" Margin="0,2"/>
-                                <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding SelectedTask.Gx, Mode=TwoWay}"/>
-                                <TextBox  Grid.Row="2" Grid.Column="2" Text="{Binding SelectedTask.Gy, Mode=TwoWay}"/>
-                                <TextBox  Grid.Row="2" Grid.Column="3" Text="{Binding SelectedTask.Gz, Mode=TwoWay}"/>
-                            </Grid>
-
-                            <UniformGrid Rows="1" Columns="2" Margin="0,8,0,0">
-                                <Button Content="3D 시작점 지정" Command="{Binding PickStartCommand}" Margin="0,0,2,0"/>
-                                <Button Content="3D 끝점 지정"   Command="{Binding PickEndCommand}"   Margin="2,0,0,0"/>
-                            </UniformGrid>
-                            <Button Content="▶ 선택 배관 재라우팅 (단일)"
-                                    Command="{Binding RerouteSelectedCommand}"
-                                    Margin="0,6,0,0" Background="#385b85" FontWeight="SemiBold"/>
-                            <Button Content="🔬 기존설계 비교 (선택 배관)"
-                                    Command="{Binding CompareSelectedCommand}"
-                                    Margin="0,4,0,0" Background="#7a4e2a" FontWeight="SemiBold"
-                                    ToolTip="선택 배관을 개발 경로로 라우팅하고, 해당 시작/끝 PoC의 기존 설계경로(주황)와 나란히 그려 비교합니다. 나머지 기존배관은 숨겨집니다. 결과는 아래 '기존설계 비교 분석'에 표시됩니다."/>
-                            <Button Content="🔎 단계별 탐색 (선택 배관)"
-                                    Command="{Binding AnimateSelectedCommand}"
-                                    Margin="0,4,0,0" Background="#3a4e7a" FontWeight="SemiBold"
-                                    ToolTip="점유맵을 켜고, A* 가 시작 PoC 부터 점유를 회피해 종단 PoC 로 탐색하는 과정(방문 셀)을 순서대로 애니메이션으로 보여준 뒤 최종 경로를 드러냅니다."/>
-                            <TextBlock Text="단일=원본 장애물 기준(다른 배관 무시) → 겹침을 빨간 충돌 큐브로 확인. '단계별 탐색'은 A* 진행 과정을 재생."
-                                       TextWrapping="Wrap" Foreground="#9aa3b8" FontSize="11" Margin="0,6,0,0"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 기존설계 비교 분석 — 선택 배관의 기존 경로 vs 개발 경로 정량 비교 -->
-                    <Border DockPanel.Dock="Top" Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1" Margin="0,0,0,6">
-                        <StackPanel>
-                            <TextBlock Text="기존설계 비교 분석" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                                <Rectangle Width="14" Height="14" Fill="#FF9030" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="━ 기존 설계경로 (TB_ROUTE_PATH)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,1,0,4">
-                                <Rectangle Width="14" Height="14" Fill="#30D0FF" Stroke="#888" StrokeThickness="0.5"/>
-                                <TextBlock Text="━ 개발 경로 (A* 엔진)" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <TextBlock Text="{Binding ComparisonReport, TargetNullValue='배관(PoC)을 선택하면 매칭된 기존 설계경로(주황)를 표시합니다. ‘🔬 기존설계 비교’ 를 누르면 개발 경로(시안)와 나란히 비교합니다.'}"
-                                       Foreground="#cdd6f4" TextWrapping="Wrap"
-                                       FontFamily="Consolas" FontSize="11"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 경로 단계(구간) 목록 — 방향 전환마다 한 항목. 클릭 시 그 위치로 카메라 이동 -->
-                    <Border Background="#2b3548" Padding="6"
-                            BorderBrush="#404a64" BorderThickness="1">
-                        <DockPanel LastChildFill="True">
-                            <TextBlock DockPanel.Dock="Top" Text="경로 단계 (방향 전환 구간) — 클릭 시 이동"
-                                       FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox ItemsSource="{Binding PathSteps}"
-                                     SelectedItem="{Binding SelectedStep, Mode=TwoWay}"
-                                     FontFamily="Consolas" FontSize="12">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Label}" Margin="2,1"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                    <!-- (위) 자동설계 결과 경로 리스트 -->
+                    <Border Grid.Row="0" Background="#2b3548" BorderBrush="#404a64" BorderThickness="1">
+                        <DockPanel LastChildFill="True" Margin="6">
+                            <TextBlock DockPanel.Dock="Top" Text="자동설계 결과 경로" FontWeight="Bold" Margin="0,0,0,6"/>
+                            <DataGrid ItemsSource="{Binding ResultList}"
+                                      SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
+                                      AutoGenerateColumns="False" IsReadOnly="True"
+                                      HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                      CanUserAddRows="False" SelectionMode="Single"
+                                      Background="#252b3d" RowBackground="#252b3d"
+                                      AlternatingRowBackground="#2b3548" Foreground="#e8eaf0"
+                                      BorderBrush="#404a64" HorizontalGridLinesBrush="#333b50"
+                                      FontFamily="Consolas" FontSize="11">
+                                <DataGrid.ColumnHeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader">
+                                        <Setter Property="Background" Value="#2b3548"/>
+                                        <Setter Property="Foreground" Value="#bfc6d6"/>
+                                        <Setter Property="Padding" Value="5,3"/>
+                                        <Setter Property="BorderBrush" Value="#404a64"/>
+                                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    </Style>
+                                </DataGrid.ColumnHeaderStyle>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="34"/>
+                                    <DataGridTextColumn Header="유틸" Binding="{Binding Utility}" Width="64"/>
+                                    <DataGridTextColumn Header="시작PoC" Binding="{Binding PocName}" Width="*"/>
+                                    <DataGridTextColumn Header="종단PoC" Binding="{Binding EndName}" Width="*"/>
+                                    <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="62">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="72">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="TextAlignment" Value="Right"/></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="꺾임" Binding="{Binding TurnCount}" Width="48">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock"><Setter Property="TextAlignment" Value="Right"/></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
                         </DockPanel>
                     </Border>
-                </DockPanel>
+
+                    <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"
+                                  Background="#404a64" ResizeBehavior="PreviousAndNext" Margin="0,4"/>
+
+                    <!-- (아래) 분석결과 -->
+                    <Border Grid.Row="2" Background="#2b3548" BorderBrush="#404a64" BorderThickness="1">
+                        <DockPanel LastChildFill="True" Margin="6">
+                            <TextBlock DockPanel.Dock="Top" Text="분석결과 (행 선택 = 해당 배관 / 미선택 = 집계)"
+                                       FontWeight="Bold" Margin="0,0,0,6"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock Text="{Binding AnalysisReport, TargetNullValue='위 결과 리스트에서 배관을 클릭하면 그 경로 분석을, 미선택이면 전체 집계를 표시합니다.'}"
+                                           Foreground="#cdd6f4" TextWrapping="Wrap"
+                                           FontFamily="Consolas" FontSize="12" LineHeight="17"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
             </Border>
         </Grid>
 

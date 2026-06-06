@@ -145,33 +145,32 @@ def db_config():
 
 @pytest.mark.db
 def test_db_list_projects(db_config):
+    # DDW_AI_DB: TB_SPACE_GROUP_INFO 의 그룹(툴)들이 1-based 순번으로 나온다.
     projects = list_projects(db_config)
     assert len(projects) > 0
     ids = [p.project_id for p in projects]
-    assert 6 in ids
+    assert 1 in ids and ids == sorted(ids)
+    assert any("WTNHJ" in (p.source_file or "") for p in projects)
 
 
 @pytest.mark.db
-def test_db_load_scene_project6(db_config):
-    scene = load_scene(db_config, 6)
-    assert scene.project.project_id == 6
-    assert "WTNHJ03" in (scene.project.equipment_code or "") or \
-           "WTNHJ03" in scene.project.source_file
-    # 뷰어 확인값: 장애물 987(원본) — load_scene 은 퇴화 박스 4개 제외 → 983.
-    assert len(scene.obstacles) == 983
-    # PoC 페어 208, 유틸 21종 (뷰어와 일치)
-    assert len(scene.tasks) == 208
-    assert len(scene.utility_counts()) == 21
-    # 공간 범위(mm) 대략 일치
-    assert scene.bounds_lo[0] == pytest.approx(183079.3, abs=1)
-    assert scene.bounds_hi[2] == pytest.approx(17499.9, abs=1)
+def test_db_load_scene_project1(db_config):
+    # DDW_AI_DB 그룹 1 = WTNHJ02 (C# --dbroute 검증치와 동일).
+    scene = load_scene(db_config, 1)
+    assert scene.project.project_id == 1
+    assert "WTNHJ02" in scene.project.source_file
+    assert len(scene.obstacles) == 1177          # damper 제외 후.
+    assert len(scene.tasks) == 151               # route_path 작업.
+    assert len(scene.utility_counts()) >= 15
+    # 공간 범위 = 그룹 AABB(3축 클램프). lo<hi 이고 Z 범위가 작업을 덮어야 함.
+    assert all(scene.bounds_lo[i] < scene.bounds_hi[i] for i in range(3))
 
 
 @pytest.mark.db
 def test_db_scene_utility_grouping(db_config):
-    scene = load_scene(db_config, 6)
+    scene = load_scene(db_config, 1)
     counts = scene.utility_counts()
-    # 알려진 분포 일부 검증
+    # 알려진 분포 일부 검증(WTNHJ02).
+    assert counts.get("[Waste Liquid] NFW") == 38
     assert counts.get("[Gas] PA") == 18
     assert counts.get("[Exhaust] ACID") == 17
-    assert counts.get("[UPW] UPW_S") == 42

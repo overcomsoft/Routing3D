@@ -18,15 +18,20 @@
 ================================================================================
 [이 모듈이 하는 일]
 --------------------------------------------------------------------------------
-플랜트 BIM 장애물 데이터를 PostgreSQL 의 "TB_BIM_OBSTACLES" 테이블에서 읽어와
-점유맵(OccupancyMap)으로 구성한다. 각 장애물의 축 정렬 바운딩 박스(AABB)는
-MIN_X/Y/Z ~ MAX_X/Y/Z 필드로 표현되며, OST_TYPE(바닥/기둥/보 등)을 함께 읽어
-점유 구성과 충돌 검사 시 타입별로 활용할 수 있게 한다.
+플랜트 BIM 장애물 데이터를 PostgreSQL(DDW_AI_DB) 의 "TB_BIM_OBSTACLE" 테이블에서
+읽어와 점유맵(OccupancyMap)으로 구성한다. 각 장애물의 축 정렬 바운딩 박스(AABB)는
+AABB_MINX/Y/Z ~ AABB_MAXX/Y/Z 필드로 표현되며, OST_TYPE(바닥/기둥/보 등)·
+COLLISION_PASS(통과 가능 플래그)를 함께 읽어 점유 구성·충돌 검사에 활용한다.
 
-[DB 정보] (인접 프로젝트 SpaceAI / RoutingAI 와 동일 환경)
-  host=localhost  port=5432  dbname=AUTOROUTINGV7  user=postgres  password=dinno
-  table=TB_BIM_OBSTACLES
-  좌표 단위: 밀리미터(mm)  ← 본 프로젝트 규약과 동일
+[구 DB(AUTOROUTINGV7) → 신 DB(DDW_AI_DB) 매핑]  (자세히는 C# ObstacleDbLoader.cs · docs/routing3d_ddw_ai_db_migration_analysis.md)
+  · 테이블 TB_BIM_OBSTACLES → TB_BIM_OBSTACLE.
+  · 좌표 MIN_X/Y/Z·MAX_X/Y/Z → AABB_MINX/Y/Z·AABB_MAXX/Y/Z.
+  · 이름 NAME → INSTANCE_NAME, OBJECT_ID → INSTANCE_ID.
+  · 신규 COLLISION_PASS(0/1) = 통과 가능 플래그(직접 제공).
+  · 프로젝트 키 SOURCE_FILE 폐지 → 그룹(툴) AABB '공간교차(xy_bbox)'로 스코프.
+
+[DB 정보]  host=localhost port=5432 dbname=DDW_AI_DB user=postgres password=dinno
+  table=TB_BIM_OBSTACLE   좌표 단위: 밀리미터(mm)
   주요 OST_TYPE: OST_Floors(바닥), OST_Columns(기둥), OST_BeamStartSegment(보),
                  OST_StructuralColumns, OST_StructuralFraming, OST_Ceilings, OST_Walls
 
@@ -89,19 +94,19 @@ class PgConnConfig:
     필드:
         host     : DB 호스트. 기본 'localhost'.
         port     : 포트. 기본 5432.
-        dbname   : 데이터베이스 이름. 기본 'AUTOROUTINGV7'.
+        dbname   : 데이터베이스 이름. 기본 'DDW_AI_DB'.
         user     : 사용자. 기본 'postgres'.
         password : 비밀번호. 기본 'dinno'(dev). 환경변수 PGPASSWORD 로 덮어쓰기 권장.
-        table    : 장애물 테이블 이름. 기본 'TB_BIM_OBSTACLES'.
+        table    : 장애물 테이블 이름. 기본 'TB_BIM_OBSTACLE'.
         connect_timeout : 접속 타임아웃(초). 기본 5.
     """
 
     host: str = "localhost"
     port: int = 5432
-    dbname: str = "AUTOROUTINGV7"
+    dbname: str = "DDW_AI_DB"
     user: str = "postgres"
     password: str = "dinno"
-    table: str = "TB_BIM_OBSTACLES"
+    table: str = "TB_BIM_OBSTACLE"
     connect_timeout: int = 5
 
     @classmethod
@@ -149,12 +154,14 @@ class Obstacle:
     """장애물 1건. AABB(min/max) + 의미 메타데이터.
 
     필드:
-        object_id    : BIM 객체 ID (OBJECT_ID).
-        name         : 객체 이름 (NAME).
+        object_id    : BIM 객체 ID (INSTANCE_ID).
+        name         : 객체 이름 (INSTANCE_NAME).
         ost_type     : 장애물 타입 (OST_TYPE). 예: 'OST_Floors', 'OST_Columns'.
         ddworks_type : DDWorks 분류 (DDWORKS_TYPE). 예: 'FLOOR_ARCHITECTURE'.
-        min_xyz      : AABB 최소 좌표 (mm) = (MIN_X, MIN_Y, MIN_Z).
-        max_xyz      : AABB 최대 좌표 (mm) = (MAX_X, MAX_Y, MAX_Z).
+        min_xyz      : AABB 최소 좌표 (mm) = (AABB_MINX, AABB_MINY, AABB_MINZ).
+        max_xyz      : AABB 최대 좌표 (mm) = (AABB_MAXX, AABB_MAXY, AABB_MAXZ).
+        pass_through : COLLISION_PASS(0/1) 통과 가능 플래그. True=경로가 통과 가능
+                       (점유로 막지 않음). None=미지정(휴리스틱에 위임).
     """
 
     object_id: str | None
@@ -163,6 +170,7 @@ class Obstacle:
     ddworks_type: str | None
     min_xyz: tuple[float, float, float]
     max_xyz: tuple[float, float, float]
+    pass_through: bool | None = None
 
     def is_valid_box(self) -> bool:
         """세 축 모두 max > min 인 정상 박스인지 검사한다(부피가 양수).
@@ -261,10 +269,14 @@ def distinct_ost_types(config: PgConnConfig | None = None, conn=None) -> dict[st
             conn.close()
 
 
+# 장애물 이름에 이 토큰이 들어가면 제외(댐퍼는 덕트의 일부지만 경로를 막으면 안 됨).
+_NAME_EXCLUDE = ("damper",)
+
+
 def load_obstacles(
     config: PgConnConfig | None = None,
     *,
-    source_file: str | None = None,
+    xy_bbox: tuple[float, float, float, float] | None = None,
     ost_types: list[str] | None = None,
     region: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
     exclude_empty_type: bool = False,
@@ -272,25 +284,26 @@ def load_obstacles(
     limit: int | None = None,
     conn=None,
 ) -> list[Obstacle]:
-    """장애물을 DB 에서 읽어 Obstacle 리스트로 반환한다.
+    """장애물을 DDW_AI_DB(TB_BIM_OBSTACLE)에서 읽어 Obstacle 리스트로 반환한다.
 
     [알고리즘]
       1) WHERE 절을 동적으로 구성한다.
-         - source_file      → "SOURCE_FILE" = %s  (프로젝트 단위 필터)
+         - xy_bbox          → 그룹(툴) AABB 공간교차(XY): AABB_MAXX>=minx AND AABB_MINX<=maxx …
+                              (구 DB 의 SOURCE_FILE 프로젝트 필터를 대체).
          - ost_types        → "OST_TYPE" IN (...)
-         - region(AABB)      → 세 축 겹침 조건 (MAX>=region_lo AND MIN<=region_hi)
+         - region(AABB)      → 세 축 겹침 조건 (AABB_MAX>=region_lo AND AABB_MIN<=region_hi)
          - exclude_empty_type→ OST_TYPE 가 빈 문자열/NULL 인 행 제외
          - skip_degenerate   → max<=min 인 퇴화 박스를 SQL 단계에서 제외
       2) 파라미터 바인딩(%s)으로 안전하게 질의한다(SQL 인젝션 방지).
-      3) 각 행을 Obstacle 로 변환해 리스트로 반환한다.
+      3) 각 행을 Obstacle 로 변환한다. 이름에 'damper' 가 들어간 행은 제외(덕트 일부).
 
     매개변수:
         config             : 접속 설정. conn 이 주어지면 무시.
-        source_file        : 프로젝트의 SOURCE_FILE(예: 'CLEAN_WTNHJ03_..._total.json').
-                             이 프로젝트의 장애물만. None=전체 프로젝트.
+        xy_bbox            : (minx, maxx, miny, maxy) 그룹 AABB(+여유) XY 범위(mm). 이 박스와
+                             XY 로 교차하는 장애물만. None=전체(주의: 전체는 수만 행).
         ost_types          : 가져올 타입 목록(예: ['OST_Columns','OST_Floors']). None=전부.
         region             : ((min_x,min_y,min_z),(max_x,max_y,max_z)) mm. 이 영역과
-                             겹치는 장애물만. None=전체 영역.
+                             겹치는 장애물만(3축). None=전체 영역.
         exclude_empty_type : True 면 OST_TYPE 가 비었거나 NULL 인 행 제외.
         skip_degenerate    : True(기본)면 퇴화 박스를 SQL 에서 제외.
         limit              : 최대 행 수(디버그용). None=제한 없음.
@@ -310,9 +323,13 @@ def load_obstacles(
         where: list[str] = []
         params: list[object] = []
 
-        if source_file is not None:
-            where.append('"SOURCE_FILE" = %s')
-            params.append(source_file)
+        if xy_bbox is not None:
+            minx, maxx, miny, maxy = xy_bbox
+            # 그룹박스 ∩ 객체 AABB(XY) 교차. Z 는 무시(전고 기둥/바닥 포함).
+            where.append('"AABB_MAXX" >= %s AND "AABB_MINX" <= %s')
+            params.extend([minx, maxx])
+            where.append('"AABB_MAXY" >= %s AND "AABB_MINY" <= %s')
+            params.extend([miny, maxy])
 
         if ost_types:
             placeholders = ", ".join(["%s"] * len(ost_types))
@@ -326,19 +343,20 @@ def load_obstacles(
         if region is not None:
             (rlx, rly, rlz), (rhx, rhy, rhz) = region
             # AABB 겹침: 각 축에서 (박스 MAX >= 영역 lo) AND (박스 MIN <= 영역 hi)
-            where.append('"MAX_X" >= %s AND "MIN_X" <= %s')
+            where.append('"AABB_MAXX" >= %s AND "AABB_MINX" <= %s')
             params.extend([rlx, rhx])
-            where.append('"MAX_Y" >= %s AND "MIN_Y" <= %s')
+            where.append('"AABB_MAXY" >= %s AND "AABB_MINY" <= %s')
             params.extend([rly, rhy])
-            where.append('"MAX_Z" >= %s AND "MIN_Z" <= %s')
+            where.append('"AABB_MAXZ" >= %s AND "AABB_MINZ" <= %s')
             params.extend([rlz, rhz])
 
         if skip_degenerate:
-            where.append('"MAX_X" > "MIN_X" AND "MAX_Y" > "MIN_Y" AND "MAX_Z" > "MIN_Z"')
+            where.append('"AABB_MAXX" > "AABB_MINX" AND "AABB_MAXY" > "AABB_MINY" '
+                         'AND "AABB_MAXZ" > "AABB_MINZ"')
 
         sql = (
-            'SELECT "OBJECT_ID", "NAME", "OST_TYPE", "DDWORKS_TYPE", '
-            '"MIN_X", "MIN_Y", "MIN_Z", "MAX_X", "MAX_Y", "MAX_Z" '
+            'SELECT "INSTANCE_ID", "INSTANCE_NAME", "OST_TYPE", "DDWORKS_TYPE", "COLLISION_PASS", '
+            '"AABB_MINX", "AABB_MINY", "AABB_MINZ", "AABB_MAXX", "AABB_MAXY", "AABB_MAXZ" '
             f'FROM "{config.table}"'
         )
         if where:
@@ -351,7 +369,9 @@ def load_obstacles(
         cur.execute(sql, params)
 
         obstacles: list[Obstacle] = []
-        for oid, name, ost, ddw, mnx, mny, mnz, mxx, mxy, mxz in cur.fetchall():
+        for oid, name, ost, ddw, cpass, mnx, mny, mnz, mxx, mxy, mxz in cur.fetchall():
+            if name and any(tok in name.lower() for tok in _NAME_EXCLUDE):
+                continue   # 댐퍼 등 제외.
             obstacles.append(
                 Obstacle(
                     object_id=oid,
@@ -360,6 +380,7 @@ def load_obstacles(
                     ddworks_type=ddw,
                     min_xyz=(float(mnx), float(mny), float(mnz)),
                     max_xyz=(float(mxx), float(mxy), float(mxz)),
+                    pass_through=(None if cpass is None else bool(int(cpass))),
                 )
             )
         return obstacles
@@ -545,8 +566,8 @@ def _main(argv: list[str] | None = None) -> int:
             for t, n in distinct_ost_types(conn=conn, config=config).items():
                 print(f"  {t!r}: {n:,}")
             cur.execute(
-                f'SELECT MIN("MIN_X"),MAX("MAX_X"),MIN("MIN_Y"),MAX("MAX_Y"),'
-                f'MIN("MIN_Z"),MAX("MAX_Z") FROM "{config.table}"'
+                f'SELECT MIN("AABB_MINX"),MAX("AABB_MAXX"),MIN("AABB_MINY"),MAX("AABB_MAXY"),'
+                f'MIN("AABB_MINZ"),MAX("AABB_MAXZ") FROM "{config.table}"'
             )
             mnx, mxx, mny, mxy, mnz, mxz = cur.fetchone()
             print(f"전체 범위 mm: X[{mnx:.0f},{mxx:.0f}] Y[{mny:.0f},{mxy:.0f}] Z[{mnz:.0f},{mxz:.0f}]")
