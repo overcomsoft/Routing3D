@@ -3,16 +3,16 @@
 ================================================================================
 
 [실행 명령어]  (프로젝트 루트에서)
-  .\\.venv\\Scripts\\python.exe python_experiments/out/_gen_validation_report.py --project 6 --cell-mm 100
+  .\\.venv\\Scripts\\python.exe python_experiments/out/_gen_validation_report.py --project 1 --cell-mm 100
 
 [이 스크립트가 하는 일]
 --------------------------------------------------------------------------------
-DB(AUTOROUTINGV7)의 기존 설계배관(TB_ROUTE_PATH)을 ground truth 로 삼아, **같은 장애물·
-같은 종단점(SOURCE_POC→TARGET_POC)** 을 우리 직교 A*(astar_weighted)로 다시 라우팅해
-길이/굴곡/우회비를 1:1 대조한다.
+DB(DDW_AI_DB)의 기존 설계배관(TB_ROUTE_PATH)을 ground truth 로 삼아, **같은 장애물·
+같은 종단점(SOURCE_POS→TARGET_POS)** 을 우리 직교 A*(astar_weighted)로 다시 라우팅해
+길이/굴곡/우회비를 1:1 대조한다. 프로젝트=툴그룹(TB_SPACE_GROUP_INFO)·그룹 AABB 공간스코프.
 
-  · 기존 지표(설계 자체 사전계산): PR_TOTAL_LENGTH(mm), PR_BEND_COUNT(굴곡 피팅수),
-                                   PR_PATH_EFFICIENCY(실제길이/직선거리, 우회비).
+  · 기존 지표(설계 자체 사전계산): TOTAL_LENGTH(mm), BEND_COUNT(굴곡 피팅수),
+                                   우회비=TOTAL_LENGTH/직선거리(DDW 엔 효율 컬럼이 없어 계산).
   · 우리 지표: length_mm, turns(방향전환), our_eff = our_len / 직선거리.
 
 핵심 비교:
@@ -40,14 +40,16 @@ from dataclasses import dataclass
 # editable 설치 가정. 미설치 시 경로 추가.
 try:
     from routing3d_py.obstacle_db import (
-        PgConnConfig, build_occupancy, load_obstacles, obstacles_bounds)
+        PgConnConfig, build_occupancy, load_obstacles)
+    from routing3d_py import route_db
     from routing3d_py.cost import RouteParams
     from routing3d_py.astar import astar_weighted
 except ModuleNotFoundError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from routing3d_py.obstacle_db import (
-        PgConnConfig, build_occupancy, load_obstacles, obstacles_bounds)
+        PgConnConfig, build_occupancy, load_obstacles)
+    from routing3d_py import route_db
     from routing3d_py.cost import RouteParams
     from routing3d_py.astar import astar_weighted
 
@@ -81,33 +83,25 @@ class RouteRow:
     our_eff: float = 0.0
 
 
-def _get_source_file(conn, project_id: int) -> str:
-    cur = conn.cursor()
-    cur.execute("SELECT source_file FROM space_project_map WHERE project_id=%s", (project_id,))
-    row = cur.fetchone()
-    if not row or not row[0]:
-        raise SystemExit(f"project_id={project_id} 의 source_file 없음")
-    return row[0]
+def _load_existing_routes(conn, group: "route_db.GroupInfo") -> list[RouteRow]:
+    """이 그룹(툴)의 기존 설계 경로(TB_ROUTE_PATH). 그룹 AABB(SOURCE_POS XY) 공간교차로 격리.
 
-
-def _load_existing_routes(conn, source_file: str, bbox) -> list[RouteRow]:
-    """이 프로젝트(tool)의 기존 설계 경로. 장비 NAME 매칭 + 장애물 bbox 로 tool 격리."""
-    (minx, miny, maxx, maxy) = bbox
+    DDW_AI_DB 엔 PR_PATH_EFFICIENCY(우회비) 컬럼이 없어 TOTAL_LENGTH/직선거리로 계산한다.
+    """
+    (minx, maxx, miny, maxy) = group.xy_bbox()
     sql = """
         SELECT rp."ROUTE_PATH_GUID", rp."UTILITY_GROUP", rp."SOURCE_UTILITY", rp."SOURCE_SIZE",
                rp."SOURCE_POSX", rp."SOURCE_POSY", rp."SOURCE_POSZ",
                rp."TARGET_POSX", rp."TARGET_POSY", rp."TARGET_POSZ",
-               rp."PR_BEND_COUNT", rp."PR_PATH_EFFICIENCY", rp."PR_TOTAL_LENGTH"
+               rp."BEND_COUNT", rp."TOTAL_LENGTH"
         FROM "TB_ROUTE_PATH" rp
-        JOIN "TB_BIM_EQUIPMENT" eq
-          ON eq."NAME" = rp."SOURCE_OWNER_NAME" AND eq."IS_MAIN" = true AND eq."SOURCE_FILE" = %s
-        WHERE rp."SOURCE_OWNER_POSX" BETWEEN %s AND %s
-          AND rp."SOURCE_OWNER_POSY" BETWEEN %s AND %s
+        WHERE rp."SOURCE_POSX" BETWEEN %s AND %s
+          AND rp."SOURCE_POSY" BETWEEN %s AND %s
           AND rp."TARGET_POSX" IS NOT NULL AND rp."SOURCE_POSX" IS NOT NULL
         ORDER BY rp."ROUTE_PATH_GUID"
     """
     cur = conn.cursor()
-    cur.execute(sql, (source_file, minx, maxx, miny, maxy))
+    cur.execute(sql, (minx, maxx, miny, maxy))
     rows = cur.fetchall()
 
     out: list[RouteRow] = []
@@ -119,12 +113,14 @@ def _load_existing_routes(conn, source_file: str, bbox) -> list[RouteRow]:
         seen.add(guid)
         src = (float(r[4]), float(r[5]), float(r[6]))
         tgt = (float(r[7]), float(r[8]), float(r[9]))
+        straight = math.dist(src, tgt)
+        pr_len = float(r[11]) if r[11] is not None else 0.0
         out.append(RouteRow(
             guid=guid, group=r[1] or "?", utility=r[2] or "?", size=r[3] or "",
-            src=src, tgt=tgt, straight_mm=math.dist(src, tgt),
-            pr_len=float(r[12]) if r[12] is not None else 0.0,
+            src=src, tgt=tgt, straight_mm=straight,
+            pr_len=pr_len,
             pr_bend=float(r[10]) if r[10] is not None else 0.0,
-            pr_eff=float(r[11]) if r[11] is not None else 0.0,
+            pr_eff=(pr_len / straight) if straight > 1 else 0.0,   # DDW 엔 효율 컬럼 없음 → 계산.
         ))
     return out
 
@@ -151,25 +147,35 @@ def run_validation(project_id: int, cell_mm: float, params: RouteParams,
     config = PgConnConfig.from_env()
     conn = config.connect()
     try:
-        source_file = _get_source_file(conn, project_id)
-        print(f"[검증] project {project_id} source_file={source_file} cell={cell_mm}mm")
+        group = route_db.resolve_group(project_id, conn=conn)
+        source_file = group.group_name
+        print(f"[검증] project {project_id} group={group} cell={cell_mm}mm")
 
-        boxes = load_obstacles(config, source_file=source_file, conn=conn)
+        # 장애물은 그룹 AABB(XY) 로 스코프 — 공유 슬래브로 인한 셀 폭증 방지(C# 뷰어와 동일 규약).
+        boxes = load_obstacles(config, xy_bbox=group.xy_bbox(), conn=conn)
         pass_n = sum(1 for b in boxes if is_passthrough(b))
         occ_boxes = [b for b in boxes if not is_passthrough(b)]
         if not occ_boxes:
             raise SystemExit("장애물 없음 — 점유맵 생성 불가")
         print(f"[검증] 장애물 {len(boxes)} (통과 제외 {pass_n}) → 점유 {len(occ_boxes)}")
 
-        lo, hi = obstacles_bounds(boxes)  # 종단점이 격자밖이 안 되게 전체 범위 + 패딩.
-        occ = build_occupancy(occ_boxes, cell_mm=cell_mm, region=(lo, hi),
-                              padding_mm=1000.0).occupancy
-
-        bbox = (lo[0] - 1000.0, lo[1] - 1000.0, hi[0] + 1000.0, hi[1] + 1000.0)
-        routes = _load_existing_routes(conn, source_file, bbox)
-        print(f"[검증] 기존 설계 경로 {len(routes)}개 라우팅 시작…")
+        routes = _load_existing_routes(conn, group)
+        print(f"[검증] 기존 설계 경로 {len(routes)}개")
     finally:
         conn.close()
+
+    # 점유맵 영역 = 그룹 AABB ∪ 작업 끝점(종단점이 격자밖이 되지 않게) + 패딩.
+    #   그룹 AABB 로 잡되, 종단 PoC 가 그룹 Z 밴드 밖(예: 위층 덕트)일 수 있어 끝점까지 확장한다.
+    lo = list(group.lo)
+    hi = list(group.hi)
+    for rr in routes:
+        for p in (rr.src, rr.tgt):
+            for k in range(3):
+                lo[k] = min(lo[k], p[k])
+                hi[k] = max(hi[k], p[k])
+    occ = build_occupancy(occ_boxes, cell_mm=cell_mm, region=(tuple(lo), tuple(hi)),
+                          padding_mm=1000.0).occupancy
+    print(f"[검증] 기존 설계 경로 {len(routes)}개 라우팅 시작…")
 
     t0 = time.perf_counter()
     for i, rr in enumerate(routes):
@@ -344,7 +350,7 @@ def main(argv=None) -> int:
         except (AttributeError, ValueError):
             pass
     ap = argparse.ArgumentParser(description="기존 설계배관 vs 우리 A* 검증 리포트")
-    ap.add_argument("--project", type=int, default=6)
+    ap.add_argument("--project", type=int, default=1)
     ap.add_argument("--cell-mm", type=float, default=100.0)
     ap.add_argument("--w-turn", type=float, default=500.0)
     ap.add_argument("--w-clear", type=float, default=10.0)
