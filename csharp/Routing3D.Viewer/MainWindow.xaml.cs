@@ -14,6 +14,7 @@ namespace Routing3D.Viewer
     {
         private readonly SceneViewModel _vm;
         private readonly List<Visual3D> _spaceLabelVisuals = new();   // 공간 영역 텍스트 라벨(BillboardText).
+        private Views.ObjectInfoWindow? _objInfoWin;                  // 객체 속성 모드리스 다이얼로그(클릭마다 갱신).
 
         public MainWindow(string? initialScene = null)
         {
@@ -139,15 +140,34 @@ namespace Routing3D.Viewer
         private void OnSaveMainImage(object sender, RoutedEventArgs e)
             => ViewportImage.Save(View, "routing_mainview");
 
+        // 객체 속성 모드리스 다이얼로그 — 없으면 만들어 띄우고, 이미 떠 있으면 앞으로(내용은 바인딩으로 자동 갱신).
+        private void ShowObjectInfo()
+        {
+            if (_vm.SelectedObjectInfo == null) return;   // 잡힌 객체 없음 → 창 띄우지 않음.
+            if (_objInfoWin == null)
+            {
+                _objInfoWin = new Views.ObjectInfoWindow { Owner = this, DataContext = _vm };
+                _objInfoWin.Closed += (_, __) => _objInfoWin = null;
+                // 메인 창 우측 상단 근처에 배치(메인 뷰를 가리지 않도록).
+                _objInfoWin.Left = Left + Width - _objInfoWin.Width - 24;
+                _objInfoWin.Top = Top + 80;
+                _objInfoWin.Show();
+            }
+            else
+            {
+                _objInfoWin.Activate();
+            }
+        }
+
         private void View_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             var screen = e.GetPosition(View);
             var hit = View.FindNearestPoint(screen);  // 지오메트리 위의 최근접 3D 점.
 
-            // 종단점 지정 모드가 아니면: 클릭 지점의 객체 속성을 우측 패널에 표시(회전은 그대로).
+            // 종단점 지정 모드가 아니면: 클릭 지점의 객체 속성을 모드리스 다이얼로그에 표시(회전은 그대로).
             if (_vm.PickMode == PickMode.None)
             {
-                if (hit.HasValue) _vm.SelectObjectAt(hit.Value);
+                if (hit.HasValue) { _vm.SelectObjectAt(hit.Value); ShowObjectInfo(); }
                 return;
             }
 

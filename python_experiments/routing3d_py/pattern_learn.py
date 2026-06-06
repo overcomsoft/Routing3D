@@ -332,21 +332,27 @@ def learn_pipe(source_file: str, pipe: ExistingPipe, equipment: list[EquipmentBo
     return rows
 
 
-def learn_project(source_file: str, config: PgConnConfig | None = None,
+def learn_project(group: "route_db.GroupInfo", config: PgConnConfig | None = None,
                   conn=None) -> list[StubSampleRow]:
-    """한 프로젝트의 모든 기존배관에서 스텁 표본을 추출한다."""
+    """한 그룹(툴)의 모든 기존배관에서 스텁 표본을 추출한다.
+
+    매개변수:
+        group : route_db.GroupInfo(=프로젝트). 공간 스코프=group.xy_bbox(),
+                표본 태그(source_file 컬럼)=group.group_name.
+    """
     config = config or PgConnConfig.from_env()
     own = conn is None
     if own:
         conn = config.connect()
     try:
-        equipment = route_db.load_equipment(source_file, conn=conn)
-        ducts = route_db.load_ducts(source_file, conn=conn)
-        bbox = route_db.project_xy_bbox(source_file, conn=conn)
-        pipes = route_db.load_existing_pipes(source_file, conn=conn, xy_bbox=bbox)
+        tag = group.group_name
+        bbox = group.xy_bbox()
+        equipment = route_db.load_equipment(bbox, conn=conn)
+        ducts = route_db.load_ducts(bbox, conn=conn)
+        pipes = route_db.load_existing_pipes(bbox, conn=conn)
         rows: list[StubSampleRow] = []
         for p in pipes:
-            rows.extend(learn_pipe(source_file, p, equipment, ducts))
+            rows.extend(learn_pipe(tag, p, equipment, ducts))
         return rows
     finally:
         if own:
@@ -457,8 +463,7 @@ def _main(argv: list[str] | None = None) -> int:
             pass
 
     ap = argparse.ArgumentParser(description="기존설계 스텁 패턴 학습(추출·정규화·특징벡터)")
-    ap.add_argument("--project", type=int, default=None, help="project_id")
-    ap.add_argument("--source", default=None, help="SOURCE_FILE 직접 지정")
+    ap.add_argument("--project", type=int, default=None, help="그룹 순번(1-based, TB_SPACE_GROUP_INFO)")
     ap.add_argument("--report", action="store_true", help="검수 리포트 출력")
     ap.add_argument("--rack-report", action="store_true",
                     help="유틸그룹별 랙 레벨(수평 런 z-높이) 학습 리포트(L3a)")
@@ -474,24 +479,21 @@ def _main(argv: list[str] | None = None) -> int:
 
     conn = config.connect()
     try:
-        if args.source:
-            sf = args.source
-        elif args.project is not None:
-            sf = route_db.resolve_source_file(args.project, conn=conn)
-        else:
-            ap.error("--project 또는 --source 가 필요합니다.")
+        if args.project is None:
+            ap.error("--project(그룹 순번)가 필요합니다.")
             return 2
-        print(f"source_file = {sf}")
+        group = route_db.resolve_group(args.project, conn=conn)
+        sf = group.group_name
+        print(f"group = {group}")
 
         if args.rack_report:   # 랙 레벨(L3a) 만 — 스텁 학습과 독립.
-            bbox = route_db.project_xy_bbox(sf, conn=conn)
-            pipes = route_db.load_existing_pipes(sf, conn=conn, xy_bbox=bbox)
+            pipes = route_db.load_existing_pipes(group.xy_bbox(), conn=conn)
             print(f"기존배관 {len(pipes)}개")
             print()
             print(rack_report(learn_rack_levels(pipes)))
             return 0
 
-        rows = learn_project(sf, conn=conn)
+        rows = learn_project(group, conn=conn)
         print(f"추출 스텁 표본 {len(rows)}건")
 
         if args.report or not args.write_db:

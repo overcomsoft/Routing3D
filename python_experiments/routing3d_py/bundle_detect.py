@@ -780,29 +780,24 @@ def load_templates(source_file: str, conn) -> list[BundleTemplate]:
     return out
 
 
-def detect_project(source_file: str, config: PgConnConfig | None = None, conn=None,
-                   **kwargs) -> list[BundleGroup]:
-    """한 프로젝트의 기존배관을 로드해 번들을 탐지한다."""
+def detect_project(group: "route_db.GroupInfo", config: PgConnConfig | None = None,
+                   conn=None, **kwargs) -> list[BundleGroup]:
+    """한 그룹(툴)의 기존배관을 로드해 번들을 탐지한다(공간 스코프=group.xy_bbox())."""
     config = config or PgConnConfig.from_env()
     own = conn is None
     if own:
         conn = config.connect()
     try:
-        bbox = route_db.project_xy_bbox(source_file, conn=conn)
-        pipes = route_db.load_existing_pipes(source_file, conn=conn, xy_bbox=bbox)
+        pipes = route_db.load_existing_pipes(group.xy_bbox(), conn=conn)
         return detect_bundles(pipes, **kwargs)
     finally:
         if own:
             conn.close()
 
 
-def list_source_files(conn) -> list[str]:
-    """space_project_map 의 모든 프로젝트 source_file(중복·NULL 제거, 정렬). DB 전체 처리용."""
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT DISTINCT source_file FROM space_project_map "
-        "WHERE source_file IS NOT NULL ORDER BY source_file")
-    return [str(r[0]) for r in cur.fetchall()]
+def list_groups(conn) -> list["route_db.GroupInfo"]:
+    """TB_SPACE_GROUP_INFO 의 모든 그룹(툴). DB 전체 처리용."""
+    return route_db.list_groups(conn=conn)
 
 
 # ================================================================== CLI
@@ -817,10 +812,9 @@ def _main(argv: list[str] | None = None) -> int:
             pass
 
     ap = argparse.ArgumentParser(description="그룹(번들) 배관 탐지 — 기하 유사도 분석")
-    ap.add_argument("--project", type=int, default=None, help="project_id (space_project_map)")
-    ap.add_argument("--source", default=None, help="SOURCE_FILE 직접 지정")
+    ap.add_argument("--project", type=int, default=None, help="그룹 순번(1-based, TB_SPACE_GROUP_INFO)")
     ap.add_argument("--all", action="store_true",
-                    help="DB 전체 — space_project_map 의 모든 프로젝트를 순회 처리")
+                    help="DB 전체 — TB_SPACE_GROUP_INFO 의 모든 그룹(툴)을 순회 처리")
     ap.add_argument("--threshold", type=float, default=SIM_THRESHOLD, help="유사도 임계(기본 0.70)")
     ap.add_argument("--min-bends", type=int, default=MIN_BENDS, help="번들 최소 꺾임(기본 2)")
     ap.add_argument("--pitch-cv", type=float, default=PITCH_CV_MAX, help="동일 이격 허용 CV(기본 0.30)")
@@ -836,10 +830,11 @@ def _main(argv: list[str] | None = None) -> int:
         overrides["dbname"] = args.dbname
     config = PgConnConfig.from_env(**overrides)
 
-    def process_one(conn, sf: str, *, indent: str = "") -> int:
-        """source_file 하나를 탐지·리포트·적재한다. 반환: 탐지 그룹 수."""
+    def process_one(conn, group, *, indent: str = "") -> int:
+        """그룹(툴) 하나를 탐지·리포트·적재한다. 반환: 탐지 그룹 수."""
+        sf = group.group_name
         groups = detect_project(
-            sf, conn=conn, threshold=args.threshold,
+            group, conn=conn, threshold=args.threshold,
             min_bends=args.min_bends, pitch_cv_max=args.pitch_cv)
         print(f"{indent}탐지 번들 그룹 {len(groups)}개 "
               f"(임계 {args.threshold} · 최소꺾임 {args.min_bends} · pitchCV≤{args.pitch_cv})")
@@ -867,33 +862,30 @@ def _main(argv: list[str] | None = None) -> int:
         if args.write_db:
             apply_schema(conn)   # 전체/단일 공통으로 스키마는 1회만 적용.
 
-        # ── DB 전체(--all): 모든 프로젝트 source_file 순회 ──
+        # ── DB 전체(--all): 모든 그룹(툴) 순회 ──
         if args.all:
-            sources = list_source_files(conn)
-            print(f"DB 전체 처리: 프로젝트 {len(sources)}개\n")
+            groups_all = list_groups(conn)
+            print(f"DB 전체 처리: 그룹(툴) {len(groups_all)}개\n")
             total_groups = 0
-            for i, sf in enumerate(sources, 1):
-                print(f"[{i}/{len(sources)}] source_file = {sf}")
+            for i, grp in enumerate(groups_all, 1):
+                print(f"[{i}/{len(groups_all)}] {grp}")
                 try:
-                    total_groups += process_one(conn, sf, indent="  ")
-                except Exception as e:   # 한 프로젝트 실패가 전체를 멈추지 않게.
+                    total_groups += process_one(conn, grp, indent="  ")
+                except Exception as e:   # 한 그룹 실패가 전체를 멈추지 않게.
                     print(f"  ! 실패: {e}")
                 print()
-            print(f"=== 완료: {len(sources)}개 프로젝트 · 총 {total_groups}개 번들 그룹 ===")
+            print(f"=== 완료: {len(groups_all)}개 그룹 · 총 {total_groups}개 번들 그룹 ===")
             if args.write_db:
                 print("    (route_bundle_group + 템플릿 뷰 route_bundle_template 갱신)")
             return 0
 
-        # ── 단일 프로젝트(--project / --source) ──
-        if args.source:
-            sf = args.source
-        elif args.project is not None:
-            sf = route_db.resolve_source_file(args.project, conn=conn)
-        else:
-            ap.error("--project · --source · --all 중 하나가 필요합니다.")
+        # ── 단일 그룹(--project) ──
+        if args.project is None:
+            ap.error("--project · --all 중 하나가 필요합니다.")
             return 2
-        print(f"source_file = {sf}")
-        process_one(conn, sf)
+        grp = route_db.resolve_group(args.project, conn=conn)
+        print(f"group = {grp}")
+        process_one(conn, grp)
         if args.write_db:
             print("    + 템플릿 뷰(route_bundle_template)")
     finally:

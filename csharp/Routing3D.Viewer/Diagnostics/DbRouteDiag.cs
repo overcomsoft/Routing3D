@@ -927,23 +927,71 @@ namespace Routing3D.Viewer.Diagnostics
             bool fwd = D(t.Sx, t.Sy, t.Sz, ps) + D(t.Gx, t.Gy, t.Gz, pe)
                        <= D(t.Sx, t.Sy, t.Sz, pe) + D(t.Gx, t.Gy, t.Gz, ps);
             var pts = new List<Pt3>(pipe.Points); if (!fwd) pts.Reverse();
+
+            // 자동설계 = '고정된 스텁 끝~스텁 끝' 경로, 중간만 그룹배관패턴(트렁크 코너) 활용(GUI 미러).
+            //   스텁(라이저+엘보+리드인)을 양 끝에서 잘라낸 뒤, 그 사이 트렁크 코너만 경유한다.
+            //   ForPipe 는 SourcePos-front 정렬 → fwd 와 동일하게 시작/종단 스텁을 고른다(GUI BuildEngineForRows 일치).
+            var (srcStub, tgtStub) = StubExtractor.ForPipe(pipe);
+            var ss = fwd ? srcStub : tgtStub;
+            var es = fwd ? tgtStub : srcStub;
+            bool hasS = ss.Count >= 2, hasE = es.Count >= 2;
+            Pt3 ts = hasS ? ss[ss.Count - 1] : new Pt3(t.Sx, t.Sy, t.Sz);
+            Pt3 te = hasE ? es[es.Count - 1] : new Pt3(t.Gx, t.Gy, t.Gz);
+
+            // 누적 호장 + 스텁 끝 호장 위치 → 스텁 영역(라이저·엘보·리드인) 코너 제외(백트랙 T 방지).
+            var arc = new double[pts.Count];
+            for (int i = 1; i < pts.Count; i++) arc[i] = arc[i - 1] + PD(pts[i - 1], pts[i]);
+            double total = arc[pts.Count - 1];
+            double startArc = hasS ? NearestArcLen(pts, arc, ts) : 0.0;
+            double endArc = hasE ? NearestArcLen(pts, arc, te) : total;
+            if (endArc < startArc) { var tmp = startArc; startArc = endArc; endArc = tmp; }
+
             const double MergeMm = 250.0;
+            const double ClipMm = 1.0;
             static int Axis(Pt3 a, Pt3 b)
             {
                 double dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y), dz = Math.Abs(b.Z - a.Z);
                 return dz >= dx && dz >= dy ? 2 : (dx >= dy ? 0 : 1);
             }
-            var wps = new List<Pt3> { new Pt3(t.Sx, t.Sy, t.Sz) };   // ts + 코너 + te (코너만 폴리라인).
+            var wps = new List<Pt3> { ts };   // ts(스텁끝) + 트렁크 코너 + te(스텁끝).
             for (int i = 1; i < pts.Count - 1; i++)
+            {
+                if (arc[i] <= startArc + ClipMm || arc[i] >= endArc - ClipMm) continue;   // 스텁 영역 코너 제외.
                 if (Axis(pts[i - 1], pts[i]) != Axis(pts[i], pts[i + 1]))
                 {
                     var last = wps[wps.Count - 1];
                     if (wps.Count == 1 || D(last.X, last.Y, last.Z, pts[i]) > MergeMm) wps.Add(pts[i]);
                 }
-            wps.Add(new Pt3(t.Gx, t.Gy, t.Gz));
+            }
+            wps.Add(te);
             if (wps.Count < 2) return null;
             corners = wps.Count - 2;   // 양 끝(ts/te) 제외한 설계 코너 수.
             return CellPathWithRepair(wps, g, blk, rep, out reps);   // 코너 사이 자유=직선, 막힘만 A* 우회.
+        }
+
+        // 두 점 거리(Pt3).
+        static double PD(Pt3 a, Pt3 b)
+        {
+            double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 점 p 를 폴리라인 각 세그먼트에 사영해 가장 가까운 지점의 누적 호장 위치 반환(GUI NearestArcLen 미러).
+        static double NearestArcLen(IReadOnlyList<Pt3> pts, double[] arc, Pt3 p)
+        {
+            double best = 0, bestD = double.MaxValue;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                var a = pts[i - 1]; var b = pts[i];
+                double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+                double seg2 = dx * dx + dy * dy + dz * dz;
+                double tt = seg2 > 1e-9 ? ((p.X - a.X) * dx + (p.Y - a.Y) * dy + (p.Z - a.Z) * dz) / seg2 : 0.0;
+                tt = Math.Max(0.0, Math.Min(1.0, tt));
+                double px = a.X + dx * tt, py = a.Y + dy * tt, pz = a.Z + dz * tt;
+                double d = (p.X - px) * (p.X - px) + (p.Y - py) * (p.Y - py) + (p.Z - pz) * (p.Z - pz);
+                if (d < bestD) { bestD = d; best = arc[i - 1] + (arc[i] - arc[i - 1]) * tt; }
+            }
+            return best;
         }
 
         static bool Adj(PathCell a, PathCell b)

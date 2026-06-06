@@ -1,0 +1,23 @@
+<Window x:Class="Routing3D.Viewer.Views.ObjectInfoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="객체 속성" Width="340" Height="260"
+        Background="#1e2230" WindowStartupLocation="Manual"
+        ShowInTaskbar="False" Topmost="False">
+    <!-- 메인 3D 뷰에서 객체(장애물·장비·덕트·공간 등)를 클릭하면 그 속성을 보여주는 모드리스 창.
+         DataContext = SceneViewModel. SelectedObjectInfo 가 바뀔 때마다 내용이 갱신된다(창은 떠 있는 채). -->
+    <Window.Resources>
+        <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#e8eaf0"/></Style>
+    </Window.Resources>
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" Text="객체 속성 (3D 클릭)" FontWeight="Bold"
+                   Foreground="#bfc6d6" Margin="0,0,0,6"/>
+        <Border Background="#252b3d" BorderBrush="#404a64" BorderThickness="1" Padding="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding SelectedObjectInfo, TargetNullValue='3D 뷰에서 장애물·장비·덕트·공간을 클릭하면 속성이 표시됩니다.'}"
+                           Foreground="#cdd6f4" TextWrapping="Wrap"
+                           FontFamily="Consolas" FontSize="12" LineHeight="18"/>
+            </ScrollViewer>
+        </Border>
+    </DockPanel>
+</Window>

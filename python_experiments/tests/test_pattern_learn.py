@@ -145,8 +145,8 @@ def db_conn():
 def test_db_learn_project6(db_conn):
     from routing3d_py import route_db
     conn, config = db_conn
-    sf = route_db.resolve_source_file(6, conn=conn)
-    rows = pl.learn_project(sf, conn=conn)
+    group = route_db.resolve_group(1, conn=conn)   # DDW_AI_DB: 그룹 순번 1(=WTNHJ02).
+    rows = pl.learn_project(group, conn=conn)
     assert len(rows) > 0
     # 모든 표본의 특징벡터/방향벡터 차원이 스키마와 일치.
     for r in rows:

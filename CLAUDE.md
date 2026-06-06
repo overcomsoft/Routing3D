@@ -3,7 +3,7 @@
 이 파일은 다른 PC / 새 세션에서 프로젝트를 재개할 때 필요한 핵심 정보를 한곳에 모은 것이다.
 세부 사항은 git 이력과 `docs/`, `cpp/`, `csharp/`, `python_experiments/` 가 정답.
 
-> 마지막 갱신: 2026-06-02 · 단위 mm · 기본 셀 50mm
+> 마지막 갱신: 2026-06-06 · 단위 mm · 기본 셀 50mm · DB=DDW_AI_DB
 
 ---
 
@@ -27,7 +27,7 @@
 - **Python 환경**: 루트 `.venv`. `python_experiments` editable 설치 (`pip install -e "python_experiments[viz]"`) → 어디서든 `python -m routing3d_py.<module>` 실행.
 - **C++ 빌드**: MSVC VS2022 + CMake, **C++20**, **`/utf-8` 필수**(한글 주석). x64 고정.
 - **C# 빌드**: .NET 9, `net9.0-windows`, **x64 고정**(네이티브 DLL 비트 일치).
-- **DB**: localhost / 5432 / AUTOROUTINGV7 / postgres / dinno (로컬 dev). 운영 환경에서는 PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD 환경변수 우선 — **소스에 비밀번호 두지 말 것**.
+- **DB**: localhost / 5432 / **DDW_AI_DB** / postgres / dinno (로컬 dev, 2026-06-06 AUTOROUTINGV7 폐기). 운영 환경에서는 PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD 환경변수 우선 — **소스에 비밀번호 두지 말 것**. 스키마 차이·매핑은 §8.
 
 ### 표준 명령
 
@@ -250,24 +250,29 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 
 ## 8. 외부 시스템 참조
 
-### PostgreSQL — AUTOROUTINGV7
+### PostgreSQL — DDW_AI_DB (2026-06-06 완전교체, 구 AUTOROUTINGV7 폐기)
 
-기본: localhost / 5432 / postgres / dinno (로컬 dev). PGHOST 등 env 우선.
+기본: localhost / 5432 / postgres / dinno (로컬 dev). PGHOST 등 env 우선. **DB명 기본값 `DDW_AI_DB`**(`DbConfig.FromEnv`).
+
+DDW_AI_DB 는 `SOURCE_FILE` 가 없고 좌표는 `AABB_MIN/MAX_*`(+OBB), PoC 는 jsonb 대신 별도 테이블, IS_MAIN→`MAIN_SUB_TYPE`. 작업·기존배관은 `TB_ROUTE_PATH` 가 정본(`SOURCE_GUID = TB_POCINSTANCES.INSTANCE_ID` 조인). 학습자산은 공식 AI 테이블 사용.
 
 | 테이블 | 용도 | 키 컬럼 |
 |---|---|---|
-| `space_project_map` | 프로젝트 목록 | project_id, source_file, process, equipment_code |
-| `TB_BIM_OBSTACLES` | 장애물 AABB | SOURCE_FILE, MIN/MAX_X/Y/Z (mm), OST_TYPE, NAME, OBJECT_ID, DDWORKS_TYPE |
-| `TB_BIM_EQUIPMENT` | 메인 장비 + PoC | SOURCE_FILE, IS_MAIN, EQ_ID, NAME, MIN/MAX_X/Y/Z, **POC_LIST (jsonb)** |
-| `TB_DUCT_LATERAL` | 종단 객체(시각화) | SOURCE_FILE, OBJECT_ID, NAME, UTILITY, MIN/MAX_X/Y/Z |
-| `TB_ROUTE_PATH` (+`_SEGMENTS`/`_SEGMENT_DETAIL`) | 기존 설계배관 폴리라인(패턴 학습 입력) | ROUTE_PATH_GUID, UTILITY_GROUP, SOURCE_UTILITY, SOURCE/TARGET_POS, SOURCE_OWNER_NAME/POS, SOURCE_SIZE |
-| `route_stub_pattern` (+뷰 `route_stub_template`) | **학습 스텁 패턴 저장소(pgvector, 우리가 생성)** | anchor_kind/utility/face/dir_seq/rise · `feat vector(24)`·`dir_unit vector(3)`·HNSW |
+| `TB_SPACE_GROUP_INFO` | **프로젝트=툴그룹 목록** | TAG_GROUP_ID, TAG_GROUP_NM, BAY_GROUP_NM, PROCESS_GROUP_NM, AABB_MIN/MAX_* |
+| `TB_BIM_OBSTACLE` | 장애물 AABB | AABB_MIN/MAX_*, INSTANCE_NAME, OST_TYPE, DDWORKS_TYPE, **COLLISION_PASS**(0/1 통과플래그) |
+| `TB_EQUIPMENTS` | 장비(+PoC는 별도) | **MAIN_SUB_TYPE**('MainTool'/'SubTool'), AABB_MIN/MAX_*, EQUIPMENT_NAME |
+| `TB_POCINSTANCES` | PoC 인스턴스 | **INSTANCE_ID**(=ROUTE_PATH.SOURCE_GUID), POC 좌표 평행배열, UTILITY/UTILITY_GROUP |
+| `TB_LATERAL_PIPE` · `TB_DUCT` | 종단 객체(구 TB_DUCT_LATERAL 분리) | AABB_MIN/MAX_*, NAME, UTILITY, CATEGORY |
+| `TB_SPACE_INFO` | 공간영역(와이어+라벨) | LEVEL_NAME, AABB_MIN/MAX_* |
+| `TB_ROUTE_PATH` (+`_SEGMENTS`/`_SEGMENT_DETAIL`) | **작업·기존배관 정본** | ROUTE_PATH_GUID, **SOURCE_GUID**(→POC), UTILITY_GROUP, SOURCE/TARGET_POS, SOURCE/TARGET_OWNER_NAME, SOURCE_SIZE |
+| `TB_ROUTE_DESIGN_GROUP` | **공식 번들그룹**(L4 대체) | GROUP_ID, EQUIPMENT_NAME, UTILITY_GROUP, UTILITY, MEMBER_COUNT, **MEMBER_ROUTE_GUIDS (text[])** |
+| `TB_ROUTE_FEATURE_VECTOR`·`TB_ROUTE_SEGMENT_TEMPLATE`·`TB_ROUTE_NODES`·`TB_ROUTE_EDGES`·`TB_AUTO_DESIGN` | 공식 학습/자동설계 자산(우리 `route_stub_pattern` 대체 후보) | — |
 
-확장: **pgvector / cube / postgis 설치됨**(2026-06-02 확인). 스키마 적용 `python -m routing3d_py.pattern_db --apply-schema`(소스 `db/schema/route_stub_pattern.sql`).
+확장: **pgvector / cube / postgis 설치됨**.
 
-**POC_LIST jsonb 구조**: 각 PoC = `{id, name, pocPosition:[x,y,z], utility, utilityGroup, isConnected, endPocs:[{endName, endType, endPocGuid, endInstanceGuid, endPocPosition:[x,y,z]}, …]}`.
-`connectedOnly=true`(기본) 면 `isConnected=true` 만 작업으로 만든다.
-**격자**: `origin = lo`, `shape = ceil((hi-lo)/cell)` (장애물 BBOX).
+**작업 생성(완전교체)**: `TB_ROUTE_PATH`(SOURCE_POS→TARGET_POS, SOURCE_OWNER_NAME→PoC명, TARGET_OWNER_NAME→종단명)를 그룹 AABB 공간교차로 스코프해 작업화. PoC 메타는 `SOURCE_GUID = TB_POCINSTANCES.INSTANCE_ID` 조인.
+**스코프 필터**: 선택 그룹(`TB_SPACE_GROUP_INFO`)의 AABB ± `ScopeMarginMm`(500) 공간교차로 장애물·장비·덕트·작업 한정.
+**격자(중요)**: origin·shape 를 **그룹 AABB 박스(3축 전부)** 로 클램프(`ComputeFromGroupBox`) — 거대 공유 슬래브(건물 전체 X 0~443m·Z 48m)가 공간필터로 새어 28억 셀 폭발하던 것을 차단. 실측 그룹 WTNHJ02: 136×149×91 ≈ 184만 셀(Dense).
 
 ### SpaceAI (인접 프로젝트, `..\SpaceAI\`)
 
@@ -286,7 +291,7 @@ C# 직교 A* + 동일 DB. UI 스타일·DB 흐름 참조용(직접 포팅 안 �
 - ~~**접근불가 PoC 전처리**~~: **완료(P3j 전처리)** — 파묻힌 PoC를 학습면 행진+반경확장으로 최근접 자유셀 스냅(project6 c100 +7 복구). 남은 실패는 혼잡/막힘(아래 CBS 대상).
 - **negotiated-congestion / CBS**: 비용기반 충돌 회피 — rip-up 의 더 강력한 후속. project6 c100 잔여 10실패(expanded>0=경로 없음)가 이 대상.
 - **P3b' OpenVDB capi**: VDB 백엔드를 C ABI 로 노출 + 런타임 DLL 동봉 (Sparse로 목표 충족돼 보류 중)
-- **DDW_AI_DB 전환(보류)**: 새 DB는 스키마 전면 재설계(`TB_BIM_OBSTACLE`/`TB_EQUIPMENTS`/`TB_LATERAL_PIPE`/`TB_DUCT`, source_file 없음, POC 평행 텍스트 배열, 작업 생성이 장비 PoC↔lateral/duct 3-테이블 매칭). `ObstacleDbLoader`(C#)·Python `obstacle_db`/`scene` 재작성 필요. 현재는 AUTOROUTINGV7 사용.
+- ~~**DDW_AI_DB 전환**~~: **뷰어 완전교체 완료(2026-06-06)**. `ObstacleDbLoader`(C#) 전면 재작성 — `TB_SPACE_GROUP_INFO`(프로젝트=툴그룹)·`TB_BIM_OBSTACLE`(COLLISION_PASS 통과플래그·damper 제외)·`TB_EQUIPMENTS`(MAIN_SUB_TYPE)·`TB_POCINSTANCES` 조인·`TB_LATERAL_PIPE`+`TB_DUCT`·`TB_ROUTE_PATH`(작업·기존배관 정본, SOURCE_GUID=INSTANCE_ID). `BundleStore`→`TB_ROUTE_DESIGN_GROUP`. **격자 3축 그룹 AABB 클램프**로 셀 폭발 차단(28억→184만, 313s→139s, 146/151). 검증: `--dbroute 1 100 ALL R3D_STUB=on R3D_BUNDLE=on` → 번들 149키·스텁 151/151. **남은 일**: `PatternStore`→공식 `TB_ROUTE_SEGMENT_TEMPLATE`(현재 null 폴백, 스텁라우팅은 `StubExtractor` 직접 사용이라 무해) · Python 레퍼런스(`obstacle_db`/`scene`/`route_db`/`pattern_learn`/`bundle_detect`) 재작성(뷰어가 실행 주체라 후순위).
 
 ---
 

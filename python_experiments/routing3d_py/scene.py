@@ -24,21 +24,18 @@ SpaceAI 의 PostgreSQL 데이터를 '프로젝트 단위'로 읽어, 직교 A* �
 구성한다. 핵심 산출물은 "메인장비 start PoC → 종단객체 end PoC" 라우팅 작업 목록이며,
 이를 유틸리티(예: [Gas] PA, [Chemical] H3PO4)별로 묶어 그룹 라우팅에 쓴다.
 
-[데이터 모델 — DB 역설계로 확인 (AUTOROUTINGV7, 단위 mm)]
+[데이터 모델 — DDW_AI_DB (단위 mm, 구 AUTOROUTINGV7 폐기)]
 --------------------------------------------------------------------------------
-  space_project_map(project_id → source_file)   # 프로젝트 식별
-        │  source_file 로 아래 테이블들을 필터
-        ├── TB_BIM_OBSTACLES   : 장애물 AABB (점유맵 입력)
-        ├── TB_BIM_EQUIPMENT(IS_MAIN=true) : 메인장비 박스 + POC_LIST(jsonb)
-        │       └ POC_LIST[i] = {pocPosition(=start), utility, utilityGroup,
-        │                        isConnected, endPocs:[{endPocPosition(=end),
-        │                                              endName, endInstanceGuid}]}
-        ├── TB_DUCT_LATERAL    : 종단객체(LATERAL PIPE) 박스 (시각화용)
-        └── TB_BIM_SPACE_INFO  : 공간(층) 범위
+  TB_SPACE_GROUP_INFO(TAG_GROUP → 프로젝트=툴, AABB)   # 그룹 식별·공간 스코프
+        │  그룹 AABB 공간교차(xy_bbox)로 아래 테이블들을 스코프
+        ├── TB_BIM_OBSTACLE    : 장애물 AABB (점유맵 입력, COLLISION_PASS 통과플래그)
+        ├── TB_EQUIPMENTS      : 장비 박스(MAIN_SUB_TYPE)
+        ├── TB_LATERAL_PIPE/TB_DUCT : 종단객체 박스 (시각화용)
+        └── TB_ROUTE_PATH      : 작업·기존배관 정본(SOURCE_POS→TARGET_POS)
 
-  → 라우팅 작업(RouteTask) = (start=pocPosition, end=endPocPosition, utility)
-    한 PoC 가 여러 endPocs 를 가지면 각각이 별도 작업. (프로젝트6: 115 PoC → 208 작업)
-  → 유틸리티 라벨 = "[utilityGroup] utility" (예: "[Gas] PA"). 프로젝트6: 21종.
+  → 라우팅 작업(RouteTask) = (start=SOURCE_POS, end=TARGET_POS, utility=SOURCE_UTILITY)
+    route_path 1행 = 작업 1개 = 기존 설계배관 1개(폴리라인). (구 POC_LIST 페어링 대체)
+  → 유틸리티 라벨 = "[UTILITY_GROUP] SOURCE_UTILITY".
 
 [전체 흐름]
 --------------------------------------------------------------------------------
@@ -57,6 +54,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from . import route_db
 from .astar import AStarResult, astar_weighted
 from .cost import RouteParams
 from .obstacle_db import (
@@ -76,12 +74,19 @@ Vec3 = tuple[float, float, float]
 
 @dataclass(frozen=True)
 class ProjectInfo:
-    """프로젝트 식별 정보 (space_project_map)."""
+    """프로젝트(=그룹/툴) 식별 정보 (TB_SPACE_GROUP_INFO).
+
+    구 DB(space_project_map)의 (project_id, source_file, process, equipment_code) 자리를
+    그룹으로 매핑: source_file=TAG_GROUP_NM, equipment_code=TAG_GROUP_ID, process=PROCESS_GROUP_NM.
+    group_lo/group_hi 는 그룹 AABB(mm) — 격자/공간 스코프 박스(셀 폭발 방지 클램프).
+    """
 
     project_id: int
-    source_file: str
-    process: str | None
-    equipment_code: str | None
+    source_file: str            # = TAG_GROUP_NM(그룹명).
+    process: str | None         # = PROCESS_GROUP_NM.
+    equipment_code: str | None  # = TAG_GROUP_ID.
+    group_lo: Vec3 = (0.0, 0.0, 0.0)
+    group_hi: Vec3 = (0.0, 0.0, 0.0)
 
     def __str__(self) -> str:
         return f"[{self.project_id}] {self.process}/{self.equipment_code} — {self.source_file}"
@@ -312,21 +317,16 @@ def utility_colors(labels: list[str]) -> dict[str, str]:
 # ------------------------------------------------------------------ 로딩
 
 def list_projects(config: PgConnConfig | None = None, conn=None) -> list[ProjectInfo]:
-    """space_project_map 에서 프로젝트 목록을 읽는다(project_id 오름차순)."""
-    config = config or PgConnConfig()
-    own = conn is None
-    if own:
-        conn = config.connect()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT project_id, source_file, process, equipment_code "
-            "FROM space_project_map ORDER BY project_id"
+    """TB_SPACE_GROUP_INFO 의 그룹(툴) 목록을 ProjectInfo 로 읽는다(1-based 순번)."""
+    groups = route_db.list_groups(config, conn=conn)
+    return [
+        ProjectInfo(
+            project_id=g.project_id, source_file=g.group_name,
+            process=g.process, equipment_code=g.group_id,
+            group_lo=g.lo, group_hi=g.hi,
         )
-        return [ProjectInfo(*row) for row in cur.fetchall()]
-    finally:
-        if own:
-            conn.close()
+        for g in groups
+    ]
 
 
 def _as_list(jsonb_val) -> list:
@@ -352,96 +352,71 @@ def load_scene(
     connected_only: bool = True,
     conn=None,
 ) -> RoutingScene:
-    """프로젝트 하나의 라우팅 씬을 DB 에서 로드한다.
+    """그룹(툴) 하나의 라우팅 씬을 DDW_AI_DB 에서 로드한다(C# ObstacleDbLoader.LoadScene 미러).
 
     [알고리즘]
-      1) space_project_map 에서 project_id → source_file.
-      2) source_file 로 장애물(TB_BIM_OBSTACLES) 로드.
-      3) 메인장비(TB_BIM_EQUIPMENT, IS_MAIN) 의 POC_LIST 를 파싱:
-         각 PoC 의 pocPosition(start)와 endPocs[].endPocPosition(end) 로 RouteTask 생성.
-         connected_only=True 면 isConnected PoC 만.
-      4) 종단객체(TB_DUCT_LATERAL) 박스 로드(시각화용).
-      5) 공간 범위 = 장애물 전체 AABB (뷰어와 동일 기준).
+      1) TB_SPACE_GROUP_INFO 에서 project_id(순번) → 그룹(AABB).
+      2) 그룹 AABB 공간교차(xy_bbox)로 장애물(TB_BIM_OBSTACLE) 로드(damper 제외).
+      3) 장비(TB_EQUIPMENTS)·종단(TB_LATERAL_PIPE/TB_DUCT) 박스 로드.
+      4) 작업(start→end) = TB_ROUTE_PATH(SOURCE_POS→TARGET_POS). 폴리라인이 곧 기존배관.
+         (구 DB 의 POC_LIST jsonb 페어링을 대체 — DDW 는 route_path 가 작업의 정본.)
+      5) 공간 범위 = 그룹 AABB(3축 클램프) — 거대 공유 건축물로 인한 셀 폭발 방지.
 
     매개변수:
         config         : 접속 설정. conn 우선.
-        project_id     : space_project_map 의 project_id.
-        connected_only : True(기본)면 isConnected PoC 의 작업만 포함.
+        project_id     : TB_SPACE_GROUP_INFO 그룹 순번(1-based).
+        connected_only : 호환 인자(현재 route_path 자체가 연결된 작업이라 무영향).
         conn           : 재사용 연결(선택).
     반환값:
         RoutingScene.
     예외:
-        ValueError : project_id 없음 / 장애물 없음(범위 산출 불가).
+        ValueError : project_id(그룹) 없음.
     """
     config = config or PgConnConfig()
     own = conn is None
     if own:
         conn = config.connect()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT source_file, process, equipment_code "
-            "FROM space_project_map WHERE project_id=%s", (project_id,))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError(f"project_id {project_id} not found in space_project_map")
-        source_file, process, equipment_code = row
-        project = ProjectInfo(project_id, source_file, process, equipment_code)
+        group = route_db.resolve_group(project_id, config, conn=conn)
+        project = ProjectInfo(
+            project_id=group.project_id, source_file=group.group_name,
+            process=group.process, equipment_code=group.group_id,
+            group_lo=group.lo, group_hi=group.hi,
+        )
+        bbox = group.xy_bbox()
 
-        obstacles = load_obstacles(config, source_file=source_file, conn=conn)
+        # 장애물(그룹 AABB 공간교차).
+        obstacles = load_obstacles(config, xy_bbox=bbox, conn=conn)
 
-        # 메인장비 + POC_LIST → 작업
-        cur.execute(
-            'SELECT "EQ_ID","NAME","MIN_X","MIN_Y","MIN_Z","MAX_X","MAX_Y","MAX_Z","POC_LIST" '
-            'FROM "TB_BIM_EQUIPMENT" WHERE "SOURCE_FILE"=%s AND "IS_MAIN"=true', (source_file,))
-        main_equipment: list[MainEquipment] = []
-        tasks: list[RouteTask] = []
-        for eq_id, name, mnx, mny, mnz, mxx, mxy, mxz, poc_list in cur.fetchall():
-            aabb = _aabb_or_none((mnx, mny, mnz), (mxx, mxy, mxz))
-            pocs: list[StartPoc] = []
-            for p in _as_list(poc_list):
-                start = tuple(p.get("pocPosition") or (0.0, 0.0, 0.0))
-                util = p.get("utility")
-                grp = p.get("utilityGroup")
-                size = p.get("size")
-                dia = parse_pipe_size_mm(size)
-                connected = bool(p.get("isConnected"))
-                ends: list[EndPoc] = []
-                for e in (p.get("endPocs") or []):
-                    ep = EndPoc(
-                        name=e.get("endName"), end_type=e.get("endType"),
-                        guid=e.get("endPocGuid"), instance_guid=e.get("endInstanceGuid"),
-                        position=tuple(e.get("endPocPosition") or (0.0, 0.0, 0.0)),
-                    )
-                    ends.append(ep)
-                    if connected or not connected_only:
-                        tasks.append(RouteTask(
-                            start_mm=start, end_mm=ep.position,
-                            utility=util, utility_group=grp,
-                            start_name=p.get("name"), end_name=ep.name,
-                            end_instance_guid=ep.instance_guid,
-                            size=size, diameter_mm=dia,
-                        ))
-                pocs.append(StartPoc(
-                    poc_id=p.get("id"), name=p.get("name"), position=start,
-                    utility=util, utility_group=grp, is_connected=connected,
-                    end_pocs=tuple(ends),
-                ))
-            main_equipment.append(MainEquipment(eq_id, name, aabb, tuple(pocs)))
-
-        # 종단객체(시각화용)
-        cur.execute(
-            'SELECT "OBJECT_ID","NAME","UTILITY","MIN_X","MIN_Y","MIN_Z","MAX_X","MAX_Y","MAX_Z" '
-            'FROM "TB_DUCT_LATERAL" WHERE "SOURCE_FILE"=%s', (source_file,))
-        terminals = [
-            TerminalObject(oid, nm, util, _aabb_or_none((mnx, mny, mnz), (mxx, mxy, mxz)))
-            for oid, nm, util, mnx, mny, mnz, mxx, mxy, mxz in cur.fetchall()
+        # 장비(박스만 — DDW 는 PoC 가 별도 테이블, 작업은 route_path 가 정본).
+        main_equipment: list[MainEquipment] = [
+            MainEquipment(eq_id=None, name=e.name,
+                          aabb=_aabb_or_none(e.lo, e.hi), pocs=())
+            for e in route_db.load_equipment(bbox, config, conn=conn)
         ]
 
-        # 공간 범위 = 장애물 전체 AABB
-        if not obstacles:
-            raise ValueError(f"project {project_id} has no obstacles; cannot derive bounds")
-        lo, hi = obstacles_bounds(obstacles)
+        # 종단객체(시각화용) — 레터럴/덕트.
+        terminals: list[TerminalObject] = [
+            TerminalObject(object_id=None, name=d.name, utility=d.utility,
+                           aabb=_aabb_or_none(d.lo, d.hi))
+            for d in route_db.load_ducts(bbox, config, conn=conn)
+        ]
+
+        # 작업(start→end) = 기존배관 양 끝 PoC. route_path 1행 = 작업 1개.
+        tasks: list[RouteTask] = []
+        for p in route_db.load_existing_pipes(bbox, config, conn=conn):
+            if p.source_pos is None or p.target_pos is None:
+                continue
+            tasks.append(RouteTask(
+                start_mm=p.source_pos, end_mm=p.target_pos,
+                utility=p.utility, utility_group=p.group,
+                start_name=p.owner_name, end_name=None,
+                end_instance_guid=p.route_path_guid,
+                size=None, diameter_mm=p.diameter_mm,
+            ))
+
+        # 공간 범위 = 그룹 AABB(3축 클램프).
+        lo, hi = group.lo, group.hi
 
         return RoutingScene(
             project=project, bounds_lo=lo, bounds_hi=hi,

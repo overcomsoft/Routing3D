@@ -58,9 +58,48 @@ namespace Routing3D.Viewer.ViewModels
 
         private bool _success;
         private double _lengthMm;
-        public bool Success { get => _success; set { if (Set(ref _success, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); } } }
-        public double LengthMm { get => _lengthMm; set { if (Set(ref _lengthMm, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); } } }
+        public bool Success { get => _success; set { if (Set(ref _success, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush)); OnChanged(nameof(TurnCount)); } } }
+        public double LengthMm { get => _lengthMm; set { if (Set(ref _lengthMm, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount)); } } }
 
         public string Display => $"#{Index}  {Label}   {(Success ? $"{LengthMm:0} mm" : "실패/미라우팅")}";
+
+        // ── 결과 리스트(DataGrid) 표시용 파생 속성 ──────────────────────────
+        /// <summary>처리 상태 텍스트 — 라우팅 결과 그리드 '상태' 컬럼.</summary>
+        public string StatusText
+        {
+            get
+            {
+                bool routed = Path != null && Path.Length >= 2;
+                return Success ? "성공" : routed ? "실패" : "미라우팅";
+            }
+        }
+
+        /// <summary>상태 컬럼 색(성공=녹색·실패=적색·미라우팅=회색).</summary>
+        public Brush StatusBrush =>
+            Success ? new SolidColorBrush(Color.FromRgb(0x5A, 0xD2, 0x82))
+                    : (Path != null && Path.Length >= 2)
+                        ? new SolidColorBrush(Color.FromRgb(0xE6, 0x55, 0x55))
+                        : new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xB8));
+
+        /// <summary>길이 표시(성공 시 mm, 아니면 빈칸).</summary>
+        public string LengthText => Success ? $"{LengthMm:N0}" : "";
+
+        /// <summary>경로의 방향 전환(꺾임) 수 — 직교 셀 경로에서 축 변경 횟수.</summary>
+        public int TurnCount
+        {
+            get
+            {
+                var p = Path;
+                if (p == null || p.Length < 3) return 0;
+                int turns = 0;
+                for (int i = 2; i < p.Length; i++)
+                {
+                    int a1 = p[i - 1].I != p[i - 2].I ? 0 : p[i - 1].J != p[i - 2].J ? 1 : 2;
+                    int a2 = p[i].I != p[i - 1].I ? 0 : p[i].J != p[i - 1].J ? 1 : 2;
+                    if (a1 != a2) turns++;
+                }
+                return turns;
+            }
+        }
     }
 }
