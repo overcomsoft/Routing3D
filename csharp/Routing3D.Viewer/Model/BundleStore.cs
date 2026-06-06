@@ -51,8 +51,9 @@ namespace Routing3D.Viewer.Model
         /// <summary>DDW_AI_DB 공식 설계그룹(TB_ROUTE_DESIGN_GROUP)을 읽어 저장소를 만든다. 실패/빈 결과면 null.
         ///   guid→group_id(MEMBER_ROUTE_GUIDS·GROUP_ID)가 핵심 — 그룹강조·레인배정·번들회랑(BuildBundleCorridorCells)을
         ///   복구한다. trunk_zs/pitch 컬럼은 공식 테이블에 없으므로 빈 값(랙 z 주입 MergeBundleLevels 는 무해 폴백).
-        ///   sourceFile(=그룹명)은 EQUIPMENT_NAME prefix 로 느슨히 스코프하되, 미스 시 전체를 적재(guid 매칭이 자연 스코프).</summary>
-        public static BundleStore? TryLoad(DbConfig config, string sourceFile)
+        ///   공식 테이블엔 그룹(툴) 스코프 키가 없어 전체를 적재한다 — 표시·레인 배정은 모두 씬에 실제 존재하는
+        ///   배관 GUID 와 _guidGroup 교집합으로만 동작하므로 GUID 매칭이 곧 자연 스코프(타 툴 그룹은 매칭 0 = 무시).</summary>
+        public static BundleStore? TryLoad(DbConfig config)
         {
             try
             {

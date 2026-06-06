@@ -118,7 +118,7 @@ namespace Routing3D.Viewer.ViewModels
                 (int ok, int n, double len) cur = perUtil.TryGetValue(u, out var v) ? v : (0, 0, 0.0);
                 perUtil[u] = (cur.ok + (t.Success ? 1 : 0), cur.n + 1, cur.len + (t.Success ? t.LengthMm : 0));
             }
-            int fail = routed - ok;
+            int fail = total - ok;   // 실패 = 전체 − 성공. (routed-ok 은 Success⟺Path≥2 라 항상 0 이라 버그였음)
             double rate = total > 0 ? 100.0 * ok / total : 0;
             double avgLen = ok > 0 ? sumLen / ok : 0;
             double avgTurn = turnSamples > 0 ? (double)sumTurns / turnSamples : 0;
@@ -1098,7 +1098,7 @@ namespace Routing3D.Viewer.ViewModels
                 // 그룹배관 번들 템플릿(route_bundle_template)을 프로젝트별로 로드 — 신규설계 활용(L4).
                 // 프로젝트마다 source_file 이 다르므로 매 로드 시 갱신(트렁크 고도는 그 프로젝트 좌표계).
                 _bundlesTried = true;
-                _bundles = await Task.Run(() => BundleStore.TryLoad(_dbConfig, sd.SourceFile));
+                _bundles = await Task.Run(() => BundleStore.TryLoad(_dbConfig));
                 OnChanged(nameof(BundleStatus));
                 ResetEngine();
                 var g = sd.Grid;

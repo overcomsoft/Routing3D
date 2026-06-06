@@ -51,7 +51,7 @@ namespace Routing3D.Viewer.Diagnostics
             // rack_levels 로 주입(GUI UseBundlePattern 미러). 미적재면 폴백(무해).
             bool useBundle = string.Equals(Environment.GetEnvironmentVariable("R3D_BUNDLE"), "on",
                                            StringComparison.OrdinalIgnoreCase);
-            BundleStore? bundles = useBundle ? BundleStore.TryLoad(cfg, sd.SourceFile) : null;
+            BundleStore? bundles = useBundle ? BundleStore.TryLoad(cfg) : null;
             sb.AppendLine($"그룹배관 패턴: {(bundles == null ? (useBundle ? "없음(미적재)" : "OFF") : bundles.Count + "키")}");
 
             sb.AppendLine(Try(sd, rows, fac: true, drop: true, wClear: 10, mode: "multi",

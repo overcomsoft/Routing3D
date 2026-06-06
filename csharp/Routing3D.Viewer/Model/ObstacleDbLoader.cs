@@ -228,8 +228,17 @@ namespace Routing3D.Viewer.Model
 
             // ── 6) 격자 메타 — 3축 모두 '그룹 AABB(+여유)' 로 클램프(=툴 작업공간).
             //   공유 건축물(바닥 슬래브 XY 수백 m·전고 기둥 Z 48 m)의 AABB 가 공간필터에 걸리므로,
-            //   장애물 extent 로 격자를 잡으면 수십억 셀로 폭증한다 → 그룹박스로 제한(작업 Z 는 그룹 Z 가 포함).
-            data.Grid = ComputeGrid(minx, miny, minz, maxx, maxy, maxz, cellMm);
+            //   장애물 extent 로 격자를 잡으면 수십억 셀로 폭증한다 → 그룹박스로 제한.
+            //   단, 작업 끝점(SOURCE/TARGET Z)은 XY 로만 스코프돼 그룹 Z 밴드를 벗어날 수 있다(예:
+            //   위층 덕트 종단). Z 밴드를 작업 끝점까지 확장한다 — 셀 폭증은 슬래브의 XY extent 탓이라
+            //   Z 확장은 안전. 안 하면 격자 밖 끝점이 라우팅에서 조용히 실패한다.
+            double gzlo = minz, gzhi = maxz;
+            foreach (var t in data.Tasks)
+            {
+                gzlo = Math.Min(gzlo, Math.Min(t.Sz, t.Gz) - ScopeMarginMm);
+                gzhi = Math.Max(gzhi, Math.Max(t.Sz, t.Gz) + ScopeMarginMm);
+            }
+            data.Grid = ComputeGrid(minx, miny, gzlo, maxx, maxy, gzhi, cellMm);
             return data;
         }
 
@@ -331,8 +340,12 @@ namespace Routing3D.Viewer.Model
                             EndName = r.IsDBNull(5) ? null : r.GetString(5),     // TARGET_OWNER_NAME.
                         });
                 }
-                AddPt(new Pt3(Dbl(r, 6), Dbl(r, 7), Dbl(r, 8)));
-                AddPt(new Pt3(Dbl(r, 9), Dbl(r, 10), Dbl(r, 11)));
+                // FROM/TO 좌표가 NULL 이면 그 정점은 건너뛴다 — Dbl 의 0.0 대체가 폴리라인에
+                //   원점(0,0,0) 스파이크를 주입하지 않게(현재 데이터엔 NULL 0건이나 방어).
+                if (!(r.IsDBNull(6) || r.IsDBNull(7) || r.IsDBNull(8)))
+                    AddPt(new Pt3(Dbl(r, 6), Dbl(r, 7), Dbl(r, 8)));
+                if (!(r.IsDBNull(9) || r.IsDBNull(10) || r.IsDBNull(11)))
+                    AddPt(new Pt3(Dbl(r, 9), Dbl(r, 10), Dbl(r, 11)));
             }
             Flush();
         }
@@ -405,7 +418,7 @@ namespace Routing3D.Viewer.Model
 
         private static double ParseInch(string s)
         {
-            s = s.Trim();
+            s = s.Trim().Replace('-', ' ');   // 혼합수 '1-1/4' → '1 1/4'(정수+분수). 안 하면 0 으로 파싱됨.
             if (s.Contains('/'))
             {
                 var parts = s.Split(' ');
