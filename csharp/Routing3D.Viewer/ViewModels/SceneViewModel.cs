@@ -2088,18 +2088,65 @@ namespace Routing3D.Viewer.ViewModels
                 for (int k = 1; k < repair.Length; k++) outp.Add(repair[k]);
             }
             if (outp.Count < 2) return null;
-            // 전체 경로 직선화 — 코너의 짧은 2축 계단(말림: 양자화로 생긴 Y4·X2 같은 잔 jog)을 충돌 없는
-            //   단일 L 로 흡수해 '한 번에 꺾이는' 자연스러운 엘보로 만든다(물리적 밴딩 가능). 주요 패턴 코너
-            //   (수평↔수평·수평↔수직 = 3축 전환/방향 반전)는 FreeOrthoL(≤2축)이 못 잇어 보존된다.
-            return StraightenOrtho(outp, blocked);
+            // 코너의 짧은 수직 jog(말림: 양자화로 생긴 Y4·X2 같은 잔 계단)만 단일 L 로 흡수 → '한 번에 꺾이는'
+            //   엘보(밴딩 가능). DeJog 는 '짧은 jog 사이' 만 병합하므로 큰 패턴 코너(수평 트렁크 추종 등)는
+            //   보존된다(전체 StraightenOrtho 는 개방공간의 패턴 코너까지 단축해 최단처럼 붕괴 → 사용 안 함).
+            return DeJog(outp, blocked);
         }
 
         private static bool Adjacent(PathCell a, PathCell b)
             => Math.Abs(a.I - b.I) + Math.Abs(a.J - b.J) + Math.Abs(a.K - b.K) == 1;
 
+        // 코너의 짧은 수직 jog(같은 축·방향 두 런 사이에 낀 ≤JOG_MAX 셀 다른축 런 = 계단 한 칸=말림)만
+        //   충돌 없는 단일 L 로 흡수해 '한 번에 꺾이는' 엘보로 만든다. StraightenOrtho(임의 2축 자유 L 단축)
+        //   와 달리 '짧은 jog 사이에 낀 경우'만 병합하므로, 긴 런 사이의 큰 패턴 코너(수평↔수평 포함)는
+        //   건드리지 않아 그룹 패턴 추종을 보존한다(과도 단축으로 패턴이 최단처럼 붕괴하던 문제 해결).
+        private static PathCell[] DeJog(IReadOnlyList<PathCell> path, Func<int, int, int, bool> blk)
+        {
+            const int JOG_MAX = 4;   // ≤4셀(cell=25 → 100mm) 수직 jog 만 흡수. 그 이상은 의도된 오프셋으로 보존.
+            var pts = new List<PathCell>(path);
+            for (int guard = 0; guard < 128 && pts.Count >= 3; guard++)
+            {
+                // 런 분해: (축, 방향, 시작셀idx, 끝셀idx). 끝셀 = 다음 런 시작셀.
+                var runs = new List<(int axis, int dir, int s, int e)>();
+                for (int k = 1; k < pts.Count; k++)
+                {
+                    int ax = pts[k].I != pts[k - 1].I ? 0 : pts[k].J != pts[k - 1].J ? 1 : 2;
+                    int dr = ax == 0 ? Math.Sign(pts[k].I - pts[k - 1].I)
+                           : ax == 1 ? Math.Sign(pts[k].J - pts[k - 1].J) : Math.Sign(pts[k].K - pts[k - 1].K);
+                    if (runs.Count == 0) { runs.Add((ax, dr, 0, 1)); continue; }
+                    var last = runs[runs.Count - 1];
+                    if (ax == last.axis && dr == last.dir) runs[runs.Count - 1] = (last.axis, last.dir, last.s, k);
+                    else runs.Add((ax, dr, k - 1, k));
+                }
+                bool changed = false;
+                for (int i = 1; i + 1 < runs.Count; i++)
+                {
+                    int jogLen = runs[i].e - runs[i].s;   // 사이 다른축 런 길이(셀).
+                    if (runs[i - 1].axis == runs[i + 1].axis && runs[i - 1].dir == runs[i + 1].dir && jogLen <= JOG_MAX)
+                    {
+                        int aIdx = runs[i - 1].s, bIdx = runs[i + 1].e;
+                        var L = FreeOrthoL(pts[aIdx], pts[bIdx], blk);   // 양 축순서 자유 L(aIdx 제외·bIdx 포함).
+                        if (L != null)
+                        {
+                            var nu = new List<PathCell>(pts.Count);
+                            for (int t = 0; t <= aIdx; t++) nu.Add(pts[t]);
+                            nu.AddRange(L);
+                            for (int t = bIdx + 1; t < pts.Count; t++) nu.Add(pts[t]);
+                            pts = nu; changed = true; break;
+                        }
+                    }
+                }
+                if (!changed) break;
+            }
+            return pts.ToArray();
+        }
+
         // 직교 6-연결 경로의 계단(2축 교대)·킨크를, 충돌 없는 L(한 축 직진→다른 축 직진)로 펴서 불필요한
         //   꺾임을 제거한다. 수리 A*(weighted·unkink 없음)가 만든 톱니 정리용. 막힌 L 은 적용하지 않으므로
         //   장애물 회피는 보존. 가장 먼(긴 직선) 자유 L 부터 채택해 한 번에 길게 편다. blk=막힘 판정.
+        //   주의: 임의 2축 자유 L 을 단축하므로 큰 코너도 붕괴 가능 → '수리 구간(국소 킨크)'에만 쓰고,
+        //   조립된 전체 경로에는 패턴 보존을 위해 DeJog(짧은 jog 한정) 를 쓴다.
         private static PathCell[] StraightenOrtho(IReadOnlyList<PathCell> path, Func<int, int, int, bool> blk)
         {
             int n = path.Count;

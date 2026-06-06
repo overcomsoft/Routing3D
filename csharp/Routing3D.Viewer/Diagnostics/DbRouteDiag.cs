@@ -869,9 +869,49 @@ namespace Routing3D.Viewer.Diagnostics
                 reps++;
             }
             if (outp.Count < 2) return null;
-            // 전체 경로 직선화 — 코너의 짧은 2축 계단(말림=Y4 X2 등)을 충돌없는 L 로 흡수해 자연스러운 단일
-            //   엘보로. 3축 전환(주요 코너)은 FreeOrthoL(≤2축)이 못 잇어 보존된다.
-            return StraightenOrtho(outp, blk);
+            // 짧은 수직 jog(말림)만 단일 L 로 흡수 — 큰 패턴 코너는 보존(GUI DeJog 미러).
+            return DeJog(outp, blk);
+        }
+
+        // 짧은 수직 jog(같은 축·방향 두 런 사이 ≤JOG_MAX 셀 다른축 런)만 충돌없는 L 로 흡수. 큰 코너 보존.
+        static PathCell[] DeJog(IReadOnlyList<PathCell> path, Func<int, int, int, bool> blk)
+        {
+            const int JOG_MAX = 4;
+            var pts = new List<PathCell>(path);
+            for (int guard = 0; guard < 128 && pts.Count >= 3; guard++)
+            {
+                var runs = new List<(int axis, int dir, int s, int e)>();
+                for (int k = 1; k < pts.Count; k++)
+                {
+                    int ax = pts[k].I != pts[k - 1].I ? 0 : pts[k].J != pts[k - 1].J ? 1 : 2;
+                    int dr = ax == 0 ? Math.Sign(pts[k].I - pts[k - 1].I)
+                           : ax == 1 ? Math.Sign(pts[k].J - pts[k - 1].J) : Math.Sign(pts[k].K - pts[k - 1].K);
+                    if (runs.Count == 0) { runs.Add((ax, dr, 0, 1)); continue; }
+                    var last = runs[runs.Count - 1];
+                    if (ax == last.axis && dr == last.dir) runs[runs.Count - 1] = (last.axis, last.dir, last.s, k);
+                    else runs.Add((ax, dr, k - 1, k));
+                }
+                bool changed = false;
+                for (int i = 1; i + 1 < runs.Count; i++)
+                {
+                    if (runs[i - 1].axis == runs[i + 1].axis && runs[i - 1].dir == runs[i + 1].dir
+                        && runs[i].e - runs[i].s <= JOG_MAX)
+                    {
+                        int aIdx = runs[i - 1].s, bIdx = runs[i + 1].e;
+                        var L = FreeOrthoL(pts[aIdx], pts[bIdx], blk);
+                        if (L != null)
+                        {
+                            var nu = new List<PathCell>(pts.Count);
+                            for (int t = 0; t <= aIdx; t++) nu.Add(pts[t]);
+                            nu.AddRange(L);
+                            for (int t = bIdx + 1; t < pts.Count; t++) nu.Add(pts[t]);
+                            pts = nu; changed = true; break;
+                        }
+                    }
+                }
+                if (!changed) break;
+            }
+            return pts.ToArray();
         }
 
         // 매칭 그룹배관의 꺾임점(축 전환 코너, 챔퍼<250mm 병합)을 추출해 코너 사이를 Repair(A*)로 잇는다
