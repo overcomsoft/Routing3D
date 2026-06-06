@@ -118,9 +118,11 @@ namespace Routing3D.Viewer.Model
             using var conn = new NpgsqlConnection(config.ConnectionString);
             conn.Open();
 
-            // 그룹 AABB(+여유)로 XY 공간 스코프. 바닥/기둥 등 공유 건축물은 이 박스와 '교차'하면 포함.
+            // 그룹 AABB(+여유)로 공간 스코프 + 클리핑 박스(=격자 클램프 박스). 바닥/천장/기둥 등 공유
+            // 건축물은 이 박스와 '교차'하면 포함하되, 거대 extent(건물 전체 443m)는 이 박스로 잘라낸다.
             double minx = proj.MinX - ScopeMarginMm, maxx = proj.MaxX + ScopeMarginMm;
             double miny = proj.MinY - ScopeMarginMm, maxy = proj.MaxY + ScopeMarginMm;
+            double minz = proj.MinZ - ScopeMarginMm, maxz = proj.MaxZ + ScopeMarginMm;
             var data = new SceneData { SourceFile = proj.GroupName };
 
             void SetXY(NpgsqlCommand c)
@@ -148,6 +150,11 @@ namespace Routing3D.Viewer.Model
                     string name = r.IsDBNull(6) ? string.Empty : r.GetString(6);
                     // 댐퍼(damper)는 덕트 일부지만 장애물로 넣지 않는다(경로 막힘 방지).
                     if (name.IndexOf("damper", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    // 그룹 박스로 클리핑 — 바닥/천장 등 건물 전체 슬래브의 거대 extent 를 작업공간 크기로 자른다.
+                    //   라우팅 불변: 엔진은 이미 장애물 ∩ 격자(=이 박스)만 복셀화하므로 미리 잘라도 결과 동일.
+                    mnx = Math.Max(mnx, minx); mny = Math.Max(mny, miny); mnz = Math.Max(mnz, minz);
+                    mxx = Math.Min(mxx, maxx); mxy = Math.Min(mxy, maxy); mxz = Math.Min(mxz, maxz);
+                    if (mxx <= mnx || mxy <= mny || mxz <= mnz) continue;   // 박스 밖이면 제외.
                     data.Obstacles.Add(new ObstacleBox
                     {
                         MinX = mnx, MinY = mny, MinZ = mnz, MaxX = mxx, MaxY = mxy, MaxZ = mxz,
@@ -218,7 +225,6 @@ namespace Routing3D.Viewer.Model
             // ── 6) 격자 메타 — 3축 모두 '그룹 AABB(+여유)' 로 클램프(=툴 작업공간).
             //   공유 건축물(바닥 슬래브 XY 수백 m·전고 기둥 Z 48 m)의 AABB 가 공간필터에 걸리므로,
             //   장애물 extent 로 격자를 잡으면 수십억 셀로 폭증한다 → 그룹박스로 제한(작업 Z 는 그룹 Z 가 포함).
-            double minz = proj.MinZ - ScopeMarginMm, maxz = proj.MaxZ + ScopeMarginMm;
             data.Grid = ComputeGrid(minx, miny, minz, maxx, maxy, maxz, cellMm);
             return data;
         }
