@@ -173,12 +173,87 @@ namespace Routing3D.Viewer.ViewModels
                     Consider(DescribeObstacle(i, o), o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                 }
 
+            // 배관 자재(부속) — 점 객체(작은 큐브). 클릭 큐브 안이면 작은 부피로 우선 선택된다.
+            double fallbackFit = Math.Max(_scene!.Grid.CellMm * 0.5, 60);
+            if (ShowFittings)
+                foreach (var f in s.Fittings)
+                {
+                    if (!FittingVisible(f)) continue;
+                    double sz = f.DiameterMm > 0 ? Math.Max(f.DiameterMm * 1.6, 40) : fallbackFit;
+                    double h = sz * 0.5;
+                    Consider(DescribeFitting(f), f.X - h, f.Y - h, f.Z - h, f.X + h, f.Y + h, f.Z + h);
+                }
+
             // 공간영역(A/F·CSF·CR 등)은 씬 전체를 덮는 거대 AABB 라 클릭 선택 대상에서 제외한다.
             // (와이어프레임·라벨 렌더는 ShowSpaces 로 그대로 유지 — 표시는 하되 클릭으로는 잡히지 않음.)
+
+            // 기존 설계배관 — 폴리라인(튜브)이라 AABB 부피 비교가 안 맞다(배관 AABB 가 커서 장애물에 짐).
+            //   클릭점이 중심선에서 튜브 반경 이내면 그 배관을 따로 고른다. 큰 박스(장애물)보다 우선하되,
+            //   더 작은 박스(부속·덕트)가 잡혔으면 그쪽을 유지(부속이 배관 위에 있으므로 더 구체적).
+            const double PipePreferVol = 3e7;   // 이보다 큰 박스(장애물·장비)는 배관에 양보.
+            string? pipeBest = null; double pipeBestDist = double.MaxValue;
+            Point3D plo = default, phi = default;
+            if (ShowExistingPipes)
+                foreach (var pipe in s.ExistingPipes)
+                {
+                    if (!PipeVisible(pipe) || pipe.Points.Count < 2) continue;
+                    double dia = pipe.DiameterMm > 0 ? Math.Max(pipe.DiameterMm, 8.0) : Math.Min(_scene.Grid.CellMm * 0.4, 50);
+                    double tol = Math.Max(dia, _scene.Grid.CellMm * 0.6);
+                    for (int k = 0; k + 1 < pipe.Points.Count; k++)
+                    {
+                        var a = pipe.Points[k]; var b = pipe.Points[k + 1];
+                        double d = DistPointToSeg(p, a, b);
+                        if (d <= tol && d < pipeBestDist)
+                        {
+                            pipeBestDist = d; pipeBest = DescribePipe(pipe);
+                            plo = new Point3D(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Min(a.Z, b.Z));
+                            phi = new Point3D(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.Z, b.Z));
+                        }
+                    }
+                }
+
+            // 최종 선택: 배관이 잡혔고(박스 미선택 or 박스가 큰 장애물) → 배관, 아니면 박스.
+            if (pipeBest != null && (best == null || bestVol > PipePreferVol))
+            {
+                SelectedObjectInfo = pipeBest;
+                // 배관 강조는 클릭 구간 박스를 약간 부풀려(얇은 세그먼트라도 보이게).
+                double pad = Math.Max(_scene.Grid.CellMm * 0.5, 60);
+                ShowHighlight(new Point3D(plo.X - pad, plo.Y - pad, plo.Z - pad),
+                              new Point3D(phi.X + pad, phi.Y + pad, phi.Z + pad));
+                Status = "기존 설계배관을 선택했습니다.";
+                return;
+            }
 
             SelectedObjectInfo = best;
             if (best is null) { HighlightModel = null; Status = "선택된 객체 없음(빈 공간 클릭)"; }
             else { ShowHighlight(blo, bhi); Status = "객체를 선택했습니다."; }
+        }
+
+        // 클릭점 p 와 선분 ab(월드 mm) 사이 최단거리.
+        private static double DistPointToSeg(Point3D p, Pt3 a, Pt3 b)
+        {
+            double abx = b.X - a.X, aby = b.Y - a.Y, abz = b.Z - a.Z;
+            double apx = p.X - a.X, apy = p.Y - a.Y, apz = p.Z - a.Z;
+            double len2 = abx * abx + aby * aby + abz * abz;
+            double t = len2 <= 1e-9 ? 0 : (apx * abx + apy * aby + apz * abz) / len2;
+            t = Math.Max(0, Math.Min(1, t));
+            double cx = a.X + t * abx, cy = a.Y + t * aby, cz = a.Z + t * abz;
+            double dx = p.X - cx, dy = p.Y - cy, dz = p.Z - cz;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 배관/부속이 현재 필터(좌측 선택 그룹 + 유틸 체크박스)로 표시 중인가 — 렌더와 동일 기준.
+        private bool PipeVisible(ExistingPipe pipe)
+        {
+            if (!string.IsNullOrEmpty(_selectedGroup) && GroupKey(pipe.Group) != _selectedGroup) return false;
+            var uf = UtilityFilters.FirstOrDefault(u => u.Label == pipe.Label);
+            return uf == null || uf.IsVisible;
+        }
+        private bool FittingVisible(PipeFitting f)
+        {
+            if (f.Utility == null) return true;
+            var uf = UtilityFilters.FirstOrDefault(u => u.Label.EndsWith("] " + f.Utility));
+            return uf == null || uf.IsVisible;
         }
 
         // 선택한 객체 AABB 를 밝은 노란 와이어프레임 + 반투명 박스로 강조한다.
@@ -228,6 +303,29 @@ namespace Routing3D.Viewer.ViewModels
             => "[공간영역]\n"
              + $"이름: {sp.Name}\n"
              + Dims(sp.MinX, sp.MinY, sp.MinZ, sp.MaxX, sp.MaxY, sp.MaxZ);
+
+        private static string DescribePipe(ExistingPipe p)
+        {
+            var s = p.SourcePos; var t = p.TargetPos;
+            string ends = (s.HasValue && t.HasValue)
+                ? $"시작(mm): ({F(s.Value.X)}, {F(s.Value.Y)}, {F(s.Value.Z)})\n"
+                + $"끝(mm):   ({F(t.Value.X)}, {F(t.Value.Y)}, {F(t.Value.Z)})\n"
+                : "";
+            return "[기존 설계배관]\n"
+                 + $"유틸리티: {p.Label}\n"
+                 + $"관경(mm): {(p.DiameterMm > 0 ? F(p.DiameterMm) : "미상")}\n"
+                 + $"구간: 점 {p.Points.Count}개 ({Math.Max(0, p.Points.Count - 1)} 세그먼트)\n"
+                 + ends
+                 + $"GUID: {(string.IsNullOrEmpty(p.RoutePathGuid) ? "N/A" : p.RoutePathGuid)}";
+        }
+
+        private static string DescribeFitting(PipeFitting f)
+            => "[배관 자재]\n"
+             + $"종류: {(string.IsNullOrEmpty(f.Type) ? "(미상)" : f.Type)}\n"
+             + $"SIZE: {(string.IsNullOrEmpty(f.Size) ? "N/A" : f.Size)}"
+             + (f.DiameterMm > 0 ? $" (외경 ~{F(f.DiameterMm)}mm)" : "") + "\n"
+             + $"UTILITY: {(string.IsNullOrEmpty(f.Utility) ? "N/A" : f.Utility)}\n"
+             + $"위치(mm): ({F(f.X)}, {F(f.Y)}, {F(f.Z)})";
 
         private Model3D? _sceneModel;
         private string _status = string.Empty;
