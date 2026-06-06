@@ -14,7 +14,7 @@
                    Foreground="#bfc6d6" Margin="0,0,0,6"/>
         <Border Background="#252b3d" BorderBrush="#404a64" BorderThickness="1" Padding="8">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <TextBlock Text="{Binding SelectedObjectInfo, TargetNullValue='3D 뷰에서 장애물·장비·덕트·기존배관·배관자재를 클릭하면 속성이 표시됩니다.'}"
+                <TextBlock Text="{Binding SelectedObjectInfo, TargetNullValue='3D 뷰에서 장애물·장비·덕트·기존배관·배관자재·PoC를 클릭하면 속성이 표시됩니다.'}"
                            Foreground="#cdd6f4" TextWrapping="Wrap"
                            FontFamily="Consolas" FontSize="12" LineHeight="18"/>
             </ScrollViewer>

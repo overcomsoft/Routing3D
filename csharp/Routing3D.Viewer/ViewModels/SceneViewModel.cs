@@ -184,6 +184,23 @@ namespace Routing3D.Viewer.ViewModels
                     Consider(DescribeFitting(f), f.X - h, f.Y - h, f.Z - h, f.X + h, f.Y + h, f.Z + h);
                 }
 
+            // PoC 마커(시작=빨강·종단=파랑 구) — 작업의 양 끝 점. 렌더 반경 만큼의 작은 박스로 Consider.
+            //   작은 부피라 장비/덕트 표면보다 우선 선택되고, 배관 끝과 겹쳐도 PoC 가 더 구체적이라 잡힌다.
+            if (ShowPocMarkers)
+            {
+                double pocR = Math.Max(_scene.Grid.CellMm * 0.9, 50);
+                foreach (var row in Tasks)
+                {
+                    if (!string.IsNullOrEmpty(_selectedGroup) && GroupKey(row.Group) != _selectedGroup) continue;
+                    var uf = UtilityFilters.FirstOrDefault(u => u.Label == row.Label);
+                    if (uf != null && !uf.IsVisible) continue;
+                    Consider(DescribePoc(row, true), row.Sx - pocR, row.Sy - pocR, row.Sz - pocR,
+                                                     row.Sx + pocR, row.Sy + pocR, row.Sz + pocR);
+                    Consider(DescribePoc(row, false), row.Gx - pocR, row.Gy - pocR, row.Gz - pocR,
+                                                      row.Gx + pocR, row.Gy + pocR, row.Gz + pocR);
+                }
+            }
+
             // 공간영역(A/F·CSF·CR 등)은 씬 전체를 덮는 거대 AABB 라 클릭 선택 대상에서 제외한다.
             // (와이어프레임·라벨 렌더는 ShowSpaces 로 그대로 유지 — 표시는 하되 클릭으로는 잡히지 않음.)
 
@@ -326,6 +343,18 @@ namespace Routing3D.Viewer.ViewModels
              + (f.DiameterMm > 0 ? $" (외경 ~{F(f.DiameterMm)}mm)" : "") + "\n"
              + $"UTILITY: {(string.IsNullOrEmpty(f.Utility) ? "N/A" : f.Utility)}\n"
              + $"위치(mm): ({F(f.X)}, {F(f.Y)}, {F(f.Z)})";
+
+        private static string DescribePoc(TaskRowVM row, bool isStart)
+        {
+            string? name = isStart ? row.PocName : row.EndName;
+            double x = isStart ? row.Sx : row.Gx;
+            double y = isStart ? row.Sy : row.Gy;
+            double z = isStart ? row.Sz : row.Gz;
+            return $"[PoC - {(isStart ? "시작(장비)" : "종단(덕트/레터럴)")}]\n"
+                 + $"유틸리티: {row.Label}\n"
+                 + $"이름: {(string.IsNullOrEmpty(name) ? "(이름없음)" : name)}\n"
+                 + $"위치(mm): ({F(x)}, {F(y)}, {F(z)})";
+        }
 
         private Model3D? _sceneModel;
         private string _status = string.Empty;
