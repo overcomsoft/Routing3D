@@ -185,7 +185,10 @@ namespace Routing3D.Viewer.Model
             LoadDuctLateral(conn, "TB_LATERAL_PIPE", "LATERAL", IsectXY, SetXY, data.DuctsLaterals);
             LoadDuctLateral(conn, "TB_DUCT", "DUCT", IsectXY, SetXY, data.DuctsLaterals);
 
-            // ── 4) 공간 — TB_SPACE_INFO ──
+            // ── 4) 공간 — TB_SPACE_INFO 를 그룹 AABB(TB_SPACE_GROUP_INFO) 박스로 클리핑 ──
+            //   TB_SPACE_INFO 의 층(A/F·CSF·CR)은 건물 전체를 덮는 거대 AABB 라 그대로 그리면 너무 크다.
+            //   각 공간 박스를 '그룹 박스'(proj 의 실제 AABB, 여유 없음)와 3축 교차로 잘라 작업공간 크기로 만든다.
+            //   (= 사용자 요청: 공간영역을 TB_SPACE_GROUP_INFO 으로 클리핑하고 각 영역을 cube box 로 표시.)
             using (var cmd = new NpgsqlCommand(
                 @"SELECT ""SPACE_NAME"",""AABB_MINX"",""AABB_MINY"",""AABB_MINZ"",""AABB_MAXX"",""AABB_MAXY"",""AABB_MAXZ""
                   FROM ""TB_SPACE_INFO"" WHERE" + IsectXY + @" ORDER BY ""AABB_MINZ""", conn))
@@ -193,12 +196,18 @@ namespace Routing3D.Viewer.Model
                 SetXY(cmd);
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
+                {
+                    // 공간 박스 ∩ 그룹 박스(클리핑). 한 축이라도 겹치지 않으면(퇴화) 스킵.
+                    double smnx = Math.Max(Dbl(r, 1), proj.MinX), smny = Math.Max(Dbl(r, 2), proj.MinY), smnz = Math.Max(Dbl(r, 3), proj.MinZ);
+                    double smxx = Math.Min(Dbl(r, 4), proj.MaxX), smxy = Math.Min(Dbl(r, 5), proj.MaxY), smxz = Math.Min(Dbl(r, 6), proj.MaxZ);
+                    if (smxx <= smnx || smxy <= smny || smxz <= smnz) continue;
                     data.Spaces.Add(new SpaceArea
                     {
                         Name = r.IsDBNull(0) ? string.Empty : r.GetString(0),
-                        MinX = Dbl(r, 1), MinY = Dbl(r, 2), MinZ = Dbl(r, 3),
-                        MaxX = Dbl(r, 4), MaxY = Dbl(r, 5), MaxZ = Dbl(r, 6),
+                        MinX = smnx, MinY = smny, MinZ = smnz,
+                        MaxX = smxx, MaxY = smxy, MaxZ = smxz,
                     });
+                }
             }
 
             // ── 5) 작업(start→end) + 기존배관 — TB_ROUTE_PATH(SOURCE_POS→TARGET_POS) + 세그먼트 폴리라인 ──
