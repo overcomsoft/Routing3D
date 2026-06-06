@@ -222,6 +222,10 @@ namespace Routing3D.Viewer.Model
             try { LoadRoutesAndTasks(conn, minx, maxx, miny, maxy, data); }
             catch { /* 라우트 테이블 부재/스키마 차이 → 작업/기존배관 생략(다른 레이어는 정상). */ }
 
+            // ── 5') 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속(엘보/티/밸브/플랜지 등). ──
+            try { LoadFittings(conn, minx, maxx, miny, maxy, minz, maxz, data); }
+            catch { /* 부속 로딩 실패 → 자재 표시만 생략(무해). */ }
+
             // ── 6) 격자 메타 — 3축 모두 '그룹 AABB(+여유)' 로 클램프(=툴 작업공간).
             //   공유 건축물(바닥 슬래브 XY 수백 m·전고 기둥 Z 48 m)의 AABB 가 공간필터에 걸리므로,
             //   장애물 extent 로 격자를 잡으면 수십억 셀로 폭증한다 → 그룹박스로 제한(작업 Z 는 그룹 Z 가 포함).
@@ -331,6 +335,46 @@ namespace Routing3D.Viewer.Model
                 AddPt(new Pt3(Dbl(r, 9), Dbl(r, 10), Dbl(r, 11)));
             }
             Flush();
+        }
+
+        // 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속만 로드한다(직관: PIPE=직관·POC=연결점·
+        //   BENDING=현장벤딩 은 '부속'이 아니므로 제외). 위치=세그먼트디테일 FROM/TO 중점, 그룹박스로 클리핑.
+        //   스코프는 기존배관과 동일하게 rp.SOURCE_POSX/Y in bbox(다른 툴 배관 제외).
+        private static void LoadFittings(NpgsqlConnection conn,
+            double minx, double maxx, double miny, double maxy, double minz, double maxz, SceneData data)
+        {
+            using var cmd = new NpgsqlCommand(
+                @"SELECT sd.""TYPE"", sd.""SIZE"", rp.""SOURCE_UTILITY"",
+                         sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
+                         sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ""
+                    FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
+                    JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
+                    JOIN ""TB_ROUTE_PATH"" rp    ON rp.""ROUTE_PATH_GUID"" = s.""ROUTE_PATH_GUID""
+                   WHERE rp.""SOURCE_POSX"" BETWEEN @minx AND @maxx
+                     AND rp.""SOURCE_POSY"" BETWEEN @miny AND @maxy
+                     AND sd.""TYPE"" IS NOT NULL
+                     AND sd.""TYPE"" NOT IN ('PIPE','POC','BENDING')", conn);
+            cmd.Parameters.AddWithValue("@minx", minx); cmd.Parameters.AddWithValue("@maxx", maxx);
+            cmd.Parameters.AddWithValue("@miny", miny); cmd.Parameters.AddWithValue("@maxy", maxy);
+
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                string type = r.GetString(0);
+                string? size = r.IsDBNull(1) ? null : r.GetString(1);
+                string? util = r.IsDBNull(2) ? null : r.GetString(2);
+                // 부속 중심 = FROM/TO 중점(점부속은 FROM≈TO, 벤딩 외 부속은 짧은 구간).
+                double cx = (Dbl(r, 3) + Dbl(r, 6)) * 0.5;
+                double cy = (Dbl(r, 4) + Dbl(r, 7)) * 0.5;
+                double cz = (Dbl(r, 5) + Dbl(r, 8)) * 0.5;
+                // 그룹박스 밖(작업영역 밖) 부속은 제외(거대 슬래브 클리핑과 동일 취지).
+                if (cx < minx || cx > maxx || cy < miny || cy > maxy || cz < minz || cz > maxz) continue;
+                data.Fittings.Add(new PipeFitting
+                {
+                    Type = type, Size = size, Utility = util,
+                    X = cx, Y = cy, Z = cz, DiameterMm = ParsePipeSizeMm(size),
+                });
+            }
         }
 
         private static double Dbl(NpgsqlDataReader r, int i) => r.IsDBNull(i) ? 0.0 : r.GetDouble(i);

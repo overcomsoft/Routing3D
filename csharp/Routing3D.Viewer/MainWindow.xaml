@@ -245,6 +245,9 @@
                             <CheckBox Content="기존배관"
                                       IsChecked="{Binding ShowExistingPipes}" Margin="0,0,12,0"
                                       ToolTip="기존 설계배관 — TB_ROUTE_PATH(메인 장비 PoC→종단)을 유틸리티 색의 가는 튜브로 표시"/>
+                            <CheckBox Content="배관자재"
+                                      IsChecked="{Binding ShowFittings}" Margin="0,0,12,0"
+                                      ToolTip="배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속(엘보·티·밸브·플랜지·레듀서·유니온·클램프 등, 직관/PoC/현장벤딩 제외)을 부속 위치에 타입별 색 cube box 로 표시. 그룹 AABB 로 클리핑."/>
 
                             <Border Width="1" Background="#404a64" Margin="2,1,12,1"/>
                             <!-- ───── 경로: 라우팅 결과 렌더링 ───── -->

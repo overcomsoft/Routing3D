@@ -245,6 +245,7 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showLaterals = true;          // 레터럴(TB_DUCT_LATERAL, CATEGORY=LATERAL) 박스.
         private bool _showDucts = true;             // 덕트(TB_DUCT_LATERAL, CATEGORY=DUCT) 박스.
         private bool _showExistingPipes = true;     // 기존 설계배관(TB_ROUTE_PATH) 폴리라인(유틸리티 색).
+        private bool _showFittings = true;          // 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 실제 부속 cube box(타입별 색).
         private bool _showPocMarkers = true;        // 모든 작업의 시작 PoC(빨강)·종단 PoC(파랑) 마커(초기 표시).
         private bool _showStubs = true;             // 기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직+엘보) 강조.
         private bool _showBundleGroups;             // 그룹배관 강조 — 탐지 번들(route_bundle_group) 멤버를 그룹별 색으로.
@@ -420,6 +421,8 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowLaterals { get => _showLaterals; set { if (Set(ref _showLaterals, value)) RebuildIfReady(); } }
         public bool ShowDucts { get => _showDucts; set { if (Set(ref _showDucts, value)) RebuildIfReady(); } }
         public bool ShowExistingPipes { get => _showExistingPipes; set { if (Set(ref _showExistingPipes, value)) RebuildIfReady(); } }
+        /// <summary>배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속(엘보/티/밸브/플랜지 등)을 타입별 색 큐브로. 기본 ON.</summary>
+        public bool ShowFittings { get => _showFittings; set { if (Set(ref _showFittings, value)) RebuildIfReady(); } }
         /// <summary>모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구) 마커 — 라우팅 전에도 초기 표시. 기본 ON.</summary>
         public bool ShowPocMarkers { get => _showPocMarkers; set { if (Set(ref _showPocMarkers, value)) RebuildIfReady(); } }
         /// <summary>기존설계 배관의 출발(빨강)·종단(파랑) 스텁(수직배관+엘보)을 굵은 색 튜브로 강조. 기본 ON.
@@ -2851,9 +2854,6 @@ namespace Routing3D.Viewer.ViewModels
                 // 출발(빨강)·종단(파랑) 스텁 강조 — 학습 StubExtractor 로 잘라낸 수직+엘보 구간을 굵은 색 튜브로.
                 var startStubMb = new MeshBuilder(false, false);
                 var endStubMb = new MeshBuilder(false, false);
-                // 배관-배관 연결 자재(엘보·티·커플링 등) — 폴리라인 내부 정점(세그먼트 조인트)을 cube box 로.
-                var fittingMb = new MeshBuilder(false, false);
-                int fittingCnt = 0;
                 int drawn = 0, stubDrawn = 0;
                 foreach (var pipe in scene.ExistingPipes)
                 {
@@ -2884,16 +2884,6 @@ namespace Routing3D.Viewer.ViewModels
                     }
                     mb.AddTube(pts, dia, 10, false);
                     drawn++;
-
-                    // 배관 자재(연결부) — 내부 정점(세그먼트 조인트)마다 cube box. 양 끝(0·마지막)은 장비/덕트
-                    //   연결(PoC)이라 제외하고, '배관과 배관을 연결하는' 내부 조인트만 자재로 표시한다.
-                    //   자재 크기는 관경에 비례(×1.4)해 배관보다 살짝 볼록한 부속처럼 보이게 한다.
-                    double fitSize = Math.Max(dia * 1.4, grid.CellMm * 0.4);
-                    for (int vi = 1; vi < pts.Count - 1; vi++)
-                    {
-                        fittingMb.AddBox(pts[vi], fitSize, fitSize, fitSize);
-                        fittingCnt++;
-                    }
 
                     // 출발/종단 스텁(수직배관 + 엘보) — 학습과 동일 로직으로 잘라 빨강/파랑 튜브로 강조.
                     // 실제 관경보다 살짝 굵게(×1.35) + 반투명으로 그린다 → 실제 배관(원색·불투명)을 감싸는
@@ -2938,16 +2928,6 @@ namespace Routing3D.Viewer.ViewModels
                             Label = $"기존 설계배관 {drawn} (유틸 색·관경)"
                         });
                 }
-                // 배관 자재(연결부) cube box — 메탈 색(은회색)으로 배관 위 조인트마다 표시.
-                if (fittingCnt > 0)
-                {
-                    group.Children.Add(Geometry(fittingMb, Color.FromRgb(205, 210, 222), 255));
-                    Legend.Add(new LegendItem
-                    {
-                        Swatch = new SolidColorBrush(Color.FromRgb(205, 210, 222)),
-                        Label = $"배관 자재(연결부) {fittingCnt}"
-                    });
-                }
                 if (ShowStubs && stubDrawn > 0)
                 {
                     group.Children.Add(Geometry(startStubMb, Color.FromRgb(226, 48, 48), 120));   // 출발 스텁 = 빨강(반투명 셸).
@@ -2955,6 +2935,43 @@ namespace Routing3D.Viewer.ViewModels
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(226, 48, 48)), Label = $"출발 스텁 {stubDrawn}" });
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(48, 112, 255)), Label = "종단 스텁" });
                 }
+            }
+
+            // 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 '실제 부속'(엘보/티/밸브/플랜지/레듀서 등)을
+            //   부속 위치에 타입별 색 cube box 로 그린다(독립 토글). 좌측 선택 그룹/유틸 체크박스 필터를 동일 적용.
+            if (ShowFittings && scene.Fittings.Count > 0)
+            {
+                var perType = new Dictionary<string, MeshBuilder>();   // TYPE → 머지 메시.
+                var typeCnt = new Dictionary<string, int>();
+                double fallback = Math.Max(grid.CellMm * 0.5, 60);     // 관경 미상 시 큐브 한 변(mm).
+                foreach (var f in scene.Fittings)
+                {
+                    // 유틸 체크박스 필터(부속의 상위 유틸리티 기준). 라벨은 기존배관/작업과 동일 규약.
+                    if (f.Utility != null)
+                    {
+                        string label = $"[?] {f.Utility}";
+                        var uf = UtilityFilters.FirstOrDefault(u => u.Label.EndsWith("] " + f.Utility));
+                        if (uf != null && !uf.IsVisible) continue;
+                    }
+                    string type = string.IsNullOrEmpty(f.Type) ? "ETC" : f.Type;
+                    if (!perType.TryGetValue(type, out var mb)) { mb = new MeshBuilder(false, false); perType[type] = mb; }
+                    double s = f.DiameterMm > 0 ? Math.Max(f.DiameterMm * 1.6, 40) : fallback;
+                    mb.AddBox(new Point3D(f.X, f.Y, f.Z), s, s, s);
+                    typeCnt[type] = typeCnt.TryGetValue(type, out var n) ? n + 1 : 1;
+                }
+                // 타입별 결정적 색(이름 기준). 범례는 개수 많은 순으로.
+                var fitColors = UtilityColors.Assign(perType.Keys);
+                foreach (var kv in perType)
+                {
+                    var color = fitColors.TryGetValue(kv.Key, out var c) ? c : Color.FromRgb(205, 210, 222);
+                    group.Children.Add(Geometry(kv.Value, color, 255));
+                }
+                foreach (var kv in typeCnt.OrderByDescending(k => k.Value))
+                    Legend.Add(new LegendItem
+                    {
+                        Swatch = new SolidColorBrush(fitColors.TryGetValue(kv.Key, out var c) ? c : Color.FromRgb(205, 210, 222)),
+                        Label = $"자재 {kv.Key} {kv.Value}",
+                    });
             }
 
             // PoC 마커 — 모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시.
