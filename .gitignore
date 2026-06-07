@@ -67,3 +67,6 @@ benchmark_results/
 python_experiments/out/*
 !python_experiments/out/*.py
 !python_experiments/out/*.ps1
+
+# Claude Code 로컬 설정(사용자별) — 메모리 정본은 docs/memory/ 이다(scripts/sync-memory.ps1).
+.claude/
