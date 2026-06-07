@@ -192,7 +192,9 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 - **실측(WTNHJ02 cell=200, 2성분 시절)**: 다발화 재현 검증(스냅샷에서도 육안 확인: 최단=산개·Stub+그룹=랙 레인 다발).
 - **실측(WTNHJ02 cell=100 전체, 4성분, 8케이스·스냅샷 24장, ~3.5분)**: 그룹핑F 집계 **기존 0.563 > Stub+그룹 0.446 > 최단 0.248**(설계의도 정량 재현). 총길이 기존 900k < Stub+그룹 1.30M < 최단 1.43M(번들링이 길이도 단축). 성공 기존 151 · 최단 150/151 · Stub+그룹 148/151.
 - **개발계획 문서**: `docs/routing3d_autodesign_report_plan.{docx,pdf}`(생성기 `_gen_autodesign_report_plan.py`).
-- **완료(2026-06-07)**: 4성분 그룹핑 Factor(pitch/lane 추가) · GUI 버튼(📊 자동설계 리포트) · 전체 cell=100 배치 실행. **남은 일**: docx/xlsx 출력(현재 HTML·CSV) · 그룹핑 가중치 튜닝.
+- **공식 문서(docx/pdf/xlsx) 생성기**: `python_experiments/out/_gen_autodesign_report_doc.py --in <outDir> [--out <docx>] [--pdf]` — C# 출력폴더(CSV+img)를 읽어 `docs/routing3d_autodesign_report.{docx,xlsx}`(+`--pdf` 시 pdf) 생성. docx=전체집계표+케이스별 4성분 지표표+3D 스냅샷 3-up(이미지 임베드), xlsx=케이스별 시트(그룹핑F 최고 전략 초록 강조)+전체집계 시트. 서식 헬퍼 `_gen_spec_docs.py` 재사용, PDF=`_docx_to_pdf.ps1`(Word COM). 의존성 python-docx·openpyxl.
+- **그룹핑 가중치 튜닝**: env `R3D_ADR_W="0.35,0.30,0.20,0.15"`(랙/밀집/pitch/lane, 합 무관·가용성분 재정규화) 로 재정의, 리포트 헤더에 사용 가중 로깅. 예: `R3D_ADR_W=1,0,0,0` → GF=랙집중만.
+- **완료(2026-06-07)**: 4성분 그룹핑 Factor · GUI 버튼 · 전체 cell=100 배치 · docx/pdf/xlsx 생성기 · 가중치 env 튜닝. **남은 일**: 가중치 기본값 튜닝(데이터 누적 후).
 - **빌드 주의**: 반드시 `dotnet build csharp/Routing3D.Viewer.sln -c Release`(솔루션=x64 → `bin/x64/Release`). csproj 직접 빌드는 `bin/Release`(다른 경로)라 실행 exe 와 불일치.
 
 ### 그룹(번들) 배관 탐지·활용 L4 (pgvector, 2026-06-02)
