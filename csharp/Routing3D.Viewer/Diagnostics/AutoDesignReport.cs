@@ -34,6 +34,22 @@ namespace Routing3D.Viewer.Diagnostics
 {
     public static class AutoDesignReport
     {
+        // 그룹핑 Factor 가중(랙집중/번들밀집/pitch/lane). env R3D_ADR_W="0.35,0.30,0.20,0.15" 로 재정의(합 무관, 가용성분 재정규화).
+        internal static readonly double[] GfWeights = ParseWeights();
+        private static double[] ParseWeights()
+        {
+            var def = new[] { 0.35, 0.30, 0.20, 0.15 };
+            var s = Environment.GetEnvironmentVariable("R3D_ADR_W");
+            if (string.IsNullOrWhiteSpace(s)) return def;
+            var parts = s.Split(',');
+            if (parts.Length != 4) return def;
+            var w = new double[4];
+            for (int i = 0; i < 4; i++)
+                if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out w[i]) || w[i] < 0)
+                    return def;
+            return w;
+        }
+
         // 자동설계 전략 — 엔진 옵션 조합.
         private enum Strategy { Shortest, StubGroup }
 
@@ -51,12 +67,12 @@ namespace Routing3D.Viewer.Diagnostics
             public double AvgTurns => Ok > 0 ? (double)TotalTurns / Ok : 0;
             public double AvgLenMm => Ok > 0 ? TotalLenMm / Ok : 0;
             // 그룹핑 Factor — 4성분(랙집중·번들밀집·pitch·lane)의 가중 평균. 가용 성분만 재정규화.
-            //   가중 0.35/0.30/0.20/0.15(계획서). 모두 N/A 면 -1.
+            //   가중은 GfWeights(기본 0.35/0.30/0.20/0.15, env R3D_ADR_W 로 재정의). 모두 N/A 면 -1.
             public double GroupingFactor
             {
                 get
                 {
-                    double[] w = { 0.35, 0.30, 0.20, 0.15 };
+                    double[] w = GfWeights;
                     double[] v = { RackZPct, DensityPct, PitchPct, LanePct };
                     double sw = 0, sv = 0;
                     for (int i = 0; i < 4; i++)
@@ -108,6 +124,7 @@ namespace Routing3D.Viewer.Diagnostics
             PatternStore? patterns = PatternStore.TryLoad(cfg);
             BundleStore? bundles = BundleStore.TryLoad(cfg);
             log.AppendLine($"학습: 패턴 {(patterns == null ? "없음" : patterns.Count + "키")} · 번들 {(bundles == null ? "없음" : bundles.Count + "키")}");
+            log.AppendLine($"그룹핑F 가중(랙/밀집/pitch/lane): {string.Join("/", GfWeights.Select(x => x.ToString("0.##", CultureInfo.InvariantCulture)))}");
 
             var cases = BuildCases(sd);
             if (maxCases > 0 && cases.Count > maxCases) cases = cases.Take(maxCases).ToList();   // 스모크 테스트용 제한.
