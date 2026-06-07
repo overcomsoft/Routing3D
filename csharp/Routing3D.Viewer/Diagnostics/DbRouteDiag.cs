@@ -560,7 +560,7 @@ namespace Routing3D.Viewer.Diagnostics
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.
         // (GUI SceneViewModel.BuildRackLevels 미러). 반환: 런 큰 순 최대 8개 z-셀 인덱스, 없으면 null.
-        static int[]? BuildRackLevels(SceneData sd, List<TaskInfo> rows)
+        internal static int[]? BuildRackLevels(SceneData sd, List<TaskInfo> rows)
         {
             var g = sd.Grid; double cell = g.CellMm;
             if (sd.ExistingPipes.Count == 0) return null;
@@ -604,7 +604,7 @@ namespace Routing3D.Viewer.Diagnostics
 
         // 그룹배관 패턴(L4) — rows 의 유틸별 학습 트렁크 고도(route_bundle_template)를 z-셀로 변환해 rackLevels
         // 에 합친다(GUI SceneViewModel.MergeBundleLevels 미러). 키 미스/미적재면 입력 그대로 반환.
-        static int[]? MergeBundle(SceneData sd, List<TaskInfo> rows, int[]? rackLevels, BundleStore bundles)
+        internal static int[]? MergeBundle(SceneData sd, List<TaskInfo> rows, int[]? rackLevels, BundleStore bundles)
         {
             var g = sd.Grid; double oz = g.Oz, cell = g.CellMm; if (cell <= 0) return rackLevels;
             var utils = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -627,7 +627,7 @@ namespace Routing3D.Viewer.Diagnostics
         // 번들 공용 트렁크 회랑 + pitch 레인(L4) — 같은 유틸 기존배관의 '트렁크 고도 수평 런'(=평행 랙 레인)만
         // 타이트하게 회랑으로 만든다(GUI SceneViewModel.BuildBundleCorridorCells 미러). 트렁크 미스면 전체 폴리라인
         // 넓게 폴백(옵션1). 충돌회피가 새 배관을 인접 레인에 분산 → 등간격 다발 패킹.
-        static HashSet<(int, int, int)> BuildBundleCorridor(SceneData sd, List<TaskInfo> rows, int corrRad, BundleStore bundles)
+        internal static HashSet<(int, int, int)> BuildBundleCorridor(SceneData sd, List<TaskInfo> rows, int corrRad, BundleStore bundles)
         {
             var set = new HashSet<(int, int, int)>();
             var g = sd.Grid; double cell = g.CellMm, oz = g.Oz;
@@ -770,7 +770,7 @@ namespace Routing3D.Viewer.Diagnostics
             return result;
         }
 
-        static ExistingPipe? MatchPipe(SceneData sd, TaskInfo t, double cell)
+        internal static ExistingPipe? MatchPipe(SceneData sd, TaskInfo t, double cell)
         {
             if (sd.ExistingPipes.Count == 0) return null;
             double tol = Math.Max(3 * cell, 1500.0) * 2;
@@ -788,7 +788,7 @@ namespace Routing3D.Viewer.Diagnostics
             return (best != null && bestScore <= tol) ? best : null;
         }
 
-        static double D(double x, double y, double z, Pt3 p)
+        internal static double D(double x, double y, double z, Pt3 p)
         {
             double dx = x - p.X, dy = y - p.Y, dz = z - p.Z;
             return Math.Sqrt(dx * dx + dy * dy + dz * dz);

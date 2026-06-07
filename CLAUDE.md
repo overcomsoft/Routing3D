@@ -180,6 +180,18 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 - **개발계획 문서**: `docs/routing3d_pattern_learning_plan.{docx,pdf}`(생성기 `python_experiments/out/_gen_pattern_learning_plan.py`).
 - **스텁 추출 알고리즘 상세문서**: `docs/routing3d_stub_extraction.{docx,pdf}`(런압축→지터흡수→엘보탐지→점열절단 16장, Python↔C# 1:1, 생성기 `_gen_stub_extraction_algorithm.py`).
 
+### AI 자동설계 비교 리포트 (2026-06-07, P1 MVP)
+
+메인장비별·(장비,유틸리티그룹) '케이스'마다 자동설계 2전략(**최단**=순수 A* · **Stub+그룹패턴**=스텁+번들/랙)을 수행하고 **기존설계**와 길이·꺾임·**그룹핑 Factor**를 비교하는 헤드리스 리포트.
+
+- **CLI**: `Routing3D.Viewer.exe --autodesign-report <projectId> <cellMm> <outDir> [maxCases]` → `<group>_autodesign_report.{csv,txt}`(+`_run.log`). maxCases=스모크 제한.
+- **그룹핑 Factor**(0~1) = 0.6×랙집중도 + 0.4×번들밀집도(둘 다 DbRouteDiag 정의 재사용). 계획서 4성분 중 pitch/lane 은 후속.
+- **구현**: `Diagnostics/AutoDesignReport.cs`(케이스빌더·전략실행·지표·CSV/TXT). DbRouteDiag 순수 헬퍼(`MatchPipe`/`BuildRackLevels`/`MergeBundle`/`BuildBundleCorridor`/`D`)를 `internal` 재사용. 스텁 전략은 고정 스텁(라이저+엘보) 길이·꺾임을 엔진 결과에 가산해 공정 비교.
+- **실측(WTNHJ02 cell=200)**: Chemical 기존 GF 0.577 / 최단 0.058 / Stub+그룹 0.368 · Exhaust 기존 0.571 / 최단 0.114 / Stub+그룹 0.308 — **기존 > Stub+그룹 > 최단** 으로 다발화 재현 검증. Stub+그룹 랙집중 48~54%(최단 6~14%).
+- **개발계획 문서**: `docs/routing3d_autodesign_report_plan.{docx,pdf}`(생성기 `_gen_autodesign_report_plan.py`).
+- **남은 일(P4~)**: 오프스크린 3D 스냅샷(기존/최단/Stub+그룹) docx/pdf 임베드 · 그룹핑 Factor pitch/lane 성분 · GUI 버튼 · 전체 cell=100 배치(케이스당 route_multi 2회라 느림).
+- **빌드 주의**: 반드시 `dotnet build csharp/Routing3D.Viewer.sln -c Release`(솔루션=x64 → `bin/x64/Release`). csproj 직접 빌드는 `bin/Release`(다른 경로)라 실행 exe 와 불일치.
+
 ### 그룹(번들) 배관 탐지·활용 L4 (pgvector, 2026-06-02)
 
 장비명·유틸리티별 기존배관 경로 **형태 유사도**로 '번들'(동일 이격간격으로 2회+ 수직/수평 꺾임 공유 평행 다발)을 탐지·저장하고, 신규 라우팅에 활용한다.
