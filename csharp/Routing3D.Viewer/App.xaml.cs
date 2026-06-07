@@ -38,6 +38,30 @@ namespace Routing3D.Viewer
                 return;
             }
 
+            // AI 자동설계 비교 리포트(헤드리스): --autodesign-report <projectId> <cellMm> <outDir>
+            int ar = Array.FindIndex(args, a => a == "--autodesign-report");
+            if (ar >= 0 && ar + 3 < args.Length)
+            {
+                try
+                {
+                    int pid = int.Parse(args[ar + 1]);
+                    double cell = double.Parse(args[ar + 2], System.Globalization.CultureInfo.InvariantCulture);
+                    string outDir = Path.GetFullPath(args[ar + 3]);   // cwd 기준 절대경로(상대경로 혼동 방지).
+                    Directory.CreateDirectory(outDir);
+                    int maxCases = (ar + 4 < args.Length && int.TryParse(args[ar + 4], out var mc)) ? mc : 0;
+                    string report = Diagnostics.AutoDesignReport.Run(pid, cell, outDir, maxCases);
+                    File.WriteAllText(Path.Combine(outDir, "_run.log"), report,
+                                      new System.Text.UTF8Encoding(true));
+                }
+                catch (Exception ex)
+                {
+                    try { File.WriteAllText(Path.Combine(args[ar + 3], "_run.log"), "AUTODESIGN ERROR: " + ex); }
+                    catch { }
+                }
+                Shutdown(0);
+                return;
+            }
+
             int st = Array.FindIndex(args, a => a == "--selftest");
             if (st >= 0 && st + 2 < args.Length)
             {
