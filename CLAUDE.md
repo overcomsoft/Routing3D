@@ -245,6 +245,7 @@ ctest --test-dir cpp/build -C Release                                # C++ 9/9
 | `docs/spec/algorithm_spec.md` + 4종 | Phase 2 동결 명세(불변식 포함) |
 | `docs/routing3d_dev_report.{docx,pdf}` | 전체 + 단계별 개발보고서 (Phase 1~3 + 인터롭 5장 + 결론 6장) |
 | `docs/routing3d_regression_report.{docx,pdf}` | Step 3.12 회귀 리포트 (실측+기대치 비교) |
+| `docs/routing3d_cpp_engine_spec.{docx,pdf}` | **C++ 엔진 상세 개발문서** — 전체프로세스·핵심알고리즘·주요함수·변수(13장, 생성기 `_gen_cpp_engine_spec.py`) |
 | `docs/routing3d_pattern_learning_plan.{docx,pdf}` | **기존설계 패턴 학습 개발계획 + 구현현황·실측**(P3j) |
 | `docs/routing3d_stub_pattern.{docx,pdf}` | **스텁 패턴 기술 레퍼런스** — 출발/종단 스텁 프로세스·추출/특징 알고리즘·pgvector 데이터생성·자동설계 활용(L2a/L2b/L3a/L3b) |
 | `docs/routing3d_stub_example_exhaust.{docx,pdf}` | **실측 워크드 예시** — Clean 장비 WTNHJ02_ Exhaust(ACID) 배관 1개(GUID 2014e40a, 150mm)로 출발(EQUIP −z)/종단(DUCT +z) 스텁 추출·특징벡터·집계대표·활용을 실제 좌표로 |
