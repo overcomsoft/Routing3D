@@ -77,6 +77,9 @@
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
                 <Button Content="🖼 이미지 저장" Click="OnSaveMainImage" Margin="4,0,0,0"
                         ToolTip="현재 메인 3D 뷰를 PNG/JPG 이미지 파일로 저장(2배 해상도)"/>
+                <Button Content="📊 자동설계 리포트" Command="{Binding AutoDesignReportCommand}" Margin="4,0,0,0"
+                        Background="#3a4e7a" MinWidth="110"
+                        ToolTip="선택 프로젝트/셀로 (장비,유틸그룹) 케이스별 기존/최단/Stub+그룹 자동설계를 수행하고 길이·꺾임·그룹핑 Factor + 3D 스냅샷을 CSV/TXT/HTML 로 출력(출력 폴더 선택). 케이스가 많으면 수 분 소요·생성 중 화면이 잠깐 멈출 수 있음."/>
 
                 <!-- 진단 레이어(디버그용 복셀) — 하단 바에서 상단으로 이동 -->
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>

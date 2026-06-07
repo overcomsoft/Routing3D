@@ -43,22 +43,25 @@ namespace Routing3D.Viewer.Diagnostics
             public int Ok, N;
             public double TotalLenMm;
             public long TotalTurns;
-            public double RackZPct = -1;     // -1 = 측정 불가(랙 미학습/수평셀 0).
-            public double DensityPct = -1;   // -1 = 측정 불가(배관 <2 또는 >40).
+            public double RackZPct = -1;     // 랙집중도% — -1 = 측정 불가(랙 미학습/수평셀 0).
+            public double DensityPct = -1;   // 번들밀집도% — -1 = 측정 불가(배관 <2 또는 >40).
+            public double PitchPct = -1;     // pitch 일관성% (1−min(1,CV))×100 — -1 = 평행 레인<2.
+            public double LanePct = -1;      // 레인 정렬도% (공용 z-고도 공유 배관 비율) — -1 = 배관<2.
             public int StubMatched;
             public double AvgTurns => Ok > 0 ? (double)TotalTurns / Ok : 0;
             public double AvgLenMm => Ok > 0 ? TotalLenMm / Ok : 0;
-            // 그룹핑 Factor — 가용 성분(랙집중·번들밀집)의 가중 평균. 둘 다 없으면 -1.
+            // 그룹핑 Factor — 4성분(랙집중·번들밀집·pitch·lane)의 가중 평균. 가용 성분만 재정규화.
+            //   가중 0.35/0.30/0.20/0.15(계획서). 모두 N/A 면 -1.
             public double GroupingFactor
             {
                 get
                 {
-                    double rz = RackZPct >= 0 ? RackZPct / 100.0 : -1;
-                    double de = DensityPct >= 0 ? DensityPct / 100.0 : -1;
-                    if (rz < 0 && de < 0) return -1;
-                    if (rz < 0) return de;
-                    if (de < 0) return rz;
-                    return 0.6 * rz + 0.4 * de;
+                    double[] w = { 0.35, 0.30, 0.20, 0.15 };
+                    double[] v = { RackZPct, DensityPct, PitchPct, LanePct };
+                    double sw = 0, sv = 0;
+                    for (int i = 0; i < 4; i++)
+                        if (v[i] >= 0) { sw += w[i]; sv += w[i] * (v[i] / 100.0); }
+                    return sw > 0 ? sv / sw : -1;
                 }
             }
         }
@@ -314,7 +317,7 @@ namespace Routing3D.Viewer.Diagnostics
                 catch { }
             }
             eng.Dispose();
-            (m.RackZPct, m.DensityPct) = GroupMetrics(paths, rackLevels, g);
+            (m.RackZPct, m.DensityPct, m.PitchPct, m.LanePct) = GroupMetrics(paths, rackLevels, g);
             return m;
         }
 
@@ -339,12 +342,13 @@ namespace Routing3D.Viewer.Diagnostics
                 foreach (var p in pipe.Points) gp.Pts.Add(W(p));
                 if (gp.Pts.Count >= 2) geo.Add(gp);
             }
-            (m.RackZPct, m.DensityPct) = GroupMetrics(paths, rackLevels, g);
+            (m.RackZPct, m.DensityPct, m.PitchPct, m.LanePct) = GroupMetrics(paths, rackLevels, g);
             return m;
         }
 
-        // ---- 그룹핑 성분 — 랙집중도%·번들밀집도% (DbRouteDiag 와 동일 정의) ----
-        private static (double rackZPct, double densityPct) GroupMetrics(List<PathCell[]> paths, int[]? rackLevels, GridMeta g)
+        // ---- 그룹핑 성분 — 랙집중도%·번들밀집도%·pitch일관성%·레인정렬도% ----
+        private static (double rackZPct, double densityPct, double pitchPct, double lanePct)
+            GroupMetrics(List<PathCell[]> paths, int[]? rackLevels, GridMeta g)
         {
             double rackZ = -1;
             if (rackLevels != null && rackLevels.Length > 0 && paths.Count > 0)
@@ -391,7 +395,86 @@ namespace Routing3D.Viewer.Diagnostics
                     }
                 density = pairs > 0 ? sum / pairs * 100.0 : -1;
             }
-            return (rackZ, density);
+
+            // 레인 정렬도% — 각 배관의 '주(major) 수평 z-레벨'을 같은 z로 공유하는 배관 비율.
+            //   사람 설계가 공용 랙 고도에 배관을 모으는 특성(자기 번들링)을 학습 랙 무관하게 측정.
+            double lane = -1;
+            if (paths.Count >= 2)
+            {
+                var zmaj = new List<int>();
+                foreach (var p in paths)
+                {
+                    var cnt = new Dictionary<int, int>();
+                    for (int i = 1; i < p.Length; i++)
+                    {
+                        var a = p[i - 1]; var b = p[i];
+                        if (a.K != b.K) continue;        // 수평 셀만.
+                        cnt[b.K] = cnt.GetValueOrDefault(b.K) + 1;
+                    }
+                    if (cnt.Count == 0) continue;
+                    int best = -1, bc = -1;
+                    foreach (var kv in cnt) if (kv.Value > bc) { bc = kv.Value; best = kv.Key; }
+                    zmaj.Add(best);
+                }
+                if (zmaj.Count >= 2)
+                {
+                    var grp = new Dictionary<int, int>();
+                    foreach (var z in zmaj) grp[z] = grp.GetValueOrDefault(z) + 1;
+                    int aligned = zmaj.Count(z => grp[z] >= 2);
+                    lane = aligned * 100.0 / zmaj.Count;
+                }
+            }
+
+            // pitch 일관성% — 같은 (축, z-레벨)에서 평행하게 달리는 배관들의 레인 좌표 간격(피치)의
+            //   변동계수 CV → 일관성 = (1 − min(1, CV))×100. 여러 (축,z) 그룹의 간격을 풀링.
+            double pitch = -1;
+            if (paths.Count >= 2)
+            {
+                // (축, z) → 그 그룹에서 각 배관이 차지하는 대표 수직(perp) 레인 좌표 집합.
+                var keyLanes = new Dictionary<(int axis, int z), HashSet<int>>();
+                foreach (var p in paths)
+                {
+                    var local = new Dictionary<(int, int), Dictionary<int, int>>();   // (축,z)→perp→런길이.
+                    for (int i = 1; i < p.Length; i++)
+                    {
+                        var a = p[i - 1]; var b = p[i];
+                        if (a.K != b.K) continue;
+                        int axis, perp;
+                        if (a.I != b.I && a.J == b.J) { axis = 0; perp = b.J; }       // X 진행 → perp=J.
+                        else if (a.J != b.J && a.I == b.I) { axis = 1; perp = b.I; }  // Y 진행 → perp=I.
+                        else continue;
+                        var kk = (axis, b.K);
+                        if (!local.TryGetValue(kk, out var d)) { d = new(); local[kk] = d; }
+                        d[perp] = d.GetValueOrDefault(perp) + 1;
+                    }
+                    foreach (var kv in local)
+                    {
+                        int best = -1, bl = -1;          // 그 배관의 대표 레인 = 가장 긴 런의 perp.
+                        foreach (var e in kv.Value) if (e.Value > bl) { bl = e.Value; best = e.Key; }
+                        if (!keyLanes.TryGetValue(kv.Key, out var set)) { set = new(); keyLanes[kv.Key] = set; }
+                        set.Add(best);
+                    }
+                }
+                // 같은 묶음(한 축·한 z-레벨, 평행 배관 ≥3 → 간격 ≥2)별로 CV→일관성을 구해 평균.
+                //   여러 z/축 간격을 풀링하면 서로 다른 피치가 섞여 CV 가 부풀려지므로 그룹 단위로 분리.
+                //   평행 배관 3개 미만(미해상)인 그룹뿐이면 pitch 는 N/A(-1) — cell>피치/2 면 흔함.
+                var consistencies = new List<double>();
+                foreach (var kv in keyLanes)
+                {
+                    var lanes = kv.Value.OrderBy(x => x).ToList();
+                    if (lanes.Count < 3) continue;
+                    var gg = new List<double>();
+                    for (int i = 1; i < lanes.Count; i++) gg.Add((lanes[i] - lanes[i - 1]) * g.CellMm);
+                    double mean = gg.Average();
+                    if (mean <= 1e-6) continue;
+                    double varc = gg.Select(x => (x - mean) * (x - mean)).Average();
+                    double cv = Math.Sqrt(varc) / mean;
+                    consistencies.Add(1.0 - Math.Min(1.0, cv));
+                }
+                if (consistencies.Count > 0) pitch = consistencies.Average() * 100.0;
+            }
+
+            return (rackZ, density, pitch, lane);
         }
 
         // ---- 컴팩트 PoC 도달성(DbRouteDiag 규약 미러) ----
@@ -675,7 +758,7 @@ namespace Routing3D.Viewer.Diagnostics
             sb.AppendLine(Row("Stub+그룹", sg.Ok, sg.N, sg.TotalLenMm, sg.AvgTurns, GFavg(c => c.StubGroup)));
             sb.AppendLine("</table>");
             sb.AppendLine("<p class=\"note\">최단=길이·직선성 우위, Stub+그룹=그룹핑F(다발화)·사람설계 추종 우위 기대. "
-                + "그룹핑F = 0.6×랙집중도 + 0.4×번들밀집도(각 0~1).</p>");
+                + "그룹핑F = 0.35×랙집중도 + 0.30×번들밀집도 + 0.20×pitch일관성 + 0.15×레인정렬도(각 0~1, N/A 성분은 가중 재정규화).</p>");
 
             // 케이스별.
             string? curMain = null;
@@ -685,7 +768,7 @@ namespace Routing3D.Viewer.Diagnostics
                 if (c.MainEquip != curMain) { curMain = c.MainEquip; sb.AppendLine($"<h2>■ 메인장비: {E(curMain)}</h2>"); }
                 sb.AppendLine($"<h3 style=\"font-size:13px;margin:14px 0 2px;\">케이스 {i + 1}. {E(c.Equip)} / {E(c.UtilGroup)} (작업 {c.Tasks.Count})</h3>");
                 sb.AppendLine("<table>");
-                sb.AppendLine("<tr><th class=\"l\">전략</th><th>성공</th><th>총길이(mm)</th><th>평균꺾임</th><th>랙집중%</th><th>번들밀집%</th><th>그룹핑F</th></tr>");
+                sb.AppendLine("<tr><th class=\"l\">전략</th><th>성공</th><th>총길이(mm)</th><th>평균꺾임</th><th>랙집중%</th><th>번들밀집%</th><th>pitch%</th><th>lane%</th><th>그룹핑F</th></tr>");
                 sb.AppendLine(Row2("기존설계", c.Existing));
                 sb.AppendLine(Row2("최단(A*)", c.Shortest));
                 sb.AppendLine(Row2("Stub+그룹", c.StubGroup));
@@ -711,7 +794,7 @@ namespace Routing3D.Viewer.Diagnostics
                 => $"<tr><td class=\"l\">{name}</td><td>{ok}/{n}</td><td>{len:N0}</td><td>{turns:0.0}</td><td>{Fmt(gf)}</td></tr>";
             string Row2(string name, Metrics m)
                 => $"<tr><td class=\"l\">{name}</td><td>{m.Ok}/{m.N}</td><td>{m.TotalLenMm:N0}</td><td>{m.AvgTurns:0.0}</td>"
-                 + $"<td>{Pct(m.RackZPct)}</td><td>{Pct(m.DensityPct)}</td><td>{Fmt(m.GroupingFactor)}</td></tr>";
+                 + $"<td>{Pct(m.RackZPct)}</td><td>{Pct(m.DensityPct)}</td><td>{Pct(m.PitchPct)}</td><td>{Pct(m.LanePct)}</td><td>{Fmt(m.GroupingFactor)}</td></tr>";
         }
 
         // ---- 출력 ----
@@ -719,18 +802,19 @@ namespace Routing3D.Viewer.Diagnostics
         {
             var sb = new StringBuilder();
             sb.AppendLine("메인장비,장비,유틸리티그룹,작업수,"
-                + "기존_총길이mm,기존_평균꺾임,기존_그룹핑F,"
-                + "최단_성공,최단_총길이mm,최단_평균꺾임,최단_랙집중%,최단_번들밀집%,최단_그룹핑F,"
-                + "Stub그룹_성공,Stub그룹_총길이mm,Stub그룹_평균꺾임,Stub그룹_랙집중%,Stub그룹_번들밀집%,Stub그룹_그룹핑F,Stub매칭");
+                + "기존_총길이mm,기존_평균꺾임,기존_랙집중%,기존_번들밀집%,기존_pitch%,기존_lane%,기존_그룹핑F,"
+                + "최단_성공,최단_총길이mm,최단_평균꺾임,최단_랙집중%,최단_번들밀집%,최단_pitch%,최단_lane%,최단_그룹핑F,"
+                + "Stub그룹_성공,Stub그룹_총길이mm,Stub그룹_평균꺾임,Stub그룹_랙집중%,Stub그룹_번들밀집%,Stub그룹_pitch%,Stub그룹_lane%,Stub그룹_그룹핑F,Stub매칭");
             foreach (var c in cases)
             {
                 sb.AppendLine(string.Join(",",
                     Q(c.MainEquip), Q(c.Equip), Q(c.UtilGroup), c.Tasks.Count,
-                    F0(c.Existing.TotalLenMm), F1(c.Existing.AvgTurns), Fmt(c.Existing.GroupingFactor),
+                    F0(c.Existing.TotalLenMm), F1(c.Existing.AvgTurns),
+                    Pct(c.Existing.RackZPct), Pct(c.Existing.DensityPct), Pct(c.Existing.PitchPct), Pct(c.Existing.LanePct), Fmt(c.Existing.GroupingFactor),
                     $"{c.Shortest.Ok}/{c.Shortest.N}", F0(c.Shortest.TotalLenMm), F1(c.Shortest.AvgTurns),
-                    Pct(c.Shortest.RackZPct), Pct(c.Shortest.DensityPct), Fmt(c.Shortest.GroupingFactor),
+                    Pct(c.Shortest.RackZPct), Pct(c.Shortest.DensityPct), Pct(c.Shortest.PitchPct), Pct(c.Shortest.LanePct), Fmt(c.Shortest.GroupingFactor),
                     $"{c.StubGroup.Ok}/{c.StubGroup.N}", F0(c.StubGroup.TotalLenMm), F1(c.StubGroup.AvgTurns),
-                    Pct(c.StubGroup.RackZPct), Pct(c.StubGroup.DensityPct), Fmt(c.StubGroup.GroupingFactor),
+                    Pct(c.StubGroup.RackZPct), Pct(c.StubGroup.DensityPct), Pct(c.StubGroup.PitchPct), Pct(c.StubGroup.LanePct), Fmt(c.StubGroup.GroupingFactor),
                     c.StubGroup.StubMatched));
             }
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));   // BOM=Excel 한글.
@@ -764,9 +848,9 @@ namespace Routing3D.Viewer.Diagnostics
             {
                 if (c.MainEquip != curMain) { curMain = c.MainEquip; sb.AppendLine($"■ 메인장비: {curMain}"); }
                 sb.AppendLine($"  · {c.Equip} / {c.UtilGroup} (작업 {c.Tasks.Count})");
-                sb.AppendLine($"      기존     len {c.Existing.TotalLenMm,10:N0}  avgTurn {c.Existing.AvgTurns,5:0.0}  GF {Fmt(c.Existing.GroupingFactor)}");
-                sb.AppendLine($"      최단     len {c.Shortest.TotalLenMm,10:N0}  avgTurn {c.Shortest.AvgTurns,5:0.0}  GF {Fmt(c.Shortest.GroupingFactor)}  성공 {c.Shortest.Ok}/{c.Shortest.N}  랙{Pct(c.Shortest.RackZPct)} 밀집{Pct(c.Shortest.DensityPct)}");
-                sb.AppendLine($"      Stub+그룹 len {c.StubGroup.TotalLenMm,10:N0}  avgTurn {c.StubGroup.AvgTurns,5:0.0}  GF {Fmt(c.StubGroup.GroupingFactor)}  성공 {c.StubGroup.Ok}/{c.StubGroup.N}  랙{Pct(c.StubGroup.RackZPct)} 밀집{Pct(c.StubGroup.DensityPct)}  스텁 {c.StubGroup.StubMatched}");
+                sb.AppendLine($"      기존     len {c.Existing.TotalLenMm,10:N0}  avgTurn {c.Existing.AvgTurns,5:0.0}  GF {Fmt(c.Existing.GroupingFactor)}  랙{Pct(c.Existing.RackZPct)} 밀집{Pct(c.Existing.DensityPct)} pitch{Pct(c.Existing.PitchPct)} lane{Pct(c.Existing.LanePct)}");
+                sb.AppendLine($"      최단     len {c.Shortest.TotalLenMm,10:N0}  avgTurn {c.Shortest.AvgTurns,5:0.0}  GF {Fmt(c.Shortest.GroupingFactor)}  성공 {c.Shortest.Ok}/{c.Shortest.N}  랙{Pct(c.Shortest.RackZPct)} 밀집{Pct(c.Shortest.DensityPct)} pitch{Pct(c.Shortest.PitchPct)} lane{Pct(c.Shortest.LanePct)}");
+                sb.AppendLine($"      Stub+그룹 len {c.StubGroup.TotalLenMm,10:N0}  avgTurn {c.StubGroup.AvgTurns,5:0.0}  GF {Fmt(c.StubGroup.GroupingFactor)}  성공 {c.StubGroup.Ok}/{c.StubGroup.N}  랙{Pct(c.StubGroup.RackZPct)} 밀집{Pct(c.StubGroup.DensityPct)} pitch{Pct(c.StubGroup.PitchPct)} lane{Pct(c.StubGroup.LanePct)}  스텁 {c.StubGroup.StubMatched}");
             }
             sb.AppendLine();
             sb.AppendLine("[실행 로그]");

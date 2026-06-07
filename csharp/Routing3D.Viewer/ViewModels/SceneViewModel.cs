@@ -482,6 +482,10 @@ namespace Routing3D.Viewer.ViewModels
             // 자동설계된(라우팅된) 모든 경로 삭제 — 결과 캐시 초기화 + 라이브 오버레이 제거 + 재렌더.
             ClearRoutesCommand = new RelayCommand(ClearAllRoutes,
                 () => _scene != null && Tasks.Any(t => t.Success));
+            // AI 자동설계 비교 리포트 — 현재 선택 프로젝트/셀로 케이스별 기존/최단/Stub+그룹 지표+3D 스냅샷 HTML 생성.
+            AutoDesignReportCommand = new RelayCommand(
+                () => _ = RunAutoDesignReportAsync(),
+                () => _selectedProject != null);
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
@@ -952,6 +956,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand RouteGroupCommand { get; }
         public RelayCommand RouteUtilityCommand { get; }
         public RelayCommand ClearRoutesCommand { get; }
+        public RelayCommand AutoDesignReportCommand { get; }
 
         // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
         public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
@@ -1991,6 +1996,48 @@ namespace Routing3D.Viewer.ViewModels
             BuildModel();
             System.Windows.Input.CommandManager.InvalidateRequerySuggested();  // 버튼 비활성 즉시 반영.
             Status = "자동설계된 경로를 모두 삭제했습니다.";
+        }
+
+        // ===================================================== AI 자동설계 비교 리포트(헤드리스 코어를 GUI에서)
+        // 현재 선택 프로젝트/셀로 AutoDesignReport.Run 을 실행해 CSV/TXT/HTML + 3D 스냅샷을 만든다.
+        //   주의: 오프스크린 3D 렌더(Viewport3D/RenderTargetBitmap)는 STA(=UI) 스레드에서만 동작하므로
+        //   백그라운드 스레드로 넘기지 않고 UI 스레드에서 동기 실행한다(상태 1회 갱신 후 실행 → 완료까지
+        //   UI 가 잠깐 멈출 수 있음). 케이스가 많은 cell=100 전체는 시간이 걸린다.
+        private bool _adrBusy;
+        private async Task RunAutoDesignReportAsync()
+        {
+            if (_adrBusy || _selectedProject == null) return;
+            var dlg = new OpenFolderDialog { Title = "리포트 출력 폴더 선택" };
+            if (dlg.ShowDialog() != true) return;
+            string outDir = dlg.FolderName;
+            int pid = _selectedProject.ProjectId;
+            double cell = CellMm;
+
+            _adrBusy = true;
+            System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+            Status = $"AI 자동설계 리포트 생성 중… (프로젝트 {pid}, 셀 {cell:0}mm — 수십 초~수 분 소요)";
+            await Task.Delay(60);   // 위 상태 텍스트가 먼저 그려지도록 한 박자 양보(이후 동기 실행).
+            try
+            {
+                string report = Diagnostics.AutoDesignReport.Run(pid, cell, outDir);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "_run.log"), report,
+                                            new System.Text.UTF8Encoding(true));
+                // HTML 이 있으면 기본 브라우저로 연다(없으면 폴더 열기).
+                string html = System.IO.Directory.GetFiles(outDir, "*_autodesign_report.html").FirstOrDefault() ?? "";
+                string open = !string.IsNullOrEmpty(html) ? html : outDir;
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(open) { UseShellExecute = true }); }
+                catch { }
+                Status = $"AI 자동설계 리포트 완료 → {outDir}";
+            }
+            catch (Exception ex)
+            {
+                Status = "AI 자동설계 리포트 실패: " + ex.Message;
+            }
+            finally
+            {
+                System.Windows.Input.Mouse.OverrideCursor = null;
+                _adrBusy = false;
+            }
         }
 
         // 엔진 결과(엔진 인덱스 e ↔ added[e] 행)를 행 캐시에 기록. 부분집합 라우팅 후 호출.
