@@ -38,7 +38,8 @@ namespace Routing3D.Viewer
                 return;
             }
 
-            // AI 자동설계 비교 리포트(헤드리스): --autodesign-report <projectId> <cellMm> <outDir>
+            // AI 자동설계 비교 리포트(헤드리스): --autodesign-report <projectId> <cellMm> <outDir> [maxCases]
+            //   → CSV/TXT/HTML + img/ 3D 스냅샷(P4). env R3D_ADR_NOIMG=1 이면 스냅샷/HTML 생략.
             int ar = Array.FindIndex(args, a => a == "--autodesign-report");
             if (ar >= 0 && ar + 3 < args.Length)
             {

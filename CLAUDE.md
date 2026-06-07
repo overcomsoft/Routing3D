@@ -184,12 +184,13 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 
 메인장비별·(장비,유틸리티그룹) '케이스'마다 자동설계 2전략(**최단**=순수 A* · **Stub+그룹패턴**=스텁+번들/랙)을 수행하고 **기존설계**와 길이·꺾임·**그룹핑 Factor**를 비교하는 헤드리스 리포트.
 
-- **CLI**: `Routing3D.Viewer.exe --autodesign-report <projectId> <cellMm> <outDir> [maxCases]` → `<group>_autodesign_report.{csv,txt}`(+`_run.log`). maxCases=스모크 제한.
+- **CLI**: `Routing3D.Viewer.exe --autodesign-report <projectId> <cellMm> <outDir> [maxCases]` → `<group>_autodesign_report.{csv,txt,html}` + `img/`(스냅샷) + `_run.log`. maxCases=스모크 제한. env `R3D_ADR_NOIMG=1`=스냅샷/HTML 생략(빠른 지표만).
 - **그룹핑 Factor**(0~1) = 0.6×랙집중도 + 0.4×번들밀집도(둘 다 DbRouteDiag 정의 재사용). 계획서 4성분 중 pitch/lane 은 후속.
-- **구현**: `Diagnostics/AutoDesignReport.cs`(케이스빌더·전략실행·지표·CSV/TXT). DbRouteDiag 순수 헬퍼(`MatchPipe`/`BuildRackLevels`/`MergeBundle`/`BuildBundleCorridor`/`D`)를 `internal` 재사용. 스텁 전략은 고정 스텁(라이저+엘보) 길이·꺾임을 엔진 결과에 가산해 공정 비교.
-- **실측(WTNHJ02 cell=200)**: Chemical 기존 GF 0.577 / 최단 0.058 / Stub+그룹 0.368 · Exhaust 기존 0.571 / 최단 0.114 / Stub+그룹 0.308 — **기존 > Stub+그룹 > 최단** 으로 다발화 재현 검증. Stub+그룹 랙집중 48~54%(최단 6~14%).
+- **구현**: `Diagnostics/AutoDesignReport.cs`(케이스빌더·전략실행·지표·CSV/TXT/HTML·스냅샷). DbRouteDiag 순수 헬퍼(`MatchPipe`/`BuildRackLevels`/`MergeBundle`/`BuildBundleCorridor`/`D`)를 `internal` 재사용. 스텁 전략은 고정 스텁(라이저+엘보) 길이·꺾임을 엔진 결과에 가산해 공정 비교.
+- **P4 3D 스냅샷(완료)**: `Diagnostics/OffscreenRenderer.cs` — 창 없이 `Viewport3D`+`RenderTargetBitmap`(소프트웨어 폴백) 오프스크린 렌더(STA=App.OnStartup). HelixToolkit `MeshBuilder`(박스=`AddBox`·배관=`AddTube`+`AddSphere`), Z-업 아이소 `PerspectiveCamera`. 케이스별 기존/최단/Stub+그룹 **3장을 같은 bounds(=동일 카메라)** 로 렌더해 다발화 차이를 그대로 비교. 색=`UtilityColors`(유틸 라벨 결정적), 맥락 박스=bounds 교차 장비/덕트만(혼잡 억제). 결과 폴리라인 캡처: 엔진 셀경로(`CW`) + 스텁 전략은 출발/종단 스텁(`StubExtractor`)을 앞뒤로 이어 '전체 설계' 표시. **자체 포함 HTML**(전체집계·케이스별 지표표·`img/` 3-up, 브라우저 인쇄=PDF).
+- **실측(WTNHJ02 cell=200, 2케이스)**: Chemical 기존 GF 0.577 / 최단 0.058 / Stub+그룹 0.368 · Exhaust 기존 0.571 / 최단 0.114 / Stub+그룹 0.308 — **기존 > Stub+그룹 > 최단** 으로 다발화 재현 검증(스냅샷에서도 육안 확인: 최단=산개·Stub+그룹=랙 레인 다발). Stub+그룹 랙집중 48~54%(최단 6~14%).
 - **개발계획 문서**: `docs/routing3d_autodesign_report_plan.{docx,pdf}`(생성기 `_gen_autodesign_report_plan.py`).
-- **남은 일(P4~)**: 오프스크린 3D 스냅샷(기존/최단/Stub+그룹) docx/pdf 임베드 · 그룹핑 Factor pitch/lane 성분 · GUI 버튼 · 전체 cell=100 배치(케이스당 route_multi 2회라 느림).
+- **남은 일**: 그룹핑 Factor pitch/lane 성분 · GUI 버튼 · 전체 cell=100 배치(케이스당 route_multi 2회라 느림).
 - **빌드 주의**: 반드시 `dotnet build csharp/Routing3D.Viewer.sln -c Release`(솔루션=x64 → `bin/x64/Release`). csproj 직접 빌드는 `bin/Release`(다른 경로)라 실행 exe 와 불일치.
 
 ### 그룹(번들) 배관 탐지·활용 L4 (pgvector, 2026-06-02)

@@ -25,6 +25,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using Routing3D.Viewer.Interop;
 using Routing3D.Viewer.Model;
 
@@ -61,6 +63,13 @@ namespace Routing3D.Viewer.Diagnostics
             }
         }
 
+        // 한 배관(폴리라인) 지오메트리 — 월드 mm 점열 + 유틸리티 라벨(색 결정용). 스냅샷 렌더 입력.
+        private sealed class GeoPoly
+        {
+            public List<Point3D> Pts = new();
+            public string Util = "";
+        }
+
         // 케이스 = (메인장비, 장비, 유틸리티그룹) + 그 작업들.
         private sealed class Case
         {
@@ -71,6 +80,12 @@ namespace Routing3D.Viewer.Diagnostics
             public Metrics Existing = new();
             public Metrics Shortest = new();
             public Metrics StubGroup = new();
+            // 3D 스냅샷용 경로 지오메트리(월드 mm). 전략별 성공 경로만.
+            public List<GeoPoly> ExistingGeo = new();
+            public List<GeoPoly> ShortestGeo = new();
+            public List<GeoPoly> StubGeo = new();
+            // 케이스 스냅샷 파일명(img/ 상대경로). 미렌더면 null.
+            public string? ImgExisting, ImgShortest, ImgStub;
         }
 
         public static string Run(int projectId, double cellMm, string outDir, int maxCases = 0)
@@ -101,10 +116,10 @@ namespace Routing3D.Viewer.Diagnostics
             {
                 idx++;
                 // 기존설계: 작업↔기존배관 매칭 폴리라인의 길이·꺾임 + 래스터화 셀로 그룹핑.
-                c.Existing = ExistingMetrics(sd, c.Tasks);
+                c.Existing = ExistingMetrics(sd, c.Tasks, out c.ExistingGeo);
                 // 자동설계 2전략.
-                c.Shortest = RunStrategy(sd, c.Tasks, Strategy.Shortest, null, null);
-                c.StubGroup = RunStrategy(sd, c.Tasks, Strategy.StubGroup, patterns, bundles);
+                c.Shortest = RunStrategy(sd, c.Tasks, Strategy.Shortest, null, null, out c.ShortestGeo);
+                c.StubGroup = RunStrategy(sd, c.Tasks, Strategy.StubGroup, patterns, bundles, out c.StubGeo);
                 log.AppendLine($"[{idx}/{cases.Count}] {c.MainEquip} / {c.Equip} / {c.UtilGroup} (작업 {c.Tasks.Count})"
                     + $" | 기존 len {c.Existing.TotalLenMm:0} turns {c.Existing.TotalTurns} GF {Fmt(c.Existing.GroupingFactor)}"
                     + $" | 최단 {c.Shortest.Ok}/{c.Shortest.N} len {c.Shortest.TotalLenMm:0} turns {c.Shortest.TotalTurns} GF {Fmt(c.Shortest.GroupingFactor)}"
@@ -117,10 +132,25 @@ namespace Routing3D.Viewer.Diagnostics
             WriteCsv(csvPath, cases);
             File.WriteAllText(txtPath, BuildTextReport(projectId, sd, cases, log.ToString()), new UTF8Encoding(true));
 
+            // ---- 3D 스냅샷 + HTML 리포트(P4). R3D_ADR_NOIMG=1 이면 건너뜀(빠른 지표만). ----
+            string? htmlPath = null;
+            bool noImg = string.Equals(Environment.GetEnvironmentVariable("R3D_ADR_NOIMG"), "1");
+            if (!noImg)
+            {
+                try
+                {
+                    RenderSnapshots(sd, cases, outDir, baseName, log);
+                    htmlPath = Path.Combine(outDir, baseName + "_autodesign_report.html");
+                    File.WriteAllText(htmlPath, BuildHtmlReport(projectId, sd, cases, baseName), new UTF8Encoding(false));
+                }
+                catch (Exception ex) { log.AppendLine("스냅샷/HTML 생성 실패: " + ex.Message); }
+            }
+
             log.AppendLine();
             log.AppendLine("저장:");
             log.AppendLine("  " + csvPath);
             log.AppendLine("  " + txtPath);
+            if (htmlPath != null) log.AppendLine("  " + htmlPath);
             return log.ToString();
         }
 
@@ -166,8 +196,9 @@ namespace Routing3D.Viewer.Diagnostics
 
         // ---- 전략 실행 — 엔진 구성 + route_multi + 지표 ----
         private static Metrics RunStrategy(SceneData sd, List<TaskInfo> rows, Strategy strat,
-                                           PatternStore? patterns, BundleStore? bundles)
+                                           PatternStore? patterns, BundleStore? bundles, out List<GeoPoly> geo)
         {
+            geo = new List<GeoPoly>();
             var m = new Metrics { N = rows.Count };
             if (rows.Count == 0) return m;
             var g = sd.Grid; double cell = g.CellMm;
@@ -176,6 +207,9 @@ namespace Routing3D.Viewer.Diagnostics
             //   따로 더해야 기존/최단과 길이·꺾임을 공정 비교할 수 있다. task i = row i(행당 AddTask 1회).
             var stubAddLen = new double[rows.Count];
             var stubAddTurn = new int[rows.Count];
+            // 스냅샷 렌더용: 매칭된 출발/종단 스텁 점열(월드 mm). 엔진 경로 앞뒤에 이어 '전체 설계'를 그린다.
+            var stubSrcPts = new List<Pt3>?[rows.Count];
+            var stubTgtPts = new List<Pt3>?[rows.Count];
 
             int[]? rackLevels = DbRouteDiag.BuildRackLevels(sd, rows);   // 측정용 항상 학습.
             int[]? appliedRack = null;
@@ -225,6 +259,7 @@ namespace Routing3D.Viewer.Diagnostics
                                 m.StubMatched++;
                                 stubAddLen[ti] = PolyLen(ss) + PolyLen(es);     // 고정 스텁 길이.
                                 stubAddTurn[ti] = OrthoBends(ss) + OrthoBends(es) + 2;  // 스텁 엘보 + 스텁↔A* 접합 2.
+                                stubSrcPts[ti] = ss; stubTgtPts[ti] = es;       // 스냅샷에 스텁 구간 포함.
                                 continue;
                             }
                         }
@@ -267,6 +302,14 @@ namespace Routing3D.Viewer.Diagnostics
                     if (!r.Success) continue;
                     m.Ok++; m.TotalLenMm += r.LengthMm + stubAddLen[i]; m.TotalTurns += r.Turns + stubAddTurn[i];
                     if (r.Path.Length >= 2) paths.Add(r.Path);
+
+                    // 스냅샷용 전체 폴리라인: (출발스텁) + 엔진경로(셀→월드) + (종단스텁 역순).
+                    var gp = new GeoPoly { Util = rows[i].UtilityLabel };
+                    if (stubSrcPts[i] != null) foreach (var p in stubSrcPts[i]!) gp.Pts.Add(W(p));
+                    foreach (var c in r.Path) gp.Pts.Add(CW(g, c));
+                    if (stubTgtPts[i] != null) for (int k = stubTgtPts[i]!.Count - 1; k >= 0; k--) gp.Pts.Add(W(stubTgtPts[i]![k]));
+                    DedupPts(gp.Pts);
+                    if (gp.Pts.Count >= 2) geo.Add(gp);
                 }
                 catch { }
             }
@@ -276,8 +319,9 @@ namespace Routing3D.Viewer.Diagnostics
         }
 
         // ---- 기존설계 지표 — 매칭 폴리라인의 길이·꺾임 + 래스터화 셀로 그룹핑 ----
-        private static Metrics ExistingMetrics(SceneData sd, List<TaskInfo> rows)
+        private static Metrics ExistingMetrics(SceneData sd, List<TaskInfo> rows, out List<GeoPoly> geo)
         {
+            geo = new List<GeoPoly>();
             var m = new Metrics { N = rows.Count };
             var g = sd.Grid; double cell = g.CellMm;
             int[]? rackLevels = DbRouteDiag.BuildRackLevels(sd, rows);
@@ -291,6 +335,9 @@ namespace Routing3D.Viewer.Diagnostics
                 m.TotalTurns += OrthoBends(pipe.Points);
                 var cells = Rasterize(pipe.Points, g);
                 if (cells.Length >= 2) paths.Add(cells);
+                var gp = new GeoPoly { Util = t.UtilityLabel };
+                foreach (var p in pipe.Points) gp.Pts.Add(W(p));
+                if (gp.Pts.Count >= 2) geo.Add(gp);
             }
             (m.RackZPct, m.DensityPct) = GroupMetrics(paths, rackLevels, g);
             return m;
@@ -496,6 +543,175 @@ namespace Routing3D.Viewer.Diagnostics
                 while (cur.K != b.K) { cur = new PathCell(cur.I, cur.J, cur.K + Math.Sign(b.K - cur.K)); Add(cur); }
             }
             return outp.ToArray();
+        }
+
+        // ---- 좌표 변환(스냅샷용) ----
+        private static Point3D W(Pt3 p) => new(p.X, p.Y, p.Z);
+        private static Point3D CW(GridMeta g, PathCell c) =>
+            new(g.Ox + (c.I + 0.5) * g.CellMm, g.Oy + (c.J + 0.5) * g.CellMm, g.Oz + (c.K + 0.5) * g.CellMm);
+        // 인접 중복점 제거(스텁 끝 == 엔진 시작셀 중심이 겹칠 수 있음).
+        private static void DedupPts(List<Point3D> pts)
+        {
+            for (int i = pts.Count - 1; i >= 1; i--)
+            {
+                var a = pts[i]; var b = pts[i - 1];
+                if (Math.Abs(a.X - b.X) < 1 && Math.Abs(a.Y - b.Y) < 1 && Math.Abs(a.Z - b.Z) < 1) pts.RemoveAt(i);
+            }
+        }
+
+        // ---- 3D 스냅샷(P4) — 케이스별 기존/최단/Stub+그룹 3장을 같은 카메라로 렌더 ----
+        private static void RenderSnapshots(SceneData sd, List<Case> cases, string outDir, string baseName, StringBuilder log)
+        {
+            const int W_PX = 760, H_PX = 560;
+            string imgDir = Path.Combine(outDir, "img");
+            Directory.CreateDirectory(imgDir);
+            var colorMap = UtilityColors.Assign(sd.Tasks.Select(t => t.UtilityLabel));
+            int rendered = 0;
+
+            for (int i = 0; i < cases.Count; i++)
+            {
+                var c = cases[i];
+                var all = c.ExistingGeo.Concat(c.ShortestGeo).Concat(c.StubGeo).ToList();
+                var allPolys = all.Select(gp => ToPoly(gp, colorMap)).ToList();
+                var bounds = OffscreenRenderer.ComputeBounds(allPolys, 600);
+                if (bounds == null) continue;   // 그릴 경로 없음(전부 실패/미매칭).
+                var ctx = ContextBoxes(sd, bounds.Value);
+
+                string slug = $"{baseName}_c{i + 1:000}";
+                c.ImgExisting = RenderOne(Path.Combine(imgDir, slug + "_existing.png"), W_PX, H_PX, ctx,
+                    c.ExistingGeo, colorMap, bounds.Value, "기존설계", MetricCaption(c.Existing), imgDir, ref rendered);
+                c.ImgShortest = RenderOne(Path.Combine(imgDir, slug + "_shortest.png"), W_PX, H_PX, ctx,
+                    c.ShortestGeo, colorMap, bounds.Value, "최단(A*)", MetricCaption(c.Shortest), imgDir, ref rendered);
+                c.ImgStub = RenderOne(Path.Combine(imgDir, slug + "_stub.png"), W_PX, H_PX, ctx,
+                    c.StubGeo, colorMap, bounds.Value, "Stub+그룹패턴", MetricCaption(c.StubGroup), imgDir, ref rendered);
+            }
+            log.AppendLine($"스냅샷 {rendered}장 렌더 → {imgDir}");
+        }
+
+        private static string? RenderOne(string path, int w, int h, List<OffscreenRenderer.Box> ctx,
+            List<GeoPoly> geo, Dictionary<string, Color> colorMap, Rect3D bounds,
+            string title, string sub, string imgDir, ref int rendered)
+        {
+            try
+            {
+                var polys = geo.Select(gp => ToPoly(gp, colorMap)).ToList();
+                OffscreenRenderer.RenderToPng(path, w, h, ctx, polys, bounds, title, sub);
+                rendered++;
+                return "img/" + Path.GetFileName(path);
+            }
+            catch { return null; }
+        }
+
+        private static OffscreenRenderer.Poly ToPoly(GeoPoly gp, Dictionary<string, Color> colorMap) =>
+            new() { Pts = gp.Pts, Color = colorMap.TryGetValue(gp.Util, out var col) ? col : Colors.Gray };
+
+        private static string MetricCaption(Metrics m) =>
+            $"성공 {m.Ok}/{m.N} · 총길이 {m.TotalLenMm:N0}mm · 평균꺾임 {m.AvgTurns:0.0} · GF {Fmt(m.GroupingFactor)}";
+
+        // 카메라 bounds 와 교차하는 장비/덕트/레터럴만 옅은 맥락 박스로(작업영역만 표시, 혼잡 억제).
+        private static List<OffscreenRenderer.Box> ContextBoxes(SceneData sd, Rect3D b)
+        {
+            var list = new List<OffscreenRenderer.Box>();
+            bool Hit(double mnx, double mny, double mnz, double mxx, double mxy, double mxz) =>
+                mxx >= b.X && mnx <= b.X + b.SizeX && mxy >= b.Y && mny <= b.Y + b.SizeY && mxz >= b.Z && mnz <= b.Z + b.SizeZ;
+            void Add(double mnx, double mny, double mnz, double mxx, double mxy, double mxz, Color col, byte a)
+            {
+                if (!Hit(mnx, mny, mnz, mxx, mxy, mxz)) return;
+                list.Add(new OffscreenRenderer.Box
+                {
+                    Center = new Point3D((mnx + mxx) / 2, (mny + mxy) / 2, (mnz + mxz) / 2),
+                    Dx = Math.Max(mxx - mnx, 1), Dy = Math.Max(mxy - mny, 1), Dz = Math.Max(mxz - mnz, 1),
+                    Color = col, Alpha = a
+                });
+            }
+            foreach (var e in sd.Equipment)
+                Add(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ,
+                    e.IsMain ? Color.FromRgb(255, 140, 0) : Color.FromRgb(255, 190, 90), (byte)(e.IsMain ? 55 : 40));
+            foreach (var d in sd.DuctsLaterals)
+                Add(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ,
+                    d.IsLateral ? Color.FromRgb(90, 210, 130) : Color.FromRgb(110, 175, 220), 55);
+            return list;
+        }
+
+        // ---- HTML 리포트(P4) — 지표 표 + 케이스별 3-up 스냅샷 ----
+        private static string BuildHtmlReport(int projectId, SceneData sd, List<Case> cases, string baseName)
+        {
+            string E(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var sb = new StringBuilder();
+            sb.AppendLine("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">");
+            sb.AppendLine($"<title>AI 자동설계 비교 리포트 — {E(sd.SourceFile)}</title>");
+            sb.AppendLine("<style>");
+            sb.AppendLine("body{font-family:'Malgun Gothic',sans-serif;margin:24px;color:#222;background:#fff;}");
+            sb.AppendLine("h1{font-size:20px;border-bottom:3px solid #385b85;padding-bottom:6px;}");
+            sb.AppendLine("h2{font-size:15px;color:#2b3548;margin-top:28px;}");
+            sb.AppendLine("table{border-collapse:collapse;margin:8px 0;font-size:12px;}");
+            sb.AppendLine("th,td{border:1px solid #ccc;padding:4px 8px;text-align:right;}");
+            sb.AppendLine("th{background:#eef2f7;}td.l,th.l{text-align:left;}");
+            sb.AppendLine(".best{background:#e7f3e7;font-weight:bold;}");
+            sb.AppendLine(".imgs{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 4px;}");
+            sb.AppendLine(".imgs figure{margin:0;}.imgs img{width:360px;border:1px solid #ccc;border-radius:4px;}");
+            sb.AppendLine(".imgs figcaption{font-size:11px;color:#555;}");
+            sb.AppendLine(".note{color:#666;font-size:12px;}");
+            sb.AppendLine("</style></head><body>");
+
+            sb.AppendLine($"<h1>AI 자동설계 비교 리포트</h1>");
+            sb.AppendLine($"<p class=\"note\">프로젝트 {projectId} · {E(sd.SourceFile)} · 셀 {sd.Grid.CellMm:0}mm · "
+                + $"격자 {sd.Grid.Nx}×{sd.Grid.Ny}×{sd.Grid.Nz} · 케이스 {cases.Count} · "
+                + $"장애물 {sd.Obstacles.Count} · 장비 {sd.Equipment.Count} · 작업 {sd.Tasks.Count}</p>");
+
+            // 전체 집계.
+            Metrics Sum(Func<Case, Metrics> sel)
+            {
+                var t = new Metrics();
+                foreach (var c in cases) { var x = sel(c); t.Ok += x.Ok; t.N += x.N; t.TotalLenMm += x.TotalLenMm; t.TotalTurns += x.TotalTurns; }
+                return t;
+            }
+            double GFavg(Func<Case, Metrics> sel) { var v = cases.Select(c => sel(c).GroupingFactor).Where(x => x >= 0).ToList(); return v.Count > 0 ? v.Average() : -1; }
+            var ex = Sum(c => c.Existing); var sh = Sum(c => c.Shortest); var sg = Sum(c => c.StubGroup);
+            sb.AppendLine("<h2>전체 집계</h2><table>");
+            sb.AppendLine("<tr><th class=\"l\">전략</th><th>성공</th><th>총길이(mm)</th><th>평균꺾임</th><th>그룹핑F(평균)</th></tr>");
+            sb.AppendLine(Row("기존설계", ex.Ok, ex.N, ex.TotalLenMm, ex.AvgTurns, GFavg(c => c.Existing)));
+            sb.AppendLine(Row("최단(A*)", sh.Ok, sh.N, sh.TotalLenMm, sh.AvgTurns, GFavg(c => c.Shortest)));
+            sb.AppendLine(Row("Stub+그룹", sg.Ok, sg.N, sg.TotalLenMm, sg.AvgTurns, GFavg(c => c.StubGroup)));
+            sb.AppendLine("</table>");
+            sb.AppendLine("<p class=\"note\">최단=길이·직선성 우위, Stub+그룹=그룹핑F(다발화)·사람설계 추종 우위 기대. "
+                + "그룹핑F = 0.6×랙집중도 + 0.4×번들밀집도(각 0~1).</p>");
+
+            // 케이스별.
+            string? curMain = null;
+            for (int i = 0; i < cases.Count; i++)
+            {
+                var c = cases[i];
+                if (c.MainEquip != curMain) { curMain = c.MainEquip; sb.AppendLine($"<h2>■ 메인장비: {E(curMain)}</h2>"); }
+                sb.AppendLine($"<h3 style=\"font-size:13px;margin:14px 0 2px;\">케이스 {i + 1}. {E(c.Equip)} / {E(c.UtilGroup)} (작업 {c.Tasks.Count})</h3>");
+                sb.AppendLine("<table>");
+                sb.AppendLine("<tr><th class=\"l\">전략</th><th>성공</th><th>총길이(mm)</th><th>평균꺾임</th><th>랙집중%</th><th>번들밀집%</th><th>그룹핑F</th></tr>");
+                sb.AppendLine(Row2("기존설계", c.Existing));
+                sb.AppendLine(Row2("최단(A*)", c.Shortest));
+                sb.AppendLine(Row2("Stub+그룹", c.StubGroup));
+                sb.AppendLine("</table>");
+                if (c.ImgExisting != null || c.ImgShortest != null || c.ImgStub != null)
+                {
+                    sb.AppendLine("<div class=\"imgs\">");
+                    Fig(sb, c.ImgExisting, "기존설계");
+                    Fig(sb, c.ImgShortest, "최단(A*)");
+                    Fig(sb, c.ImgStub, "Stub+그룹패턴");
+                    sb.AppendLine("</div>");
+                }
+            }
+            sb.AppendLine("</body></html>");
+            return sb.ToString();
+
+            void Fig(StringBuilder b, string? img, string cap)
+            {
+                if (img == null) return;
+                b.AppendLine($"<figure><img src=\"{img}\" alt=\"{cap}\"><figcaption>{cap}</figcaption></figure>");
+            }
+            string Row(string name, int ok, int n, double len, double turns, double gf)
+                => $"<tr><td class=\"l\">{name}</td><td>{ok}/{n}</td><td>{len:N0}</td><td>{turns:0.0}</td><td>{Fmt(gf)}</td></tr>";
+            string Row2(string name, Metrics m)
+                => $"<tr><td class=\"l\">{name}</td><td>{m.Ok}/{m.N}</td><td>{m.TotalLenMm:N0}</td><td>{m.AvgTurns:0.0}</td>"
+                 + $"<td>{Pct(m.RackZPct)}</td><td>{Pct(m.DensityPct)}</td><td>{Fmt(m.GroupingFactor)}</td></tr>";
         }
 
         // ---- 출력 ----
