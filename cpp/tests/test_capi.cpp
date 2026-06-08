@@ -125,6 +125,53 @@ int main() {
         r3d_destroy(be);
     }
 
+    // ---------------------------------------------------------------- 진행 콜백 + 협력적 취소
+    // route_multi_progress 의 콜백 ABI(int 반환=취소)를 검증한다. (1) 정상(항상 0 반환)이면 골든03
+    // 5/5 재현 + phase 1 콜백 5회. (2) 콜백이 1(취소)을 반환하면 즉시 중단되어 완료 배관 수가 5 미만.
+    {
+        struct Ctx { int phase1 = 0; int phase0 = 0; bool cancel = false; };
+        auto cb = [](void* user, int32_t phase, int32_t, int32_t, int32_t, double, int32_t,
+                     int64_t, double, int32_t, int32_t, double, const int32_t*, int32_t) -> int32_t {
+            Ctx* c = static_cast<Ctx*>(user);
+            if (phase == 0) ++c->phase0;
+            if (phase == 1) ++c->phase1;
+            return c->cancel ? 1 : 0;   // cancel=true 면 취소(0아님) 반환.
+        };
+        R3dGrid pg{50.0, 0.0, 0.0, 0.0, 120, 120, 60};
+        R3dParams pp{50.0, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};
+
+        // 정상: 취소 없음 → 5배관 전부 완료.
+        R3dEngine* pe = r3d_create();
+        check(pe != nullptr, "progress create");
+        r3d_set_grid(pe, &pg);
+        r3d_set_params(pe, &pp);
+        r3d_add_obstacle(pe, 0, 0, 0, 6000, 6000, 250);
+        for (auto& u : utils)
+            r3d_add_task(pe, 275, 3025, 1525, 5725, 3025, 1525, u[0], u[1]);
+        Ctx ok_ctx;
+        check(r3d_route_multi_progress(pe, "longest", cb, &ok_ctx) == R3D_OK, "route_multi_progress ok");
+        std::printf("[progress] no-cancel: phase1=%d (expect 5)\n", ok_ctx.phase1);
+        check(ok_ctx.phase1 == 5, "progress phase1 fires 5 times (all pipes)");
+        int pok = 0;
+        for (int t = 0; t < 5; ++t) { R3dResult r{}; r3d_get_result(pe, t, &r); if (r.success) ++pok; }
+        check(pok == 5, "progress no-cancel routes 5/5");
+        r3d_destroy(pe);
+
+        // 취소: 첫 콜백부터 취소 반환 → 배치가 5배관을 모두 완료하기 전에 중단.
+        R3dEngine* ce = r3d_create();
+        r3d_set_grid(ce, &pg);
+        r3d_set_params(ce, &pp);
+        r3d_add_obstacle(ce, 0, 0, 0, 6000, 6000, 250);
+        for (auto& u : utils)
+            r3d_add_task(ce, 275, 3025, 1525, 5725, 3025, 1525, u[0], u[1]);
+        Ctx cancel_ctx; cancel_ctx.cancel = true;
+        check(r3d_route_multi_progress(ce, "longest", cb, &cancel_ctx) == R3D_OK,
+              "route_multi_progress cancel returns OK");
+        std::printf("[progress] cancel: phase1=%d (expect <5)\n", cancel_ctx.phase1);
+        check(cancel_ctx.phase1 < 5, "cancel stops batch before all pipes complete");
+        r3d_destroy(ce);
+    }
+
     if (g_failures == 0) {
         std::printf("ALL CAPI TESTS PASSED\n");
         return 0;

@@ -94,8 +94,10 @@ namespace Routing3D.Viewer.Interop
             int Done, int Total, double Progress01, PathCell[] Path);
 
         /// <summary>route_multi 와 동일(순차·충돌없음)하되 배관마다 onPipe 를 호출(처리순서·진행율·경로 실시간).
-        /// 콜백은 라우팅 스레드에서 동기 호출되므로, UI 갱신은 호출자가 Dispatcher 로 마샬링한다.</summary>
-        public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe)
+        /// 콜백은 라우팅 스레드에서 동기 호출되므로, UI 갱신은 호출자가 Dispatcher 로 마샬링한다.
+        /// shouldCancel 이 true 를 반환하면 엔진이 현재 배관 탐색을 즉시 중단하고 남은 배관 없이 정상 반환한다
+        /// (협력적 취소 — 약 5만 확장마다·배관 완료마다 검사). 완료된 배관 결과는 보존된다.</summary>
+        public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe, Func<bool>? shouldCancel = null)
         {
             // 델리게이트는 네이티브 호출이 끝날 때까지 살아 있어야 한다(지역 변수로 GC 보호).
             Native.R3dProgressFn cb = (user, phase, oi, ti, ok, len, turns, exp, ms, done, total, prog, pathPtr, pathLen) =>
@@ -109,6 +111,7 @@ namespace Routing3D.Viewer.Interop
                     for (int i = 0; i < pathLen; i++) path[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
                 }
                 onPipe(new RouteProgress(phase, oi, ti, ok != 0, len, turns, exp, ms, done, total, prog, path));
+                return (shouldCancel != null && shouldCancel()) ? 1 : 0;   // 0아님=취소 → 엔진 탐색 중단.
             };
             try { Check(Native.r3d_route_multi_progress(H, Native.Utf8(priority), cb, IntPtr.Zero), "route_multi_progress"); }
             finally { GC.KeepAlive(cb); }

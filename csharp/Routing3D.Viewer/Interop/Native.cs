@@ -92,11 +92,12 @@ namespace Routing3D.Viewer.Interop
 
         // 진행 콜백(cdecl) — phase=0(탐색 진행)/1(배관 완료). UnmanagedFunctionPointer 로 마샬링.
         // pathIjk 는 phase==1 성공 시 경로 셀((i,j,k)×pathLen) 포인터(콜백 동안만 유효 → 즉시 복사).
+        // 반환 0=계속, 0아님=취소(abort) → 엔진이 현재 배관 탐색을 중단하고 남은 배관 없이 정상 반환.
         [UnmanagedFunctionPointer(Cdecl)]
-        public delegate void R3dProgressFn(IntPtr user, int phase, int orderIndex, int taskIndex,
-                                           int success, double lengthMm, int turns, long expandedNodes,
-                                           double elapsedMs, int done, int total, double progress01,
-                                           IntPtr pathIjk, int pathLen);
+        public delegate int R3dProgressFn(IntPtr user, int phase, int orderIndex, int taskIndex,
+                                          int success, double lengthMm, int turns, long expandedNodes,
+                                          double elapsedMs, int done, int total, double progress01,
+                                          IntPtr pathIjk, int pathLen);
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_route_multi_progress(IntPtr e, byte[] priorityUtf8,
                                                           R3dProgressFn cb, IntPtr user);

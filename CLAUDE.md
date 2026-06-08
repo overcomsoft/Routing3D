@@ -152,7 +152,7 @@ powershell -ExecutionPolicy Bypass -File python_experiments/out/_docx_to_pdf.ps1
 | **P3h** | **DB 레이어 확장** — 장비(TB_BIM_EQUIPMENT) · 레터럴/덕트(TB_DUCT_LATERAL, CATEGORY별 토글) · 공간영역(TB_BIM_SPACE_INFO LEVEL_NAME, 와이어+라벨) · PoC 이름 로드 · 점유맵 원본/샘플 토글 · 객체 중앙 정렬 |
 | **P3i** | **탐색 시각화** — 선택 배관 단계별 A* 애니메이션(방문셀 확장순서) + 경로 꺾임 마커 + 우측 구간 단계 리스트(클릭 시 카메라 이동) |
 | **P3j** | **기존설계 패턴 학습(pgvector)** — 학습면 PoC 투영 + 접근불가 PoC 스냅 + 기존설계 회랑(L2b). 아래 별도 절 참조 |
-| **P3k** | **자동설계 진행/진단 패널** — 우측 '자동설계 결과 경로'에 전체 진행바(완료/성공/실패·%) + 행별 라이브 상태(대기/탐색 N%/성공/실패) · 하단 분석에 **꺾임 발생 이유**(라이저/장애물 회피/랙 전환/정렬 분류) + **실패 원인 상세 진단**(PoC 매몰·격자 밖·국소 차단·혼잡·탐색 상한, 최근접 자유셀 거리). `TaskRowVM.RunState`·`SceneViewModel.{RouteProgress*,ExplainBends,ExplainFailure}` |
+| **P3k** | **자동설계 진행/진단 패널** — 우측 '자동설계 결과 경로'에 전체 진행바(완료/성공/실패·%) + 행별 라이브 상태(대기/탐색 N%/성공/실패) · 하단 분석에 **꺾임 발생 이유**(라이저/장애물 회피/랙 전환/정렬 분류) + **실패 원인 상세 진단**(PoC 매몰·격자 밖·국소 차단·혼잡·탐색 상한, 최근접 자유셀 거리). `TaskRowVM.RunState`·`SceneViewModel.{RouteProgress*,ExplainBends,ExplainFailure}`. **취소 버튼**(진행바 옆 ✖, 진행 중에만): 협력적 취소 — 콜백 ABI `R3dProgressFn` 반환값(0=계속·0아님=중단)을 `astar_weighted`(약 5만 확장마다)·배관 완료마다 검사해 현재 배관에서 즉시 중단, 완료분 보존·나머지 미라우팅. `SceneViewModel.CancelRoutingCommand`/`_cancelRequested`·`Engine.RouteMultiProgress(…, shouldCancel)`. ctest `capi` 에 진행/취소 검증 추가 |
 | P3b' | OpenVDB capi (선택, 보류) |
 | (보류) | DDW_AI_DB 전환 — 스키마 전면 재설계(로더 재작성 필요)로 보류, 현재 AUTOROUTINGV7 |
 
