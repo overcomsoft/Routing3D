@@ -8,6 +8,11 @@ using Routing3D.Viewer.Interop;
 
 namespace Routing3D.Viewer.ViewModels
 {
+    /// <summary>자동설계 진행 중 행의 실시간 상태 — 결과 그리드 '상태' 컬럼에 라이브 표시.
+    /// Idle=평상시(성공/실패/미라우팅은 Success·Path 로 판정) · Queued=대기(이번 배치 포함, 탐색 전)
+    /// · Searching=탐색 중(SearchProgress %).</summary>
+    public enum RouteRunState { Idle, Queued, Searching }
+
     public sealed class TaskRowVM : ObservableObject
     {
         public int Index { get; init; }
@@ -56,6 +61,26 @@ namespace Routing3D.Viewer.ViewModels
         public double Gy { get => _gy; set => Set(ref _gy, value); }
         public double Gz { get => _gz; set => Set(ref _gz, value); }
 
+        // ── 자동설계 진행 상태(라이브) ──────────────────────────────────────
+        // RouteRowsAsync 가 배치 시작 시 대상 행을 Queued 로, 진행 콜백(phase0)이 Searching+진행율로,
+        // 완료(CacheResults)가 Idle 로 되돌린다. StatusText/StatusBrush 가 이를 반영한다.
+        private RouteRunState _runState = RouteRunState.Idle;
+        public RouteRunState RunState
+        {
+            get => _runState;
+            set { if (Set(ref _runState, value)) { OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush)); } }
+        }
+        private double _searchProgress;   // 0~1, phase0 탐색 진행율.
+        public double SearchProgress
+        {
+            get => _searchProgress;
+            set { if (Set(ref _searchProgress, value)) OnChanged(nameof(StatusText)); }
+        }
+
+        /// <summary>마지막 라우팅에서 A* 가 확장(방문)한 노드 수 — 실패 원인 진단에 쓴다(0/소수=출발 막힘,
+        /// 대량=혼잡/막힘, 상한=탐색 초과). CacheResults 에서 엔진 결과로 채운다.</summary>
+        public long ExpandedNodes { get; set; }
+
         private bool _success;
         private double _lengthMm;
         public bool Success { get => _success; set { if (Set(ref _success, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush)); OnChanged(nameof(TurnCount)); } } }
@@ -64,22 +89,34 @@ namespace Routing3D.Viewer.ViewModels
         public string Display => $"#{Index}  {Label}   {(Success ? $"{LengthMm:0} mm" : "실패/미라우팅")}";
 
         // ── 결과 리스트(DataGrid) 표시용 파생 속성 ──────────────────────────
-        /// <summary>처리 상태 텍스트 — 라우팅 결과 그리드 '상태' 컬럼.</summary>
+        /// <summary>라우팅을 시도했는가 — 경로가 있거나(성공) 방문/확장 기록이 있으면(실패) 시도됨.
+        /// 시도 안 한 행과 '시도했으나 실패'를 구분해 상태/색을 정확히 표시한다.</summary>
+        private bool Attempted => (Path != null && Path.Length >= 2)
+                                  || (Visited != null && Visited.Length > 0) || ExpandedNodes > 0;
+
+        /// <summary>처리 상태 텍스트 — 결과 그리드 '상태' 컬럼. 진행 중엔 대기/탐색 %, 완료 후 성공/실패/미라우팅.</summary>
         public string StatusText
         {
             get
             {
-                bool routed = Path != null && Path.Length >= 2;
-                return Success ? "성공" : routed ? "실패" : "미라우팅";
+                if (_runState == RouteRunState.Searching) return $"탐색 {_searchProgress * 100:0}%";
+                if (_runState == RouteRunState.Queued) return "대기";
+                return Success ? "성공" : Attempted ? "실패" : "미라우팅";
             }
         }
 
-        /// <summary>상태 컬럼 색(성공=녹색·실패=적색·미라우팅=회색).</summary>
-        public Brush StatusBrush =>
-            Success ? new SolidColorBrush(Color.FromRgb(0x5A, 0xD2, 0x82))
-                    : (Path != null && Path.Length >= 2)
-                        ? new SolidColorBrush(Color.FromRgb(0xE6, 0x55, 0x55))
-                        : new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xB8));
+        /// <summary>상태 컬럼 색(탐색=호박·대기=청회·성공=녹색·실패=적색·미라우팅=회색).</summary>
+        public Brush StatusBrush
+        {
+            get
+            {
+                if (_runState == RouteRunState.Searching) return new SolidColorBrush(Color.FromRgb(0xF2, 0xC3, 0x4E));
+                if (_runState == RouteRunState.Queued) return new SolidColorBrush(Color.FromRgb(0x8A, 0x93, 0xA8));
+                return Success ? new SolidColorBrush(Color.FromRgb(0x5A, 0xD2, 0x82))
+                       : Attempted ? new SolidColorBrush(Color.FromRgb(0xE6, 0x55, 0x55))
+                       : new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xB8));
+            }
+        }
 
         /// <summary>길이 표시(성공 시 mm, 아니면 빈칸).</summary>
         public string LengthText => Success ? $"{LengthMm:N0}" : "";
