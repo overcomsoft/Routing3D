@@ -3004,6 +3004,13 @@ namespace Routing3D.Viewer.ViewModels
             var perUtil = new Dictionary<string, MeshBuilder>();
             var perUtilVisited = new Dictionary<string, MeshBuilder>();   // 방문맵 — 유틸리티별 머지 메시.
             var perUtilVisitedCount = new Dictionary<string, int>();      // 표시 셀 카운트(다운샘플 후).
+            // 자동 경로의 출발(빨강)·종단(파랑) 스텁 강조 — 기존 설계배관(ShowStubs)과 동일 스타일.
+            // 자동 경로는 [출발 스텁]+[A* 중간]+[종단 스텁] 인데 같은 유틸 색 튜브로 합쳐 그려 스텁이 안 드러난다.
+            // ShowStubs ON 이면 그 스텁 구간만 굵은 반투명 셸(빨강/파랑)로 덧그려, A* 가 탐색한 '중간 구간'과
+            // 고정 설계구간(스텁)을 한눈에 구분한다(엔진은 스텁 끝~끝만 탐색).
+            var autoStartStubMb = new MeshBuilder(false, false);
+            var autoEndStubMb = new MeshBuilder(false, false);
+            int autoStubDrawn = 0;
             var successPaths = new List<PathCell[]>();
             double fallbackTubeDia = grid.CellMm * 0.7;   // 관경 미상 시 격자 기반 기본 지름.
             double markerR = grid.CellMm * 0.9;
@@ -3052,6 +3059,19 @@ namespace Routing3D.Viewer.ViewModels
                     if (pts.Count >= 2) mb.AddTube(pts, routeDia, 10, false);
                     mb.AddSphere(pts[0], markerR);
                     mb.AddSphere(pts[^1], markerR);
+
+                    // 출발/종단 스텁 강조(반투명 셸) — 기존배관 ShowStubs 와 동일. 자동 경로의 고정 스텁 구간을 표시.
+                    if (ShowStubs)
+                    {
+                        double stubDia = routeDia * 1.35;
+                        if (row.StartStub != null && row.StartStub.Count >= 2)
+                        {
+                            autoStartStubMb.AddTube(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
+                            autoStubDrawn++;
+                        }
+                        if (row.EndStub != null && row.EndStub.Count >= 2)
+                            autoEndStubMb.AddTube(row.EndStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
+                    }
                 }
 
                 // 방문맵 — 유틸리티별 머지 메시(다운샘플링으로 셀 수 상한).
@@ -3092,6 +3112,15 @@ namespace Routing3D.Viewer.ViewModels
                     group.Children.Add(Geometry(kv.Value, lit, 255));
                     Legend.Add(new LegendItem { Swatch = new SolidColorBrush(lit), Label = $"자동 {kv.Key} (밝게·관경)" });
                 }
+            }
+
+            // 자동 경로 스텁 강조 — 출발(빨강)·종단(파랑) 반투명 셸. 기존배관 스텁과 같은 색이되, 자동 경로 위에 그린다.
+            if (drawPaths && ShowStubs && autoStubDrawn > 0)
+            {
+                group.Children.Add(Geometry(autoStartStubMb, Color.FromRgb(226, 48, 48), 130));   // 자동 출발 스텁 = 빨강 셸.
+                group.Children.Add(Geometry(autoEndStubMb, Color.FromRgb(48, 112, 255), 130));    // 자동 종단 스텁 = 파랑 셸.
+                Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(226, 48, 48)), Label = $"자동 출발 스텁 {autoStubDrawn}" });
+                Legend.Add(new LegendItem { Swatch = new SolidColorBrush(Color.FromRgb(48, 112, 255)), Label = "자동 종단 스텁" });
             }
 
             // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
