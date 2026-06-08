@@ -133,11 +133,15 @@ R3D_API R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32
 //   progress01   : phase==0 의 탐색 진행율(0~1, 휴리스틱 근접 기반). phase==1 은 1.0.
 //   path_ijk/path_len : phase==1 성공 시 경로 셀((i,j,k) 연속, path_len 개). 그 외 NULL/0.
 //                       포인터는 콜백 호출 동안만 유효 — 즉시 복사할 것.
-typedef void(__cdecl* R3dProgressFn)(void* user, int32_t phase, int32_t order_index,
-                                     int32_t task_index, int32_t success, double length_mm,
-                                     int32_t turns, int64_t expanded_nodes, double elapsed_ms,
-                                     int32_t done, int32_t total, double progress01,
-                                     const int32_t* path_ijk, int32_t path_len);
+//   반환값       : 0=계속, 0 아님=취소(abort). 탐색 중(phase 0, 약 5만 확장마다)·배관 완료(phase 1)
+//                  마다 검사하므로, 호스트가 취소를 요청하면 현재 배관 탐색을 즉시 중단하고
+//                  남은 배관은 처리하지 않은 채 route_multi_progress 가 R3D_OK 로 정상 반환한다
+//                  (이미 완료된 배관 결과는 보존). 협력적(cooperative) 취소.
+typedef int32_t(__cdecl* R3dProgressFn)(void* user, int32_t phase, int32_t order_index,
+                                        int32_t task_index, int32_t success, double length_mm,
+                                        int32_t turns, int64_t expanded_nodes, double elapsed_ms,
+                                        int32_t done, int32_t total, double progress01,
+                                        const int32_t* path_ijk, int32_t path_len);
 // r3d_route_multi 와 동일(순차·충돌없음)하되 배관마다 cb 를 호출한다. cb 가 널이면 콜백 없이 동작.
 R3D_API R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
                                            void* user);

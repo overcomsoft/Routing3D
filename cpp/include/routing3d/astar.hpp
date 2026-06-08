@@ -162,14 +162,15 @@ AStarResult astar(const Occ& occ, Cell start, Cell goal, double step_cost = -1.0
 
 // ------------------------------------------------------------- 비용함수 A*
 // 상태 = (셀, 진입방향 dir). dir ∈ [-1,5] → state = lin*7 + (dir+1).
-// on_progress(expanded, progress01): 탐색 중 진행율 콜백(뷰어 진행 다이얼로그의 '처리상태 %').
+// on_progress(expanded, progress01) → bool: 탐색 중 진행율 콜백(뷰어 진행 다이얼로그의 '처리상태 %').
 //   progress01 = 1 - h_min/h_start (목표까지 남은 최소 휴리스틱의 감소율, [0,0.99] 클램프).
 //   progress_every>0 이고 on_progress 가 유효하면 그 간격(확장 수)마다 호출. 결과/결정성에는 영향 없음.
+//   반환 true=취소(abort) → 탐색 루프를 즉시 종료(실패 결과 반환). 호출자가 협력적 취소에 사용.
 template <class Occ, class InCorridor = AllowAll>
 AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
                            long long max_expansions = -1, bool collect_visited = false,
                            const std::unordered_set<long long>* corridor = nullptr,
-                           const std::function<void(long long, double)>* on_progress = nullptr,
+                           const std::function<bool(long long, double)>* on_progress = nullptr,
                            long long progress_every = 0, InCorridor in_corridor = {}) {
     auto t0 = detail::Clock::now();
     AStarResult R;
@@ -240,7 +241,8 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
                 double prog = (h_start > 0.0) ? 1.0 - h_min / h_start : 0.0;
                 if (prog < 0.0) prog = 0.0;
                 if (prog > 0.99) prog = 0.99;
-                (*on_progress)(expanded, prog);
+                // 콜백이 취소(true)를 반환하면 탐색을 즉시 중단(실패 결과 반환) — 협력적 취소.
+                if ((*on_progress)(expanded, prog)) { R.expanded_nodes = expanded; R.elapsed_ms = detail::ms_since(t0); return R; }
             }
         }
 

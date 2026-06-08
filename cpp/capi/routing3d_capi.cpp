@@ -170,11 +170,11 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     return true;
 }
 
-// 진행 콜백 타입(내부용). phase=0(탐색 진행)/1(배관 완료).
+// 진행 콜백 타입(내부용). phase=0(탐색 진행)/1(배관 완료). 반환=0 계속, 0아님=취소(abort).
 //   인자: phase, order_index, task_index, success, length_mm, turns, expanded_nodes, elapsed_ms,
 //         done, total, progress01, path(완료·성공 시 경로 셀, 아니면 nullptr).
-using ProgressCb = std::function<void(int, int, int, bool, double, int, long long, double, int, int,
-                                      double, const std::vector<Cell>*)>;
+using ProgressCb = std::function<int(int, int, int, bool, double, int, long long, double, int, int,
+                                     double, const std::vector<Cell>*)>;
 
 // ---------------------------------------------------------------- 경로 후처리: 킨크/역주행 제거
 // A→B 를 직교(직선 또는 단일 엘보)로 잇는 셀열을 axisOrder 순서로 생성(끝점 포함).
@@ -313,6 +313,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     //  메모리대역 바운드라 스레드들이 대역을 경합하고, Phase A 가 '마크 없는' 더 큰 탐색을 중복 수행해
     //  병렬 이득을 상쇄. → 도입 보류, 순차 유지. 자세한 측정은 CLAUDE.md '다음 작업 후보'.)
     int done = 0;
+    bool aborted = false;   // on_pipe 가 0아님(취소)을 반환하면 set → 현재 배관 탐색 중단 + 배치 루프 종료.
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
@@ -320,10 +321,13 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), 2);
 
         // 탐색 중 진행율(처리상태 %) 콜백 — phase=0. 현재 배관의 order/task 인덱스로 행을 찾는다.
-        std::function<void(long long, double)> intra;
+        // 콜백이 취소(0아님)를 반환하면 aborted 를 세우고 true 반환 → astar 가 탐색 루프를 즉시 종료.
+        std::function<bool(long long, double)> intra;
         if (on_pipe) {
-            intra = [&](long long expanded, double prog) {
-                on_pipe(0, oidx, oi, false, 0.0, 0, expanded, 0.0, done, n, prog, nullptr);
+            intra = [&](long long expanded, double prog) -> bool {
+                if (on_pipe(0, oidx, oi, false, 0.0, 0, expanded, 0.0, done, n, prog, nullptr) != 0)
+                    aborted = true;
+                return aborted;
             };
         }
         AStarResult res;
@@ -368,10 +372,13 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
         }
         ++done;
-        if (on_pipe) {  // phase=1 완료 — 지표 + (성공 시) 경로 셀.
-            on_pipe(1, oidx, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
-                    done, n, 1.0, ok ? &path : nullptr);
+        if (on_pipe) {  // phase=1 완료 — 지표 + (성공 시) 경로 셀. 반환이 취소면 다음 배관부터 중단.
+            if (on_pipe(1, oidx, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
+                        done, n, 1.0, ok ? &path : nullptr) != 0)
+                aborted = true;
         }
+        // 취소 요청 — 완료된 배관 결과(doc.results)는 보존하고 남은 배관은 처리하지 않고 종료.
+        if (aborted) break;
     }
 }
 
@@ -564,7 +571,7 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
         if (cb) {
             on_pipe = [cb, user](int phase, int oi, int ti, bool ok, double len, int turns,
                                  long long exp, double ms, int done, int total, double prog,
-                                 const std::vector<Cell>* path) {
+                                 const std::vector<Cell>* path) -> int {
                 // 경로 셀(i,j,k) 를 임시 int 배열로 펴서 콜백에 전달(포인터는 호출 동안만 유효).
                 const int32_t* pptr = nullptr;
                 int32_t plen = 0;
@@ -579,8 +586,8 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
                     pptr = buf.data();
                     plen = static_cast<int32_t>(path->size());
                 }
-                cb(user, phase, oi, ti, ok ? 1 : 0, len, turns, exp, ms, done, total, prog, pptr,
-                   plen);
+                return cb(user, phase, oi, ti, ok ? 1 : 0, len, turns, exp, ms, done, total, prog,
+                          pptr, plen);
             };
         }
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;

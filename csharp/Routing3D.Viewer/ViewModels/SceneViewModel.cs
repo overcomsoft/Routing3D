@@ -97,7 +97,26 @@ namespace Routing3D.Viewer.ViewModels
         // 라우팅 중에는 콜백이 라이브로(탐색 N/M · 성공/실패), 평상시엔 RefreshRouteProgress 가
         // 결과 리스트의 누적 상태로 채운다.
         private bool _isRouting;
-        public bool IsRouting { get => _isRouting; private set => Set(ref _isRouting, value); }
+        public bool IsRouting
+        {
+            get => _isRouting;
+            private set { if (Set(ref _isRouting, value)) System.Windows.Input.CommandManager.InvalidateRequerySuggested(); }
+        }
+        // 자동설계 취소 요청 플래그 — 라우팅 진행 콜백(백그라운드 스레드)이 매 폴링마다 읽으므로 volatile.
+        // CancelRoutingCommand(취소 버튼)가 세우고, 콜백이 true 를 보면 엔진이 현재 배관 탐색을 중단한다.
+        private volatile bool _cancelRequested;
+        public bool IsCancelRequested => _cancelRequested;
+
+        /// <summary>자동설계 취소 요청 — 진행 콜백이 다음 폴링(약 5만 확장·배관 완료마다)에서 읽어 엔진 탐색을
+        /// 중단시킨다. 즉시 멈추지 않고 협력적으로 중단하므로, 버튼을 누른 직후 '취소 중…'을 표시한다.</summary>
+        private void RequestCancelRouting()
+        {
+            if (!_isRouting || _cancelRequested) return;
+            _cancelRequested = true;
+            RouteProgressText = "취소 중… (현재 배관 탐색을 멈추는 중)";
+            Status = "자동설계 취소 요청 — 현재 배관에서 중단합니다.";
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+        }
         private double _routeProgressValue;   // 0~100, 진행바 값.
         public double RouteProgressValue { get => _routeProgressValue; private set => Set(ref _routeProgressValue, value); }
         private string _routeProgressText = "라우팅 대기";
@@ -528,6 +547,8 @@ namespace Routing3D.Viewer.ViewModels
             AutoDesignReportCommand = new RelayCommand(
                 () => _ = RunAutoDesignReportAsync(),
                 () => _selectedProject != null);
+            // 자동설계 취소 — 진행 중일 때만 활성. 누르면 취소 플래그를 세워 엔진이 현재 배관에서 탐색을 중단한다.
+            CancelRoutingCommand = new RelayCommand(RequestCancelRouting, () => _isRouting && !_cancelRequested);
 
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = TaskFilter;
@@ -1000,6 +1021,7 @@ namespace Routing3D.Viewer.ViewModels
         public RelayCommand RouteUtilityCommand { get; }
         public RelayCommand ClearRoutesCommand { get; }
         public RelayCommand AutoDesignReportCommand { get; }
+        public RelayCommand CancelRoutingCommand { get; }
 
         // ---- DB 접속 설정(상단 툴바 텍스트박스 바인딩) ----
         public string DbHost { get => _dbConfig.Host; set { _dbConfig.Host = value; OnChanged(); } }
@@ -2646,6 +2668,7 @@ namespace Routing3D.Viewer.ViewModels
                 double cellLive = grid.CellMm;
 
                 // 전체 진행상황 — 이번 배치의 모든 대상 행을 '대기'로 표시하고 진행바를 켠다.
+                _cancelRequested = false;   // 새 배치 시작 — 이전 취소 요청 초기화.
                 IsRouting = true;
                 int totalRows = added.Count, liveOk = 0, liveFail = 0;
                 foreach (var pos in added) { Tasks[pos].RunState = RouteRunState.Queued; Tasks[pos].SearchProgress = 0; }
@@ -2701,7 +2724,7 @@ namespace Routing3D.Viewer.ViewModels
                                 RouteProgressValue = tot2 > 0 ? 100.0 * done2 / tot2 : 0;
                                 RouteProgressText = $"완료 {done2}/{tot2} · 성공 {okNow} · 실패 {failNow} · {(tot2 > 0 ? 100.0 * done2 / tot2 : 0):0}%";
                             }));
-                        });
+                        }, shouldCancel: () => _cancelRequested);   // 취소 버튼 → 엔진이 현재 배관에서 탐색 중단.
                     }
                     else
                     {
@@ -2710,12 +2733,14 @@ namespace Routing3D.Viewer.ViewModels
                 });
                 foreach (var pos in added) Tasks[pos].RunState = RouteRunState.Idle;   // 비라이브 경로도 상태 정리.
                 IsRouting = false;
+                bool cancelled = _cancelRequested;   // 취소로 중단됐는가(남은 배관은 미라우팅으로 남는다).
                 CacheResults(added);
                 // 경로 방식별 후처리 — 그룹패턴(코너 경유 waypoint) / 기존설계추종(폴리라인 복제). 최단은 후처리 없음.
+                // 취소됐으면 후처리를 건너뛴다(완료된 배관만 보존하고 즉시 마무리).
                 int replicated = 0, cornered = 0;
-                if (_routeWaypoints)
+                if (!cancelled && _routeWaypoints)
                     cornered = await Task.Run(() => RouteThroughGroupCorners(added));
-                else if (_useDesignReplicate)
+                else if (!cancelled && _useDesignReplicate)
                     replicated = await Task.Run(() => ReplicateMatchedPipes(added));
                 ResetLiveRoute();   // 라이브 오버레이 제거 → 아래 BuildModel 의 최종 렌더로 대체(중복 방지).
                 BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
@@ -2730,7 +2755,9 @@ namespace Routing3D.Viewer.ViewModels
                            : replicated < 0 ? " · 기존배관 복제 생략(격자>300M셀 — 셀을 키우세요)" : "";
                 string cor2 = cornered > 0 ? $" · 그룹패턴 경유 {cornered}"
                             : cornered < 0 ? " · 그룹패턴 경유 생략(격자>300M셀 — 셀을 키우세요)" : "";
-                Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}{rep}{cor2}   |   전체 누적 {sceneOk}/{Tasks.Count}";
+                Status = cancelled
+                    ? $"{label} 자동설계 취소됨 — 완료 {batchOk}건만 보존(나머지 미라우팅)   |   전체 누적 {sceneOk}/{Tasks.Count}"
+                    : $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}{rep}{cor2}   |   전체 누적 {sceneOk}/{Tasks.Count}";
                 RefreshRouteProgress();   // 진행바를 최종 결과(완료/성공/실패)로 확정.
             }
             catch (Exception ex)
@@ -2740,6 +2767,7 @@ namespace Routing3D.Viewer.ViewModels
             finally
             {
                 IsRouting = false;
+                _cancelRequested = false;   // 다음 배치를 위해 취소 플래그 해제.
                 RefreshRouteProgress();
             }
         }
