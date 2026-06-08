@@ -93,6 +93,34 @@ namespace Routing3D.Viewer.ViewModels
             private set => Set(ref _analysisReport, value);
         }
 
+        // ── 자동설계 전체 진행상황(결과 리스트 상단 진행바) ────────────────────────
+        // 라우팅 중에는 콜백이 라이브로(탐색 N/M · 성공/실패), 평상시엔 RefreshRouteProgress 가
+        // 결과 리스트의 누적 상태로 채운다.
+        private bool _isRouting;
+        public bool IsRouting { get => _isRouting; private set => Set(ref _isRouting, value); }
+        private double _routeProgressValue;   // 0~100, 진행바 값.
+        public double RouteProgressValue { get => _routeProgressValue; private set => Set(ref _routeProgressValue, value); }
+        private string _routeProgressText = "라우팅 대기";
+        public string RouteProgressText { get => _routeProgressText; private set => Set(ref _routeProgressText, value); }
+
+        /// <summary>결과 리스트(현재 필터 범위)의 누적 진행상황을 진행바/텍스트에 반영(평상시).</summary>
+        private void RefreshRouteProgress()
+        {
+            if (_isRouting) return;   // 라우팅 중에는 콜백이 라이브로 갱신.
+            var src = ResultList;
+            int total = src.Count, ok = 0, fail = 0, routed = 0;
+            foreach (var t in src)
+            {
+                bool r = t.Path != null && t.Path.Length >= 2;
+                if (r) routed++;
+                if (t.Success) ok++; else if (r) fail++;
+            }
+            RouteProgressValue = total > 0 ? 100.0 * routed / total : 0;
+            RouteProgressText = total == 0
+                ? "라우팅 대기 — 좌측에서 그룹/유틸리티를 라우팅하세요"
+                : $"완료 {routed}/{total} · 성공 {ok} · 실패 {fail} · {(total > 0 ? 100.0 * routed / total : 0):0}%";
+        }
+
         private void UpdateAnalysis()
         {
             // 결과 리스트에서 한 배관(행)을 선택하면 하단을 '그 배관의 경로 분석'으로 전환한다(ExplainPipe:
@@ -135,6 +163,18 @@ namespace Routing3D.Viewer.ViewModels
             {
                 var (uok, un, ulen) = kv.Value;
                 sb.AppendLine($"  {kv.Key,-12} 성공 {uok}/{un} · {ulen:N0} mm");
+            }
+            // 실패 배관(라우팅 시도됨 = 방문/확장 기록 있음)만 행별 짧은 사유로 나열. 미라우팅은 제외.
+            //   자세한 진단은 그 행을 클릭(ExplainPipe → ExplainFailure).
+            var failed = src.Where(t => !t.Success && (t.Path == null || t.Path.Length < 2)
+                                        && ((t.Visited != null && t.Visited.Length > 0) || t.ExpandedNodes > 0)).ToList();
+            if (failed.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"■ 실패 배관 ({failed.Count}) — 행 클릭 시 상세 진단");
+                foreach (var t in failed.Take(20))
+                    sb.AppendLine($"  #{t.Index} {(string.IsNullOrEmpty(t.Utility) ? "?" : t.Utility)} — {ShortFailReason(t)}");
+                if (failed.Count > 20) sb.AppendLine($"  … 외 {failed.Count - 20}건");
             }
             AnalysisReport = sb.ToString().TrimEnd();
         }
@@ -769,6 +809,7 @@ namespace Routing3D.Viewer.ViewModels
                 q = Tasks;
             foreach (var row in q) ResultList.Add(row);
             UpdateAnalysis();   // 분석결과도 같은 필터 범위로 갱신.
+            RefreshRouteProgress();   // 전체 진행상황(상단 진행바)도 같은 범위로 갱신.
         }
 
         /// <summary>선택된 유틸리티 그룹. 선택 시 유틸리티 목록을 채우고 상단 범위를 '그룹별'로 동기화.</summary>
@@ -2046,13 +2087,16 @@ namespace Routing3D.Viewer.ViewModels
             for (int e = 0; e < added.Count; e++)
             {
                 var row = Tasks[added[e]];
+                row.RunState = RouteRunState.Idle;   // 라이브 상태 종료 → 성공/실패 확정 표시.
                 try
                 {
                     var r = _engine!.GetResult(e);
-                    row.Success = r.Success; row.LengthMm = r.LengthMm;
-                    row.Path = r.Path; row.Visited = r.Visited;
+                    // Visited/ExpandedNodes 를 먼저 채운 뒤 Success 를 설정한다 — Success 세터가 StatusText/
+                    // StatusBrush(Attempted=Visited/Expanded 의존)를 갱신하므로 순서가 중요(실패=시도됨 빨강).
+                    row.LengthMm = r.LengthMm; row.Path = r.Path; row.Visited = r.Visited; row.ExpandedNodes = r.ExpandedNodes;
+                    row.Success = r.Success;
                 }
-                catch { row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); }
+                catch { row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); row.ExpandedNodes = 0; row.Success = false; }
             }
         }
 
@@ -2594,6 +2638,13 @@ namespace Routing3D.Viewer.ViewModels
                 var disp = System.Windows.Application.Current?.Dispatcher;
                 double cellLive = grid.CellMm;
 
+                // 전체 진행상황 — 이번 배치의 모든 대상 행을 '대기'로 표시하고 진행바를 켠다.
+                IsRouting = true;
+                int totalRows = added.Count, liveOk = 0, liveFail = 0;
+                foreach (var pos in added) { Tasks[pos].RunState = RouteRunState.Queued; Tasks[pos].SearchProgress = 0; }
+                RouteProgressValue = 0;
+                RouteProgressText = $"라우팅 시작 — 0/{totalRows}";
+
                 await Task.Run(() =>
                 {
                     if (hier)
@@ -2606,15 +2657,33 @@ namespace Routing3D.Viewer.ViewModels
                     {
                         engine.RouteMultiProgress(priority, p =>
                         {
-                            // 배관 완료(phase 1) 시 그 행을 라이브 갱신 + 3D 오버레이 추가. ti(엔진 인덱스)→added[ti](전역 행).
-                            if (p.Phase != 1) return;
                             int ti = p.TaskIndex;
                             if (ti < 0 || ti >= added.Count) return;
                             int gpos = added[ti];
+                            if (p.Phase == 0)
+                            {
+                                // 탐색 진행(이 배관 라우팅 중) — 해당 행을 '탐색 NN%'로, 진행바는 전체(done/total)로.
+                                double prog = p.Progress01; int done = p.Done, tot = p.Total;
+                                disp?.BeginInvoke(new Action(() =>
+                                {
+                                    var row = Tasks[gpos];
+                                    row.RunState = RouteRunState.Searching;
+                                    row.SearchProgress = prog;
+                                    RouteProgressValue = tot > 0 ? 100.0 * done / tot : 0;
+                                    RouteProgressText = $"탐색 중 {done}/{tot} · 현재 #{gpos} {prog * 100:0}% · 성공 {liveOk} 실패 {liveFail}";
+                                }));
+                                return;
+                            }
+                            if (p.Phase != 1) return;
+                            // 배관 완료 — 행을 결과로 확정 + 3D 오버레이 추가 + 진행바 갱신.
                             var path = p.Path; bool success = p.Success; var c = col[ti];
+                            int done2 = p.Done, tot2 = p.Total;
+                            if (success) liveOk++; else liveFail++;
+                            int okNow = liveOk, failNow = liveFail;
                             disp?.BeginInvoke(new Action(() =>
                             {
                                 var row = Tasks[gpos];
+                                row.RunState = RouteRunState.Idle;   // 완료 → 성공/실패는 Success·Path 로 판정.
                                 if (success && path.Length >= 1)
                                 {
                                     row.Path = path;
@@ -2622,6 +2691,8 @@ namespace Routing3D.Viewer.ViewModels
                                     AppendLivePipe(path, c, grid);
                                 }
                                 row.Success = success;   // StatusText/StatusBrush/TurnCount 갱신 → 리스트 행 즉시 반영.
+                                RouteProgressValue = tot2 > 0 ? 100.0 * done2 / tot2 : 0;
+                                RouteProgressText = $"완료 {done2}/{tot2} · 성공 {okNow} · 실패 {failNow} · {(tot2 > 0 ? 100.0 * done2 / tot2 : 0):0}%";
                             }));
                         });
                     }
@@ -2630,6 +2701,8 @@ namespace Routing3D.Viewer.ViewModels
                         engine.RouteMulti(priority);
                     }
                 });
+                foreach (var pos in added) Tasks[pos].RunState = RouteRunState.Idle;   // 비라이브 경로도 상태 정리.
+                IsRouting = false;
                 CacheResults(added);
                 // 경로 방식별 후처리 — 그룹패턴(코너 경유 waypoint) / 기존설계추종(폴리라인 복제). 최단은 후처리 없음.
                 int replicated = 0, cornered = 0;
@@ -2651,10 +2724,16 @@ namespace Routing3D.Viewer.ViewModels
                 string cor2 = cornered > 0 ? $" · 그룹패턴 경유 {cornered}"
                             : cornered < 0 ? " · 그룹패턴 경유 생략(격자>300M셀 — 셀을 키우세요)" : "";
                 Status = $"{label} 라우팅 완료 · 성공 {batchOk}/{added.Count}{fail}{rep}{cor2}   |   전체 누적 {sceneOk}/{Tasks.Count}";
+                RefreshRouteProgress();   // 진행바를 최종 결과(완료/성공/실패)로 확정.
             }
             catch (Exception ex)
             {
                 Status = "경로 탐색 오류: " + ex.Message;
+            }
+            finally
+            {
+                IsRouting = false;
+                RefreshRouteProgress();
             }
         }
 
@@ -3935,6 +4014,7 @@ namespace Routing3D.Viewer.ViewModels
             sb.AppendLine();
             double man = Math.Abs(row.Gx - row.Sx) + Math.Abs(row.Gy - row.Sy) + Math.Abs(row.Gz - row.Sz);
             int visited = row.Visited.Length;
+            long expanded = row.ExpandedNodes > 0 ? row.ExpandedNodes : visited;
             if (row.Success && row.Path.Length >= 2)
             {
                 var b = CountBends(row.Path);
@@ -3950,6 +4030,9 @@ namespace Routing3D.Viewer.ViewModels
                 if (row.StartStub != null || row.EndStub != null)
                     sb.AppendLine($"· 스텁         : 출발 {(row.StartStub != null ? "○" : "—")} · 종단 {(row.EndStub != null ? "○" : "—")} (기존설계 추종)");
                 sb.AppendLine();
+                sb.AppendLine("■ 꺾임(엘보) 발생 이유");
+                sb.Append(ExplainBends(row));
+                sb.AppendLine();
                 sb.AppendLine(detour < 15 ? "→ 직선에 가깝게 효율적으로 연결되었습니다."
                             : detour < 50 ? "→ 장애물/회랑을 우회하며 연결되었습니다."
                             : "→ 우회가 큽니다(혼잡·회랑 바이어스). 방문맵으로 탐색 범위를 확인하세요.");
@@ -3958,14 +4041,10 @@ namespace Routing3D.Viewer.ViewModels
             {
                 sb.AppendLine("결과 : ❌ 실패 (경로 없음)");
                 sb.AppendLine($"· 직선(맨해튼) : {man:#,0} mm");
-                sb.AppendLine($"· 탐색(방문)   : {visited:#,0} 셀");
+                sb.AppendLine($"· 탐색(확장)   : {expanded:#,0} 셀");
                 sb.AppendLine();
-                if (visited <= 1)
-                    sb.AppendLine("→ 시작/종단 셀이 장애물 내부입니다(PoC가 솔리드에 파묻힘).\n   탐색이 거의 없음 = 출발조차 못함. 면 투영/스냅 대상.");
-                else if (visited >= 11_000_000)
-                    sb.AppendLine("→ 탐색 상한 도달: 경로가 매우 길거나 사실상 막혔습니다.\n   방문맵이 넓게 퍼진 뒤 종단에 못 닿음.");
-                else
-                    sb.AppendLine("→ 종단까지 완전 차단되었습니다.\n   방문맵으로 어디까지 탐색하고 막혔는지 확인하세요(rip-up/CBS 대상).");
+                sb.AppendLine("■ 실패 원인 진단");
+                sb.Append(ExplainFailure(row, expanded));
             }
             sb.AppendLine();
             sb.AppendLine("─ 색상 ─");
@@ -3973,6 +4052,127 @@ namespace Routing3D.Viewer.ViewModels
             sb.AppendLine("방문맵=노랑 · 경로=파랑(꺾임=녹색)");
             sb.AppendLine("그룹배관패턴=보라(공용 트렁크 레인)");
             return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────── 꺾임(엘보) 발생 이유 분석
+        // 경로의 각 방향전환 셀을 맥락으로 분류한다:
+        //   ① 출발/종단 라이저 = PoC 접속을 위한 수직↔수평 엘보(스텁 또는 끝단 근처).
+        //   ② 장애물 회피      = 직진하면 막혀(다음 셀이 장애물) 꺾을 수밖에 없던 지점.
+        //   ③ 랙(단) 높이 전환 = 공용 랙 고도로 오르내리는 수직 꺾임(끝단 아님).
+        //   ④ 경로 정렬        = 다발/회랑/그룹패턴을 따라 레인을 맞추는 수평 꺾임.
+        // 직진 가능 여부는 '직전 진행 방향으로 한 칸 더 간 셀'이 점유(CellBlocked)인지로 판정한다.
+        private string ExplainBends(TaskRowVM row)
+        {
+            var path = row.Path;
+            var g = _scene!.Grid;
+            if (path == null || path.Length < 3) return "  (직선 — 꺾임 없음)\n";
+            int riser = 0, avoid = 0, rack = 0, align = 0;
+            int n = path.Length;
+            for (int i = 2; i < n; i++)
+            {
+                var a = path[i - 2]; var bcell = path[i - 1]; var c = path[i];
+                int d1i = Math.Sign(bcell.I - a.I), d1j = Math.Sign(bcell.J - a.J), d1k = Math.Sign(bcell.K - a.K);
+                int d2i = Math.Sign(c.I - bcell.I), d2j = Math.Sign(c.J - bcell.J), d2k = Math.Sign(c.K - bcell.K);
+                if (d1i == d2i && d1j == d2j && d1k == d2k) continue;   // 꺾임 아님.
+                bool vertical = d1k != 0 || d2k != 0;
+                bool nearEnd = i <= 2 || i >= n - 1;                    // 경로 양 끝 근처(엘보 라이저).
+                bool nearStub = (row.StartStub != null && i <= 3) || (row.EndStub != null && i >= n - 3);
+                // 직진 계속 시 닿을 셀이 막혀 있으면 '장애물 회피'.
+                var straight = new PathCell(bcell.I + d1i, bcell.J + d1j, bcell.K + d1k);
+                var w = CellToWorld(g, straight);
+                bool blockedAhead = CellBlocked(w.X, w.Y, w.Z);
+                if (vertical && (nearEnd || nearStub)) riser++;
+                else if (blockedAhead) avoid++;
+                else if (vertical) rack++;
+                else align++;
+            }
+            var sb = new System.Text.StringBuilder();
+            void Line(int cnt, string what) { if (cnt > 0) sb.AppendLine($"  · {what} : {cnt} 회"); }
+            Line(riser, "출발/종단 라이저(수직↔수평 엘보)");
+            Line(avoid, "장애물 회피(직진 시 막힘)");
+            Line(rack, "랙(단) 높이 전환");
+            Line(align, "경로 정렬(다발·회랑·그룹패턴 추종)");
+            // 가장 큰 원인 한 줄 해설.
+            (int c, string t)[] cats = { (riser, "PoC 접속 엘보"), (avoid, "장애물 회피"), (rack, "랙 높이 전환"), (align, "다발/회랑 정렬") };
+            var top = cats.OrderByDescending(x => x.c).First();
+            if (top.c > 0)
+                sb.AppendLine($"  → 주요 원인: {top.t}. " +
+                    (avoid >= Math.Max(1, (riser + rack + align)) ? "장애물 밀집으로 우회 엘보가 늘었습니다."
+                     : riser >= avoid && riser >= align ? "끝단 접속(라이저)이 꺾임의 대부분입니다(불가피)."
+                     : "공용 랙/기존설계를 추종하며 레인을 맞추느라 꺾였습니다."));
+            return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────── 실패 원인 상세 진단
+        // 출발/종단 셀의 점유 여부 + 최근접 자유셀 거리 + 확장(탐색)량으로 실패를 분류한다.
+        private string ExplainFailure(TaskRowVM row, long expanded)
+        {
+            var g = _scene!.Grid;
+            var sb = new System.Text.StringBuilder();
+            bool sBlocked = CellBlocked(row.Sx, row.Sy, row.Sz);
+            bool gBlocked = CellBlocked(row.Gx, row.Gy, row.Gz);
+            int sFree = sBlocked ? NearestFreeCellDist(row.Sx, row.Sy, row.Sz, 8) : 0;
+            int gFree = gBlocked ? NearestFreeCellDist(row.Gx, row.Gy, row.Gz, 8) : 0;
+            bool sIn = InGrid(row.Sx, row.Sy, row.Sz), gIn = InGrid(row.Gx, row.Gy, row.Gz);
+
+            string Free(int d) => d < 0 ? "8칸 내 자유셀 없음" : d == 0 ? "자유" : $"최근접 자유셀 +{d}칸";
+            sb.AppendLine($"  · 출발 PoC 셀 : {(sIn ? (sBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(sFree)})");
+            sb.AppendLine($"  · 종단 PoC 셀 : {(gIn ? (gBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(gFree)})");
+
+            // 격자 셀수로 대형 격자 탐색상한(엔진 12M) 근접 여부 추정.
+            long cells = (long)g.Nx * g.Ny * g.Nz;
+            bool largeGrid = cells > 5_000_000L;
+            bool hitCap = largeGrid && expanded >= 11_000_000L;
+            sb.AppendLine();
+
+            if (!sIn || !gIn)
+                sb.AppendLine("→ 종단점이 작업 격자(그룹 AABB) 밖입니다.\n   해당 PoC 가 스코프 범위를 벗어남 — 격자/스코프 마진을 넓히세요.");
+            else if ((sBlocked && sFree < 0) || (gBlocked && gFree < 0))
+                sb.AppendLine("→ PoC 가 솔리드(장애물/장비/덕트)에 깊이 파묻혀 있습니다.\n   주변 8칸 내 자유셀이 없어 출발/도달 자체가 불가 — 면 투영/스냅으로도 못 빠져나옴.\n   해법: 셀을 줄여 표면을 해상(정밀), 또는 해당 장애물의 COLLISION_PASS 검토.");
+            else if (expanded <= 2)
+                sb.AppendLine("→ 출발조차 못함(탐색 ≈ 0). 시작/종단 셀이 막혀 첫 확장이 안 됩니다.\n   스냅이 실패한 경우 — PoC 가 솔리드 경계에 끼어 있습니다.");
+            else if (hitCap)
+                sb.AppendLine("→ 탐색 상한(12M 셀) 도달: 경로가 매우 길거나 사실상 막혔습니다.\n   방문맵이 넓게 퍼진 뒤 종단에 못 닿음 — 셀을 키우거나 계층 corridor 로 가이드하세요.");
+            else if (expanded < 50_000)
+                sb.AppendLine("→ 국소 차단: 종단 근처가 장애물로 둘러싸여(좁은 포켓) 접근로가 없습니다.\n   적은 탐색으로 막힘 — 종단 면 투영 방향/스냅 반경을 늘리거나 그 장애물을 확인하세요.");
+            else
+                sb.AppendLine("→ 혼잡/완전 차단: 넓게 탐색했으나 종단까지 통로가 없습니다.\n   이미 깔린 다른 배관 + 장애물이 길을 막은 경우 — rip-up/CBS(비용기반 충돌회피) 대상입니다.");
+            sb.AppendLine("   (방문맵 레이어를 켜면 어디까지 탐색하고 막혔는지 보입니다.)");
+            return sb.ToString();
+        }
+
+        // 점(월드)이 점유 셀이면 반경 maxR(체비셰프, 셀) 내 최근접 자유셀까지 거리(셀). 못 찾으면 −1, 이미 자유면 0.
+        private int NearestFreeCellDist(double x, double y, double z, int maxR)
+        {
+            if (!CellBlocked(x, y, z)) return 0;
+            double cell = _scene!.Grid.CellMm;
+            for (int r = 1; r <= maxR; r++)
+                for (int di = -r; di <= r; di++)
+                    for (int dj = -r; dj <= r; dj++)
+                        for (int dk = -r; dk <= r; dk++)
+                        {
+                            if (Math.Max(Math.Max(Math.Abs(di), Math.Abs(dj)), Math.Abs(dk)) != r) continue;
+                            double nx = x + di * cell, ny = y + dj * cell, nz = z + dk * cell;
+                            if (InGrid(nx, ny, nz) && !CellBlocked(nx, ny, nz)) return r;
+                        }
+            return -1;
+        }
+
+        // 집계 분석용 짧은 실패 사유(한 줄). 상세는 ExplainFailure.
+        private string ShortFailReason(TaskRowVM row)
+        {
+            if (_scene == null) return "데이터 없음";
+            long expanded = row.ExpandedNodes > 0 ? row.ExpandedNodes : (row.Visited?.Length ?? 0);
+            bool sIn = InGrid(row.Sx, row.Sy, row.Sz), gIn = InGrid(row.Gx, row.Gy, row.Gz);
+            if (!sIn || !gIn) return "종단점 격자 밖(스코프 초과)";
+            bool sBlk = CellBlocked(row.Sx, row.Sy, row.Sz), gBlk = CellBlocked(row.Gx, row.Gy, row.Gz);
+            if (sBlk && NearestFreeCellDist(row.Sx, row.Sy, row.Sz, 8) < 0) return "출발 PoC 솔리드 매몰";
+            if (gBlk && NearestFreeCellDist(row.Gx, row.Gy, row.Gz, 8) < 0) return "종단 PoC 솔리드 매몰";
+            long cells = (long)_scene.Grid.Nx * _scene.Grid.Ny * _scene.Grid.Nz;
+            if (cells > 5_000_000L && expanded >= 11_000_000L) return "탐색 상한 도달(매우 김/막힘)";
+            if (expanded <= 2) return "출발 불가(시작셀 막힘)";
+            if (expanded < 50_000) return "국소 차단(종단 포켓 둘러싸임)";
+            return "혼잡/완전 차단(rip-up·CBS 대상)";
         }
     }
 }

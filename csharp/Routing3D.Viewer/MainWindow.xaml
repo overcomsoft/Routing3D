@@ -317,6 +317,17 @@
                     <Border Grid.Row="0" Background="#2b3548" BorderBrush="#404a64" BorderThickness="1">
                         <DockPanel LastChildFill="True" Margin="6">
                             <TextBlock DockPanel.Dock="Top" Text="자동설계 결과 경로" FontWeight="Bold" Margin="0,0,0,6"/>
+                            <!-- 전체 진행상황: 진행바 + 텍스트(완료 N/M · 성공/실패 · %). 라우팅 중 라이브 갱신. -->
+                            <Border DockPanel.Dock="Top" Background="#252b3d" BorderBrush="#404a64"
+                                    BorderThickness="1" Padding="6,4" Margin="0,0,0,6">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding RouteProgressText}" Foreground="#cdd6f4"
+                                               FontSize="11" Margin="0,0,0,3" TextTrimming="CharacterEllipsis"/>
+                                    <ProgressBar Value="{Binding RouteProgressValue, Mode=OneWay}" Minimum="0" Maximum="100"
+                                                 Height="8" Background="#1e2230" Foreground="#5AD282"
+                                                 BorderBrush="#404a64" BorderThickness="0"/>
+                                </StackPanel>
+                            </Border>
                             <DataGrid ItemsSource="{Binding ResultList}"
                                       SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
                                       AutoGenerateColumns="False" IsReadOnly="True"
