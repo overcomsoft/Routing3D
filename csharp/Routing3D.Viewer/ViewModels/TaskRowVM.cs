@@ -101,9 +101,19 @@ namespace Routing3D.Viewer.ViewModels
 
         // ── 결과 리스트(DataGrid) 표시용 파생 속성 ──────────────────────────
         /// <summary>라우팅을 시도했는가 — 경로가 있거나(성공) 방문/확장 기록이 있으면(실패) 시도됨.
-        /// 시도 안 한 행과 '시도했으나 실패'를 구분해 상태/색을 정확히 표시한다.</summary>
-        private bool Attempted => (Path != null && Path.Length >= 2)
-                                  || (Visited != null && Visited.Length > 0) || ExpandedNodes > 0;
+        /// 시도 안 한 행과 '시도했으나 실패'를 구분해 상태/색·진행집계를 정확히 표시한다.</summary>
+        public bool Attempted => (Path != null && Path.Length >= 2)
+                                 || (Visited != null && Visited.Length > 0) || ExpandedNodes > 0;
+
+        /// <summary>결과 필드(Path/Visited/ExpandedNodes/Success)를 일괄 갱신한 뒤 호출 — 상태/색/길이 파생
+        /// 속성을 강제로 다시 알린다. Success 값이 그대로(실패→실패)면 세터가 알림을 생략하므로, 실패 행이
+        /// '시도됨'(Attempted)을 반영하지 못해 '미라우팅'으로 남는 것을 막는다.</summary>
+        public void NotifyResultChanged()
+        {
+            OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay));
+            OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush));
+            OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount));
+        }
 
         /// <summary>처리 상태 텍스트 — 결과 그리드 '상태' 컬럼. 진행 중엔 대기/탐색 %, 완료 후 성공/실패/미라우팅.</summary>
         public string StatusText

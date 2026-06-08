@@ -111,9 +111,11 @@ namespace Routing3D.Viewer.ViewModels
             int total = src.Count, ok = 0, fail = 0, routed = 0;
             foreach (var t in src)
             {
-                bool r = t.Path != null && t.Path.Length >= 2;
-                if (r) routed++;
-                if (t.Success) ok++; else if (r) fail++;
+                // '완료(처리됨)' = 시도된 행(성공=경로 있음 · 실패=방문/확장 기록 있음). 경로가 없어도(막힘)
+                // 탐색했으면 실패로 집계해야 한다 — 경로 유무로만 판정하면 '경로 없음' 실패가 집계에서 누락된다.
+                bool attempted = t.Attempted;
+                if (attempted) routed++;
+                if (t.Success) ok++; else if (attempted) fail++;
             }
             RouteProgressValue = total > 0 ? 100.0 * routed / total : 0;
             RouteProgressText = total == 0
@@ -2097,8 +2099,11 @@ namespace Routing3D.Viewer.ViewModels
                     // StatusBrush(Attempted=Visited/Expanded 의존)를 갱신하므로 순서가 중요(실패=시도됨 빨강).
                     row.LengthMm = r.LengthMm; row.Path = r.Path; row.Visited = r.Visited; row.ExpandedNodes = r.ExpandedNodes;
                     row.Success = r.Success;
+                    // Success 가 false→false 면 세터가 알림을 생략하므로(실패 행) 명시적으로 상태/색을 다시 알린다
+                    // → ExpandedNodes>0 인 실패가 '미라우팅' 대신 '실패'로 정확히 표시된다.
+                    row.NotifyResultChanged();
                 }
-                catch { row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); row.ExpandedNodes = 0; row.Success = false; }
+                catch { row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); row.ExpandedNodes = 0; row.Success = false; row.NotifyResultChanged(); }
             }
         }
 
