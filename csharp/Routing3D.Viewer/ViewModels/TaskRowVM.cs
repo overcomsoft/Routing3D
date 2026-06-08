@@ -81,6 +81,17 @@ namespace Routing3D.Viewer.ViewModels
         /// 대량=혼잡/막힘, 상한=탐색 초과). CacheResults 에서 엔진 결과로 채운다.</summary>
         public long ExpandedNodes { get; set; }
 
+        // 엔진에 실제로 전달된 A* 시작/목표(월드 mm). 원본 PoC(Sx/Gx)는 장비·덕트 내부(의도적 솔리드)이고,
+        // 실제 탐색은 스텁 끝(랙 위 자유공간) 또는 표면투영·스냅된 자유 셀에서 시작/종료한다. 실패 진단
+        // (ExplainFailure)이 '출발조차 못함'을 오판하지 않도록 BuildEngineForRows 가 이 값을 채운다.
+        // HasRouteEndpoints=false(미설정, NaN)면 진단은 원본 PoC 로 폴백한다.
+        public double RouteSx { get; private set; } = double.NaN;
+        public double RouteSy, RouteSz, RouteGx, RouteGy, RouteGz;
+        public bool HasRouteEndpoints => !double.IsNaN(RouteSx);
+        public void SetRouteEndpoints(double sx, double sy, double sz, double gx, double gy, double gz)
+        { RouteSx = sx; RouteSy = sy; RouteSz = sz; RouteGx = gx; RouteGy = gy; RouteGz = gz; }
+        public void ClearRouteEndpoints() => RouteSx = double.NaN;
+
         private bool _success;
         private double _lengthMm;
         public bool Success { get => _success; set { if (Set(ref _success, value)) { OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay)); OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush)); OnChanged(nameof(TurnCount)); } } }

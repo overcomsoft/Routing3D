@@ -1434,6 +1434,7 @@ namespace Routing3D.Viewer.ViewModels
                         (sx, sy, sz) = SnapPocToFreeCell(se.X, se.Y, se.Z, null);
                         (gx, gy, gz) = SnapPocToFreeCell(ee.X, ee.Y, ee.Z, null);
                         _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
+                        row.SetRouteEndpoints(sx, sy, sz, gx, gy, gz);   // 실제 탐색 종단점(스텁 끝/랙) → 진단용.
                         added.Add(pos);
                         continue;
                     }
@@ -1449,6 +1450,7 @@ namespace Routing3D.Viewer.ViewModels
                 (gx, gy, gz) = LiftPocToSurface(row.Gx, row.Gy, row.Gz, endFace);
                 (gx, gy, gz) = SnapPocToFreeCell(gx, gy, gz, endFace);     // 파묻힌 종단 PoC → 최근접 자유 셀.
                 _engine.AddTask(sx, sy, sz, gx, gy, gz, row.Utility, row.Group);
+                row.SetRouteEndpoints(sx, sy, sz, gx, gy, gz);   // 실제 탐색 종단점(표면투영·스냅) → 진단용.
                 added.Add(pos);
             }
             // 회랑 셀 주입(w_corridor>0 일 때 효력): L2b(배관별 매칭) + 번들 공용 트렁크(L4) 합집합.
@@ -4109,15 +4111,26 @@ namespace Routing3D.Viewer.ViewModels
         {
             var g = _scene!.Grid;
             var sb = new System.Text.StringBuilder();
-            bool sBlocked = CellBlocked(row.Sx, row.Sy, row.Sz);
-            bool gBlocked = CellBlocked(row.Gx, row.Gy, row.Gz);
-            int sFree = sBlocked ? NearestFreeCellDist(row.Sx, row.Sy, row.Sz, 8) : 0;
-            int gFree = gBlocked ? NearestFreeCellDist(row.Gx, row.Gy, row.Gz, 8) : 0;
-            bool sIn = InGrid(row.Sx, row.Sy, row.Sz), gIn = InGrid(row.Gx, row.Gy, row.Gz);
+            // 실제 A* 탐색 종단점으로 진단한다 — 스텁이 있으면 스텁 끝(랙 위 자유공간), 없으면 표면투영·스냅된
+            // 점. 원본 PoC(row.Sx/Gx)는 장비·덕트 내부(의도적 솔리드)라 그걸 검사하면 항상 '매몰'로 오판한다.
+            bool eff = row.HasRouteEndpoints;
+            double sX = eff ? row.RouteSx : row.Sx, sY = eff ? row.RouteSy : row.Sy, sZ = eff ? row.RouteSz : row.Sz;
+            double gX = eff ? row.RouteGx : row.Gx, gY = eff ? row.RouteGy : row.Gy, gZ = eff ? row.RouteGz : row.Gz;
+            bool stubbed = row.StartStub != null || row.EndStub != null;
+            string srcLbl = stubbed ? "출발 탐색점(스텁 끝)" : "출발 탐색점(투영·스냅)";
+            string dstLbl = stubbed ? "종단 탐색점(스텁 끝)" : "종단 탐색점(투영·스냅)";
+
+            bool sBlocked = CellBlocked(sX, sY, sZ);
+            bool gBlocked = CellBlocked(gX, gY, gZ);
+            int sFree = sBlocked ? NearestFreeCellDist(sX, sY, sZ, 8) : 0;
+            int gFree = gBlocked ? NearestFreeCellDist(gX, gY, gZ, 8) : 0;
+            bool sIn = InGrid(sX, sY, sZ), gIn = InGrid(gX, gY, gZ);
 
             string Free(int d) => d < 0 ? "8칸 내 자유셀 없음" : d == 0 ? "자유" : $"최근접 자유셀 +{d}칸";
-            sb.AppendLine($"  · 출발 PoC 셀 : {(sIn ? (sBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(sFree)})");
-            sb.AppendLine($"  · 종단 PoC 셀 : {(gIn ? (gBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(gFree)})");
+            sb.AppendLine($"  · {srcLbl} : {(sIn ? (sBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(sFree)})");
+            sb.AppendLine($"  · {dstLbl} : {(gIn ? (gBlocked ? "장애물 내부" : "자유") : "격자 밖")} ({Free(gFree)})");
+            if (stubbed)
+                sb.AppendLine("  · 스텁: 출발/종단이 이미 랙으로 도출됨 → 시작 불가가 아니라 '스텁 끝↔끝' 중간 구간 문제.");
 
             // 격자 셀수로 대형 격자 탐색상한(엔진 12M) 근접 여부 추정.
             long cells = (long)g.Nx * g.Ny * g.Nz;
@@ -4126,11 +4139,15 @@ namespace Routing3D.Viewer.ViewModels
             sb.AppendLine();
 
             if (!sIn || !gIn)
-                sb.AppendLine("→ 종단점이 작업 격자(그룹 AABB) 밖입니다.\n   해당 PoC 가 스코프 범위를 벗어남 — 격자/스코프 마진을 넓히세요.");
+                sb.AppendLine("→ 탐색 종단점이 작업 격자(그룹 AABB) 밖입니다.\n   해당 PoC/스텁 끝이 스코프 범위를 벗어남 — 격자/스코프 마진을 넓히세요.");
             else if ((sBlocked && sFree < 0) || (gBlocked && gFree < 0))
-                sb.AppendLine("→ PoC 가 솔리드(장애물/장비/덕트)에 깊이 파묻혀 있습니다.\n   주변 8칸 내 자유셀이 없어 출발/도달 자체가 불가 — 면 투영/스냅으로도 못 빠져나옴.\n   해법: 셀을 줄여 표면을 해상(정밀), 또는 해당 장애물의 COLLISION_PASS 검토.");
+                sb.AppendLine(stubbed
+                    ? "→ 스텁 끝(랙)이 다른 깔린 배관/장애물에 둘러싸여 자유 셀이 없습니다.\n   스텁은 외부로 도출됐으나 랙 진입부가 8칸 내 모두 점유 — 라우팅 순서/랙 혼잡 문제(rip-up 대상).\n   (출발 PoC 매몰이 아님 — 스텁이 이미 솔리드를 빠져나왔습니다.)"
+                    : "→ 탐색점이 솔리드(장애물/장비/덕트)에 깊이 파묻혀 있습니다.\n   주변 8칸 내 자유셀이 없어 면 투영/스냅으로도 못 빠져나옴.\n   해법: 셀을 줄여 표면을 해상(정밀), 또는 해당 장애물의 COLLISION_PASS 검토.");
             else if (expanded <= 2)
-                sb.AppendLine("→ 출발조차 못함(탐색 ≈ 0). 시작/종단 셀이 막혀 첫 확장이 안 됩니다.\n   스냅이 실패한 경우 — PoC 가 솔리드 경계에 끼어 있습니다.");
+                sb.AppendLine(stubbed
+                    ? "→ 스텁 끝에서 첫 확장이 막혔습니다(탐색 ≈ 0). 랙 진입 셀이 인접 배관/장애물로 즉시 차단.\n   순서를 바꾸거나(rip-up) 랙 혼잡을 줄이세요 — 출발 PoC 문제가 아닙니다."
+                    : "→ 출발조차 못함(탐색 ≈ 0). 투영·스냅된 시작/종단 셀이 막혀 첫 확장이 안 됩니다.\n   PoC 가 솔리드 경계에 끼어 스냅이 실패한 경우입니다.");
             else if (hitCap)
                 sb.AppendLine("→ 탐색 상한(12M 셀) 도달: 경로가 매우 길거나 사실상 막혔습니다.\n   방문맵이 넓게 퍼진 뒤 종단에 못 닿음 — 셀을 키우거나 계층 corridor 로 가이드하세요.");
             else if (expanded < 50_000)
@@ -4163,14 +4180,19 @@ namespace Routing3D.Viewer.ViewModels
         {
             if (_scene == null) return "데이터 없음";
             long expanded = row.ExpandedNodes > 0 ? row.ExpandedNodes : (row.Visited?.Length ?? 0);
-            bool sIn = InGrid(row.Sx, row.Sy, row.Sz), gIn = InGrid(row.Gx, row.Gy, row.Gz);
-            if (!sIn || !gIn) return "종단점 격자 밖(스코프 초과)";
-            bool sBlk = CellBlocked(row.Sx, row.Sy, row.Sz), gBlk = CellBlocked(row.Gx, row.Gy, row.Gz);
-            if (sBlk && NearestFreeCellDist(row.Sx, row.Sy, row.Sz, 8) < 0) return "출발 PoC 솔리드 매몰";
-            if (gBlk && NearestFreeCellDist(row.Gx, row.Gy, row.Gz, 8) < 0) return "종단 PoC 솔리드 매몰";
+            // 원본 PoC 가 아니라 실제 탐색 종단점(스텁 끝/투영·스냅)으로 진단.
+            bool eff = row.HasRouteEndpoints;
+            double sX = eff ? row.RouteSx : row.Sx, sY = eff ? row.RouteSy : row.Sy, sZ = eff ? row.RouteSz : row.Sz;
+            double gX = eff ? row.RouteGx : row.Gx, gY = eff ? row.RouteGy : row.Gy, gZ = eff ? row.RouteGz : row.Gz;
+            bool stubbed = row.StartStub != null || row.EndStub != null;
+            if (!InGrid(sX, sY, sZ) || !InGrid(gX, gY, gZ)) return "탐색점 격자 밖(스코프 초과)";
+            if (CellBlocked(sX, sY, sZ) && NearestFreeCellDist(sX, sY, sZ, 8) < 0)
+                return stubbed ? "출발 스텁 끝(랙) 진입부 차단" : "출발 탐색점 솔리드 매몰";
+            if (CellBlocked(gX, gY, gZ) && NearestFreeCellDist(gX, gY, gZ, 8) < 0)
+                return stubbed ? "종단 스텁 끝(랙) 진입부 차단" : "종단 탐색점 솔리드 매몰";
             long cells = (long)_scene.Grid.Nx * _scene.Grid.Ny * _scene.Grid.Nz;
             if (cells > 5_000_000L && expanded >= 11_000_000L) return "탐색 상한 도달(매우 김/막힘)";
-            if (expanded <= 2) return "출발 불가(시작셀 막힘)";
+            if (expanded <= 2) return stubbed ? "스텁 끝 진입 차단(랙 혼잡)" : "출발 불가(시작셀 막힘)";
             if (expanded < 50_000) return "국소 차단(종단 포켓 둘러싸임)";
             return "혼잡/완전 차단(rip-up·CBS 대상)";
         }
