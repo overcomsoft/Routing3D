@@ -777,6 +777,8 @@ namespace Routing3D.Viewer.ViewModels
         // ---- 바인딩 속성 ----
         public Model3D? SceneModel { get => _sceneModel; private set => Set(ref _sceneModel, value); }
         public string Status { get => _status; private set => Set(ref _status, value); }
+        /// <summary>코드비하인드(이미지 복사 등)가 상태바에 한 줄 안내를 띄울 때 사용.</summary>
+        public void ShowStatus(string msg) => Status = msg;
         public TaskRowVM? SelectedTask
         {
             get => _selectedTask;

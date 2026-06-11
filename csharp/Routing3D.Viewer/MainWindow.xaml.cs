@@ -142,6 +142,14 @@ namespace Routing3D.Viewer
         private void OnSaveMainImage(object sender, RoutedEventArgs e)
             => ViewportImage.Save(View, "routing_mainview");
 
+        // 📋 이미지 복사 — 현재 메인 3D 뷰를 클립보드에 복사(채팅/문서에 Ctrl+V 로 붙여넣기). 결과를 상태바에 안내.
+        private void OnCopyMainImage(object sender, RoutedEventArgs e)
+        {
+            bool ok = ViewportImage.CopyToClipboard(View, 2.0);
+            _vm.ShowStatus(ok ? "3D 뷰를 클립보드에 복사했습니다 — 붙여넣기(Ctrl+V) 하세요."
+                              : "클립보드 복사에 실패했습니다(다시 시도하세요).");
+        }
+
         // 객체 속성 모드리스 다이얼로그 — 없으면 만들어 띄우고, 이미 떠 있으면 앞으로(내용은 바인딩으로 자동 갱신).
         private void ShowObjectInfo()
         {
