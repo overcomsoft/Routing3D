@@ -24,7 +24,8 @@ namespace Routing3D.Viewer.Model
         private const double LeadInMm = 800.0;     // 엘보 이후 수평 리드인.
 
         // 3-벡터를 가장 큰 절대성분 축의 부호로 6직교 축(0..5 = +x,-x,+y,-y,+z,-z)에 스냅.
-        private static int AxisSnap(double dx, double dy, double dz)
+        //   엔진 NEIGHBORS_6 인덱스와 동일 규약 → r3d_set_task_goal_dir(목표 진입축 제약) 에 그대로 쓴다.
+        public static int AxisSnap(double dx, double dy, double dz)
         {
             double ax = Math.Abs(dx), ay = Math.Abs(dy), az = Math.Abs(dz);
             int axis; double val;

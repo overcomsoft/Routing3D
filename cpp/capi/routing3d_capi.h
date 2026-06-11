@@ -90,6 +90,9 @@ typedef struct {
     double elapsed_ms;
     int32_t path_len;       // 경로 셀 수(r3d_copy_path 버퍼 크기 산출용)
     int32_t visited_len;    // 방문(확장) 셀 수(r3d_copy_visited 버퍼 크기 산출용). 비활성 시 0.
+    // 실패 사유(A1) — success=0 일 때만 의미. 0=None·1=StartBlocked·2=GoalBlocked·3=CorridorMiss·
+    //   4=ExpansionLimit·5=GoalDirBlocked·6=NoPath. 구조체 끝에 추가(기존 호출 호환).
+    int32_t fail_reason;
 } R3dResult;
 
 R3D_API R3dEngine* r3d_create(void);
@@ -111,6 +114,13 @@ R3D_API int32_t r3d_add_task(R3dEngine* e, double sx, double sy, double sz,
 R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
                                          double sx, double sy, double sz,
                                          double gx, double gy, double gz);
+// 작업 관경(mm) 설정 — 우선순위 "diameter"/"utility" 정렬에서 '굵은 배관 먼저' 키로 쓰인다.
+// 미설정(또는 0)이면 관경 무시(기존 거리 정렬과 동일). route_multi/route_corridor_multi/route_ripup 공통.
+R3D_API R3dStatus r3d_set_task_diameter(R3dEngine* e, int32_t task, double diameter_mm);
+// 작업 목표 진입축 제약(axis = NEIGHBORS_6 인덱스 0..5 = +x,-x,+y,-y,+z,-z) — A* 가 목표(end_mm)에
+// 그 방향으로 진입할 때만 도달 인정. 덕트 종단 스텁 리드인 축을 주면 배관이 일직선 진입(군더더기 꺾임 제거).
+// 막히면 무제약 1회 폴백(연결 우선). axis 가 [0,5] 밖/미설정이면 -1(무제약, 기존 동작·골든 불변).
+R3D_API R3dStatus r3d_set_task_goal_dir(R3dEngine* e, int32_t task, int32_t axis);
 
 // 라우팅.
 R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
@@ -178,6 +188,27 @@ R3D_API int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* buf,
 // 방문 셀 수집 on/off (기본 on=1). off 면 라우팅 후 visited_len=0, copy_visited=0.
 // 대형 장면에서 메모리 절약이 필요할 때 미리 0 으로 설정 후 라우팅한다.
 R3D_API R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled);
+
+// 배관 점유 팽창 반경(셀) 설정 — 배관-배관 충돌 회피(옵션1). route_multi(_progress) 가 깔린 배관을
+// 경로 ±radius 6-이웃까지 점유로 막아 다음 배관 중심선을 그만큼 띄운다(실제 관경 렌더 시 표면 겹침 방지).
+// 0=기존 동작(경로 셀만). env R3D_PIPE_RADIUS 로도 재정의 가능. 음수는 0 으로 클램프.
+R3D_API R3dStatus r3d_set_pipe_radius(R3dEngine* e, int32_t radius_cells);
+
+// per-task 관경 반경(B1) 활성화 — enabled!=0 이면 route_multi(_progress) 가 각 배관의 diameter_mm 와 cell_mm
+// 로 마킹 반경을 자동 산출(radius = clamp(ceil(d/cell)-1, 0, 8)). 호출자의 글로벌 pipe_radius 산출 책임을
+// 제거하고, 가는 배관이 굵은 배관 반경으로 과패킹되던 문제를 해소한다. 관경 미상(0)·OFF면 글로벌 pipe_radius
+// 폴백(기존 동작·골든 불변). env R3D_PER_TASK_RADIUS 로도 켤 수 있다(헤드리스 A/B).
+R3D_API R3dStatus r3d_set_per_task_radius(R3dEngine* e, int32_t enabled);
+
+// C1 negotiated-congestion(CBS-lite, Phase C) 깊이 설정. 0=OFF(평면 rip-up만·기존 동작·골든 불변). >0 이면
+// 평면 rip-up 으로도 안 풀린 실패 배관을, blocker 가 재배치 못 하면 그 blocker 의 blocker 까지 이 깊이만큼
+// 재귀적으로 양보시켜 해소한다(conflict-based search 경량판, 무손실·결정적). [0,3] 클램프. env R3D_CBS 도 가능.
+R3D_API R3dStatus r3d_set_cbs_depth(R3dEngine* e, int32_t depth);
+
+// C2 코너 최소반경 배수(Phase C) 설정. 엘보 사이 직선(런)이 (mult × 관경) 미만이면 제작 불가(짧은 단관) →
+// 경로(셀) 단계에서 충돌검사 하에 그 단관을 양옆 코너 직교 연결로 흡수한다(꺾임 비증가일 때만, 양 끝점 고정).
+// 0=OFF(기존 동작·골든 불변). 권장 2.0(엘보 간 직선 ≥ 2×관경). env R3D_MIN_STRAIGHT 도 가능.
+R3D_API R3dStatus r3d_set_min_straight(R3dEngine* e, double mult);
 
 // 점유맵(블록된 셀) 인덱스를 buf 에 복사(가시화 '점유맵'). 현재 doc 의 obstacles 로 즉석 voxelize.
 // 반환=실제 복사한 셀 수. buf_cells 가 부족하면 처음 buf_cells 개만 복사하고 그만큼 반환.

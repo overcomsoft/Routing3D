@@ -25,11 +25,11 @@ namespace Routing3D.Viewer.Model
     /// <summary>DB 접속 설정(값 객체). PGHOST/PORT/DATABASE/USER/PASSWORD 환경변수로 덮어쓰기 가능.</summary>
     public sealed class DbConfig
     {
-        public string Host { get; set; } = "localhost";
+        public string Host { get; set; } = "localhost"; //"192.168.0.46"
         public int Port { get; set; } = 5432;
         public string Database { get; set; } = "DDW_AI_DB";
         public string User { get; set; } = "postgres";
-        public string Password { get; set; } = "dinno";
+        public string Password { get; set; } = "dinno"; //dinno3040
         public int TimeoutSec { get; set; } = 5;
 
         public static DbConfig FromEnv()
@@ -336,6 +336,7 @@ namespace Routing3D.Viewer.Model
                             Sx = curStart.Value.X, Sy = curStart.Value.Y, Sz = curStart.Value.Z,
                             Gx = curEnd.Value.X, Gy = curEnd.Value.Y, Gz = curEnd.Value.Z,
                             Utility = util, Group = grp,
+                            RoutePathGuid = g,                                   // 세그먼트 상세 조회 키.
                             PocName = r.IsDBNull(4) ? null : r.GetString(4),     // EQUIPMENT_NAME.
                             EndName = r.IsDBNull(5) ? null : r.GetString(5),     // TARGET_OWNER_NAME.
                         });
@@ -348,6 +349,61 @@ namespace Routing3D.Viewer.Model
                     AddPt(new Pt3(Dbl(r, 9), Dbl(r, 10), Dbl(r, 11)));
             }
             Flush();
+        }
+
+        // 한 기존배관(routePathGuid)의 세그먼트 상세를 (s.ORDER, sd.ORDER) 순으로 읽어 표시용 행 리스트로.
+        //   하단 '세그먼트 상세' 탭에서 선택 배관 클릭 시 호출(별도 짧은 쿼리). GUID 빈값/DB 예외 → 빈 리스트.
+        //   각 세그먼트의 INSTANCE_ID 를 TB_POCINSTANCES 에 LEFT JOIN 해 Owner(소유 객체) 타입을 가져오고,
+        //   시작/종단 POC 에는 라우트 헤더의 실제 owner 이름(EQUIPMENT_NAME / TARGET_OWNER_NAME)을 덧붙인다.
+        public static List<SegmentDetailRow> LoadSegmentDetail(DbConfig config, string? routePathGuid,
+                                                               string? equipmentName = null, string? targetOwnerName = null)
+        {
+            var outList = new List<SegmentDetailRow>();
+            if (string.IsNullOrEmpty(routePathGuid)) return outList;
+            using var conn = new NpgsqlConnection(config.ConnectionString);
+            conn.Open();
+            using var cmd = new NpgsqlCommand(
+                @"SELECT sd.""TYPE"", sd.""SIZE"",
+                         sd.""FROM_POSX"", sd.""FROM_POSY"", sd.""FROM_POSZ"",
+                         sd.""TO_POSX"",   sd.""TO_POSY"",   sd.""TO_POSZ"",
+                         p.""OWNER_INSTANCE_TYPE""
+                    FROM ""TB_ROUTE_SEGMENT_DETAIL"" sd
+                    JOIN ""TB_ROUTE_SEGMENTS"" s ON s.""SEGMENT_GUID"" = sd.""SEGMENT_GUID""
+                    LEFT JOIN ""TB_POCINSTANCES"" p ON p.""INSTANCE_ID"" = sd.""INSTANCE_ID""
+                   WHERE s.""ROUTE_PATH_GUID"" = @g
+                   ORDER BY s.""ORDER"", sd.""ORDER""", conn);
+            cmd.Parameters.AddWithValue("@g", routePathGuid);
+            using var r = cmd.ExecuteReader();
+            int seq = 0;
+            while (r.Read())
+            {
+                bool fv = !(r.IsDBNull(2) || r.IsDBNull(3) || r.IsDBNull(4));
+                bool tv = !(r.IsDBNull(5) || r.IsDBNull(6) || r.IsDBNull(7));
+                string ownType = r.IsDBNull(8) ? "" : r.GetString(8);
+                outList.Add(new SegmentDetailRow
+                {
+                    Seq = ++seq,
+                    Type = r.IsDBNull(0) ? "" : r.GetString(0),
+                    Size = r.IsDBNull(1) ? "" : r.GetString(1),
+                    Owner = string.IsNullOrEmpty(ownType) ? "-" : ownType,   // 기본=PoC 소유 타입. 끝점은 아래서 이름 보강.
+                    Fx = fv ? Dbl(r, 2) : 0, Fy = fv ? Dbl(r, 3) : 0, Fz = fv ? Dbl(r, 4) : 0,
+                    Tx = tv ? Dbl(r, 5) : 0, Ty = tv ? Dbl(r, 6) : 0, Tz = tv ? Dbl(r, 7) : 0,
+                    FromValid = fv, ToValid = tv,
+                });
+            }
+
+            // 시작/종단 POC 에 라우트 헤더의 실제 owner 이름을 덧붙인다(예: "Damper-FMPVC-150A-Duct [MODEL]").
+            var pocRows = outList.FindAll(x => string.Equals(x.Type, "POC", StringComparison.OrdinalIgnoreCase));
+            if (pocRows.Count > 0)
+            {
+                var first = pocRows[0];
+                var last = pocRows[pocRows.Count - 1];
+                if (!string.IsNullOrWhiteSpace(equipmentName))
+                    first.Owner = $"{equipmentName} [{first.Owner}]";       // 시작(장비) PoC.
+                if (!string.IsNullOrWhiteSpace(targetOwnerName) && last != first)
+                    last.Owner = $"{targetOwnerName} [{last.Owner}]";       // 종단(덕트/댐퍼 등) PoC.
+            }
+            return outList;
         }
 
         // 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속만 로드한다(직관: PIPE=직관·POC=연결점·

@@ -70,7 +70,12 @@ struct MultiRouteResult {
 // ---- 우선순위 ----
 // 우선순위 규칙에 따른 '원본 인덱스 순열'을 반환한다(안정 정렬 = Python sorted 결정성).
 //   longest  : 맨해튼 거리 긴 것 먼저(기본).  shortest : 짧은 것 먼저.
-//   utility  : (유틸 라벨 오름차순, 거리 내림차순).  original : 입력 순서.
+//   diameter : 굵은 배관(관경 큰 것) 먼저, 동률은 거리 긴 것 먼저. 굵은 배관이 최단(직선) 경로를
+//              먼저 차지하고, 가는 배관이 그 곁을 피해 가도록 한다(굵은 배관이 나중에 깔려 우회·충돌하던 문제).
+//              관경 미상(0)이면 전 작업 동률 → longest 와 동일.
+//   utility  : (유틸 라벨 오름차순, 굵은 배관 먼저, 거리 내림차순). 유틸 묶음(번들)은 유지하되 묶음 안에서
+//              굵은 배관을 먼저 깐다. 관경 0 이면 (유틸, 거리) 정렬과 동일(기존 동작 불변).
+//   original : 입력 순서.
 template <class Occ>
 std::vector<int> order_indices(const Occ& occ, const std::vector<RouteTask>& tasks,
                                const std::string& priority) {
@@ -78,6 +83,7 @@ std::vector<int> order_indices(const Occ& occ, const std::vector<RouteTask>& tas
         return manhattan(occ.to_cell(tasks[static_cast<size_t>(t)].start_mm),
                          occ.to_cell(tasks[static_cast<size_t>(t)].end_mm));
     };
+    auto dia = [&](int t) { return tasks[static_cast<size_t>(t)].diameter_mm; };
     std::vector<int> idx(tasks.size());
     for (int i = 0; i < static_cast<int>(tasks.size()); ++i) idx[static_cast<size_t>(i)] = i;
     if (priority == "original") return idx;
@@ -89,11 +95,19 @@ std::vector<int> order_indices(const Occ& occ, const std::vector<RouteTask>& tas
         std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return dist(a) > dist(b); });
         return idx;
     }
+    if (priority == "diameter") {
+        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) {
+            if (dia(a) != dia(b)) return dia(a) > dia(b);
+            return dist(a) > dist(b);
+        });
+        return idx;
+    }
     if (priority == "utility") {
         std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) {
             const std::string la = tasks[static_cast<size_t>(a)].utility_label();
             const std::string lb = tasks[static_cast<size_t>(b)].utility_label();
             if (la != lb) return la < lb;
+            if (dia(a) != dia(b)) return dia(a) > dia(b);
             return dist(a) > dist(b);
         });
         return idx;
@@ -203,7 +217,12 @@ MultiRouteResult<Occ> route_sequential(const Occ& occ, const std::vector<RouteTa
         Cell s = snap_to_free_cell(work, work.to_cell(task.start_mm), snap_to_free);
         Cell g = snap_to_free_cell(work, work.to_cell(task.end_mm), snap_to_free);
         AStarResult res = astar_weighted(work, s, g, params, max_expansions, collect_visited,
-                                         use_corridor ? &corridor : nullptr);
+                                         use_corridor ? &corridor : nullptr, nullptr, 0,
+                                         AllowAll{}, task.goal_dir);
+        // 목표 진입축 제약으로 실패하면(해당 축 진입이 막힘) 무제약으로 1회 폴백 — 연결 우선(성공률 보존).
+        if ((!res.success || res.path.empty()) && task.goal_dir >= 0)
+            res = astar_weighted(work, s, g, params, max_expansions, collect_visited,
+                                 use_corridor ? &corridor : nullptr, nullptr, 0, AllowAll{}, -1);
         bool ok = res.success && !res.path.empty();
         std::vector<Cell> path = res.path;  // mark_pipe 용(res 는 이동).
         pipes.push_back(PipeResult{task, std::move(res), idx});
@@ -242,7 +261,11 @@ MultiRouteResult<Occ> route_ripup(const Occ& occ, const std::vector<RouteTask>& 
     auto route_on = [&](const Occ& w, const RouteTask& t) -> AStarResult {
         Cell s = snap_to_free_cell(w, w.to_cell(t.start_mm), snap_to_free);
         Cell g = snap_to_free_cell(w, w.to_cell(t.end_mm), snap_to_free);
-        return astar_weighted(w, s, g, params, max_expansions, collect_visited);
+        AStarResult res = astar_weighted(w, s, g, params, max_expansions, collect_visited,
+                                         nullptr, nullptr, 0, AllowAll{}, t.goal_dir);
+        if ((!res.success || res.path.empty()) && t.goal_dir >= 0)   // 진입축 막힘 → 무제약 폴백.
+            res = astar_weighted(w, s, g, params, max_expansions, collect_visited);
+        return res;
     };
     auto build_work = [&](const std::map<int, std::vector<Cell>>& paths) -> Occ {
         Occ w = static_occ.copy();

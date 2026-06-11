@@ -52,6 +52,7 @@ struct SceneResult {
     int turns = 0;
     long long expanded_nodes = 0;
     double elapsed_ms = 0.0;       // 참고용.
+    int fail = 0;                  // 실패 사유(A1, RouteFail). 성공=0. scene.txt 미직렬화(F2 불변).
     std::optional<std::vector<Cell>> path;     // 경로 레이어.
     std::optional<std::vector<Cell>> visited;  // 방문 레이어(선택).
 };

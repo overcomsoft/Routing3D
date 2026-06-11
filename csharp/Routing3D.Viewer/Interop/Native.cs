@@ -53,6 +53,7 @@ namespace Routing3D.Viewer.Interop
             public double elapsed_ms;
             public int path_len;
             public int visited_len;   // 방문(확장) 셀 수 — '방문맵' 가시화 용. 비활성 시 0.
+            public int fail_reason;   // 실패 사유(A1) — success=0 일 때만. 0~6(RouteFail). 구조체 끝 추가.
         }
 
         // ---- 공통 ----
@@ -84,6 +85,10 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_set_task_endpoints(IntPtr e, int task, double sx, double sy,
                                                        double sz, double gx, double gy, double gz);
+        // 작업 관경(mm) — 우선순위 "diameter"/"utility" 의 '굵은 배관 먼저' 정렬 키. 0=관경 무시.
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_diameter(IntPtr e, int task, double diameterMm);
+        // 작업 목표 진입축 제약 — A* 가 목표에 axis(0..5=+x,-x,+y,-y,+z,-z) 방향으로 진입할 때만 도달. -1=무제약.
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_goal_dir(IntPtr e, int task, int axis);
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
 
@@ -112,6 +117,10 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_passthrough(IntPtr e, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_collect_visited(IntPtr e, int enabled);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_radius(IntPtr e, int radiusCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_per_task_radius(IntPtr e, int enabled);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_cbs_depth(IntPtr e, int depth);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight(IntPtr e, double mult);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 
         // 문자열 → UTF-8 바이트(널 종료). 한글 보존.

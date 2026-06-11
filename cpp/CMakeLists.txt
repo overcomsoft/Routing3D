@@ -88,6 +88,20 @@ target_link_libraries(test_capi PRIVATE routing3d_capi)
 target_include_directories(test_capi PRIVATE capi)
 add_test(NAME capi COMMAND test_capi)
 
+# 실데이터 회귀 골든(Phase D) — DB 추출 scene.txt 픽스처를 C ABI 라우팅으로 검증(성공수·총길이·재현성).
+add_executable(test_realdata tests/test_realdata.cpp)
+target_link_libraries(test_realdata PRIVATE routing3d_capi)
+target_include_directories(test_realdata PRIVATE capi)
+target_compile_definitions(test_realdata PRIVATE
+    SCENE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+add_test(NAME realdata COMMAND test_realdata)
+
+# 카테고리 골든(Phase D2) — 실패사유(A1)·대형격자(A3)·per-task 반경(B1) 신기능 동작 검증.
+add_executable(test_category tests/test_category.cpp)
+target_link_libraries(test_category PRIVATE routing3d_capi)
+target_include_directories(test_category PRIVATE capi)
+add_test(NAME category COMMAND test_category)
+
 # OpenVDB 백엔드(VdbOccupancy) — 기본 OFF. 활성화 시 vcpkg 의 OpenVDB 필요.
 #   cmake ... -DUSE_OPENVDB=ON -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake \
 #             -DVCPKG_TARGET_TRIPLET=x64-windows

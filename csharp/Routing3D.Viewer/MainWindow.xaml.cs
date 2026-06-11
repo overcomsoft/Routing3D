@@ -15,6 +15,7 @@ namespace Routing3D.Viewer
         private readonly SceneViewModel _vm;
         private readonly List<Visual3D> _spaceLabelVisuals = new();   // 공간 영역 텍스트 라벨(BillboardText).
         private Views.ObjectInfoWindow? _objInfoWin;                  // 객체 속성 모드리스 다이얼로그(클릭마다 갱신).
+        private Views.RouteReportWindow? _routeReportWin;            // 자동설계 결과 리포트 모드리스 창.
 
         public MainWindow(string? initialScene = null)
         {
@@ -24,6 +25,7 @@ namespace Routing3D.Viewer
             _vm.FitViewRequested += () => Dispatcher.BeginInvoke(new Action(FitToScene));
             _vm.NavigateToRequested += target => Dispatcher.BeginInvoke(new Action(() => NavigateTo(target)));
             _vm.ZoomToBoxRequested += box => Dispatcher.BeginInvoke(new Action(() => ZoomToBox(box)));
+            _vm.ShowRouteReportRequested += () => Dispatcher.BeginInvoke(new Action(ShowRouteReport));
             DataContext = _vm;
 
             // 피킹 모드일 때만 좌클릭으로 3D 지점을 잡아 종단점으로 설정(평소 회전은 그대로).
@@ -156,6 +158,23 @@ namespace Routing3D.Viewer
             else
             {
                 _objInfoWin.Activate();
+            }
+        }
+
+        // 자동설계 결과 리포트 모드리스 창 — 없으면 만들어 띄우고, 이미 떠 있으면 앞으로(내용은 바인딩으로 갱신).
+        private void ShowRouteReport()
+        {
+            if (_routeReportWin == null)
+            {
+                _routeReportWin = new Views.RouteReportWindow { Owner = this, DataContext = _vm };
+                _routeReportWin.Closed += (_, __) => _routeReportWin = null;
+                _routeReportWin.Left = Left + Math.Max(40, Width - _routeReportWin.Width - 60);
+                _routeReportWin.Top = Top + 60;
+                _routeReportWin.Show();
+            }
+            else
+            {
+                _routeReportWin.Activate();
             }
         }
 

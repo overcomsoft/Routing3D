@@ -50,6 +50,10 @@ public:
     long long size() const { return static_cast<long long>(shape_.i) * shape_.j * shape_.k; }
 
     // 선형 인덱스 (i + nx*(j + ny*k)). A* 의 g/closed 키로 사용.
+    // [인덱스 계약(A4)] Occupancy 백엔드의 lin() 반환은 **항상 long long 으로 다뤄야 한다**(unlin 인자도 long long).
+    //   Dense/Sparse 는 구현상 int 를 반환하나 capi 가 5M 셀 초과 시 ImplicitOccupancy(long long lin)로 자동
+    //   전환하므로, int 반환 백엔드는 **소격자(<5M, int 범위)에서만** 쓰인다 → 실제 오버플로 없음. A* state_of·
+    //   clearance_map 등 인덱스 연산은 long long 으로 수행해 거대격자에서도 안전(불변식 S2/S3).
     int lin(const Cell& c) const { return c.i + shape_.i * (c.j + shape_.j * c.k); }
     Cell unlin(long long idx) const;  // 64비트 인자(A* state_of/7 가 long long) — Dense 는 항상 int 범위.
 

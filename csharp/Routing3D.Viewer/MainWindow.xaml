@@ -73,6 +73,9 @@
                 <Button Content="🌐 기존설계 유사 (그룹배관)"  Command="{Binding RerouteCorridorCommand}"
                         ToolTip="전체 배관을 기존설계처럼 '그룹'으로 라우팅: 끝단=기존 스텁(수직+엘보) · 자유공간=그룹배관 패턴(공용 트렁크 회랑)+매칭 기존배관 추종 · 유틸리티 순서로 self-bundling → 같은 유틸 배관이 공용 랙에 평행 다발. 셀이 50mm 보다 크면 자동으로 50mm 재적재(레인 분리 필요)."
                         Background="#3a4e7a" MinWidth="110"/>
+                <Button Content="🪜 다단 랙 (z-분리)"  Command="{Binding RouteTieredCommand}"
+                        ToolTip="현재 범위(모두/그룹/유틸)를 유틸리티 그룹마다 '다른 높이(랙 단)'에 배치해 순차 라우팅한다. 사람 설계처럼 그룹을 수직으로 분리(z-레벨)해 한 평면 혼잡·계단·우회를 줄인다. 단 사이 간격은 관경 반경+2셀. 앞 단을 다음 단의 장애물로 누적해 충돌 0. 그룹 자연고도(기존설계 지배 랙)순으로 단을 쌓는다."
+                        Background="#4a6a3a" MinWidth="110"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
                 <Button Content="🖼 이미지 저장" Click="OnSaveMainImage" Margin="4,0,0,0"
@@ -80,6 +83,9 @@
                 <Button Content="📊 자동설계 리포트" Command="{Binding AutoDesignReportCommand}" Margin="4,0,0,0"
                         Background="#3a4e7a" MinWidth="110"
                         ToolTip="선택 프로젝트/셀로 (장비,유틸그룹) 케이스별 기존/최단/Stub+그룹 자동설계를 수행하고 길이·꺾임·그룹핑 Factor + 3D 스냅샷을 CSV/TXT/HTML 로 출력(출력 폴더 선택). 케이스가 많으면 수 분 소요·생성 중 화면이 잠깐 멈출 수 있음."/>
+                <Button Content="📄 결과 리포트" Command="{Binding RouteResultReportCommand}" Margin="4,0,0,0"
+                        Background="#3a4e7a" MinWidth="90"
+                        ToolTip="직전 자동설계 결과를 별도 창으로 띄우고 .md 문서로 저장: 어떤 순서로 라우팅했는지(굵은 배관 먼저)·꺾임 지점을 어떻게 선정했는지(라이저/장애물 회피/랙/정렬)·최종 연결 성공/실패와 실패 원인. 먼저 자동설계를 실행해야 활성화됩니다."/>
 
                 <!-- 진단 레이어(디버그용 복셀) — 하단 바에서 상단으로 이동 -->
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
@@ -285,6 +291,15 @@
                             <CheckBox Content="스텁 라우팅"
                                       IsChecked="{Binding UseStubRouting}" Margin="0,0,12,0"
                                       ToolTip="스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료. 표시=출발 스텁+A* 중간+종단 스텁. 매칭 없으면 PoC 직접 라우팅 폴백. 기본 ON."/>
+                            <CheckBox Content="🪜 다단 랙(z-분리)"
+                                      IsChecked="{Binding UseTieredRack}" Margin="0,0,12,0" Foreground="#9ED88A"
+                                      ToolTip="다단 랙(z-분리) 통합 — '자동설계'가 범위에 유틸그룹이 2개 이상이면 기존설계의 실제 랙 단(수평 런 z 클러스터)을 학습해 그룹마다 다른 높이로 순차 라우팅(사람설계 유사, 그룹 간 혼잡 차단). 단일 그룹/유틸은 일반 라우팅. 기본 ON. 끄면 옛 한-평면 번들 라우팅."/>
+                            <CheckBox Content="협상 라우팅(CBS)"
+                                      IsChecked="{Binding UseCbs}" Margin="0,0,12,0" Foreground="#C8A2E8"
+                                      ToolTip="협상 라우팅(C1, CBS-lite) — 평면 rip-up 으로도 안 풀린 실패 배관을, 막는 배관(blocker)이 재배치 못 하면 그 blocker 의 blocker 까지 재귀적으로 양보시켜 해소합니다(무손실=성공만 늘림·결정적). 고밀도 병목의 잔여 실패를 줄입니다. 대형격자 재귀 재라우팅 비용이 있어 기본 OFF."/>
+                            <CheckBox Content="코너 최소반경"
+                                      IsChecked="{Binding UseMinStraight}" Margin="0,0,12,0" Foreground="#C8A2E8"
+                                      ToolTip="코너 최소반경(C2) — 엘보 사이 직선(단관)이 2×관경보다 짧으면 제작 불가 → 경로(셀) 단계에서 충돌검사 하에 그 짧은 단관을 양옆 코너 직교 연결로 흡수합니다(꺾임 비증가일 때만, 양 끝점 고정). 형상을 바꾸므로 기본 OFF."/>
                             <Border Width="1" Background="#404a64" Margin="2,1,8,1"/>
                             <!-- 경로 방식 3-모드 선택(상호 배타) -->
                             <TextBlock Text="경로 방식:" Foreground="#7f8aa3" FontWeight="SemiBold"
@@ -392,17 +407,81 @@
                     <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"
                                   Background="#404a64" ResizeBehavior="PreviousAndNext" Margin="0,4"/>
 
-                    <!-- (아래) 분석결과 -->
+                    <!-- (아래) 분석결과 / 세그먼트 상세 — 탭 구분 -->
                     <Border Grid.Row="2" Background="#2b3548" BorderBrush="#404a64" BorderThickness="1">
-                        <DockPanel LastChildFill="True" Margin="6">
-                            <TextBlock DockPanel.Dock="Top" Text="분석결과 (행 선택 = 해당 배관 / 미선택 = 집계)"
-                                       FontWeight="Bold" Margin="0,0,0,6"/>
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <TextBlock Text="{Binding AnalysisReport, TargetNullValue='위 결과 리스트에서 배관을 클릭하면 그 경로 분석을, 미선택이면 전체 집계를 표시합니다.'}"
-                                           Foreground="#cdd6f4" TextWrapping="Wrap"
-                                           FontFamily="Consolas" FontSize="12" LineHeight="17"/>
-                            </ScrollViewer>
-                        </DockPanel>
+                        <TabControl Margin="4" Background="#2b3548" BorderBrush="#404a64" BorderThickness="0">
+                            <TabControl.Resources>
+                                <!-- 다크 테마 탭 헤더(선택 시 강조색). -->
+                                <Style TargetType="TabItem">
+                                    <Setter Property="Foreground" Value="#bfc6d6"/>
+                                    <Setter Property="Background" Value="#252b3d"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="TabItem">
+                                                <Border Name="Bd" Background="{TemplateBinding Background}"
+                                                        BorderBrush="#404a64" BorderThickness="1,1,1,0"
+                                                        Margin="0,0,2,0" Padding="12,4">
+                                                    <ContentPresenter ContentSource="Header"
+                                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#385b85"/>
+                                                        <Setter Property="Foreground" Value="White"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </TabControl.Resources>
+
+                            <!-- 탭 1: 분석결과(기존) -->
+                            <TabItem Header="분석결과">
+                                <Border Background="#2b3548" Padding="6">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <TextBlock Text="{Binding AnalysisReport, TargetNullValue='위 결과 리스트에서 배관을 클릭하면 그 경로 분석을, 미선택이면 전체 집계를 표시합니다.'}"
+                                                   Foreground="#cdd6f4" TextWrapping="Wrap"
+                                                   FontFamily="Consolas" FontSize="12" LineHeight="17"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </TabItem>
+
+                            <!-- 탭 2: 세그먼트 상세(선택 배관의 TB_ROUTE_SEGMENT_DETAIL, ORDER 순) -->
+                            <TabItem Header="세그먼트 상세">
+                                <DockPanel LastChildFill="True" Background="#2b3548" Margin="0,4,0,0">
+                                    <TextBlock DockPanel.Dock="Top" Text="{Binding SegmentDetailStatus}"
+                                               Foreground="#bfc6d6" TextWrapping="Wrap"
+                                               FontFamily="Consolas" FontSize="11" Margin="4,0,4,4"/>
+                                    <DataGrid ItemsSource="{Binding SelectedRouteSegments}"
+                                              SelectedItem="{Binding SelectedSegment, Mode=TwoWay}"
+                                              AutoGenerateColumns="False" IsReadOnly="True"
+                                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                              CanUserAddRows="False" SelectionMode="Single"
+                                              Background="#252b3d" RowBackground="#252b3d"
+                                              AlternatingRowBackground="#2b3548" Foreground="#e8eaf0"
+                                              BorderBrush="#404a64" HorizontalGridLinesBrush="#333b50"
+                                              FontFamily="Consolas" FontSize="11">
+                                        <DataGrid.ColumnHeaderStyle>
+                                            <Style TargetType="DataGridColumnHeader">
+                                                <Setter Property="Background" Value="#2b3548"/>
+                                                <Setter Property="Foreground" Value="#bfc6d6"/>
+                                                <Setter Property="Padding" Value="5,3"/>
+                                                <Setter Property="BorderBrush" Value="#404a64"/>
+                                                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                            </Style>
+                                        </DataGrid.ColumnHeaderStyle>
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="#" Binding="{Binding Seq}" Width="36"/>
+                                            <DataGridTextColumn Header="종류" Binding="{Binding Type}" Width="70"/>
+                                            <DataGridTextColumn Header="관경" Binding="{Binding Size}" Width="64"/>
+                                            <DataGridTextColumn Header="Owner(소유 객체)" Binding="{Binding Owner}" Width="*"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </DockPanel>
+                            </TabItem>
+                        </TabControl>
                     </Border>
                 </Grid>
             </Border>

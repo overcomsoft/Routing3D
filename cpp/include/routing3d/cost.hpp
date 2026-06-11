@@ -76,14 +76,14 @@ std::vector<int> clearance_map(const Occ& occ, int max_radius, int connectivity 
     std::vector<int> dist(static_cast<size_t>(N), max_radius);
     if (max_radius == 0) {
         for (long long idx = 0; idx < N; ++idx)
-            if (occ.is_blocked(occ.unlin(static_cast<int>(idx)))) dist[static_cast<size_t>(idx)] = 0;
+            if (occ.is_blocked(occ.unlin(idx))) dist[static_cast<size_t>(idx)] = 0;   // A4: 64비트 idx 직접(narrowing 제거).
         return dist;
     }
 
     // 다중소스 BFS: 장애물(dist=0)에서 출발해 연결성 이웃으로 +1 씩 확장(max_radius 상한).
     std::deque<Cell> q;
     for (long long idx = 0; idx < N; ++idx) {
-        Cell c = occ.unlin(static_cast<int>(idx));
+        Cell c = occ.unlin(idx);   // A4: long long idx 직접 전달(int 캐스팅 narrowing 제거).
         if (occ.is_blocked(c)) {
             dist[static_cast<size_t>(idx)] = 0;
             q.push_back(c);

@@ -29,10 +29,14 @@ namespace Routing3D.Viewer.Diagnostics
             sb.AppendLine($"grid {g.Nx}x{g.Ny}x{g.Nz} cell={g.CellMm} origin=({g.Ox:0},{g.Oy:0},{g.Oz:0})");
             sb.AppendLine($"obstacles={sd.Obstacles.Count} (passthrough {passN}) equipment={sd.Equipment.Count} ducts={sd.DuctsLaterals.Count} tasks={sd.Tasks.Count}");
 
+            // 'ALL'=전체 · 유틸명(ACID 등)=그 유틸 · 그룹명(Exhaust 등)=그 그룹 전체(GUI '이 그룹 전체 라우팅' 미러).
+            //   유틸 매칭이 0건이면 그룹명으로 폴백 매칭해 GUI 그룹 배치(마킹 맥락 동일)를 헤드리스에서 재현한다.
             var rows = string.Equals(utility, "ALL", StringComparison.OrdinalIgnoreCase)
                 ? sd.Tasks.ToList()
                 : sd.Tasks.Where(t => string.Equals(t.Utility, utility, StringComparison.OrdinalIgnoreCase)).ToList();
-            sb.AppendLine($"utility '{utility}': {rows.Count} tasks");
+            if (rows.Count == 0 && !string.Equals(utility, "ALL", StringComparison.OrdinalIgnoreCase))
+                rows = sd.Tasks.Where(t => string.Equals(t.Group, utility, StringComparison.OrdinalIgnoreCase)).ToList();
+            sb.AppendLine($"scope '{utility}': {rows.Count} tasks");
             if (rows.Count > 0)
             {
                 var t0 = rows[0];
@@ -59,6 +63,122 @@ namespace Routing3D.Viewer.Diagnostics
             return sb.ToString();
         }
 
+        // ── 다단 랙(z-레벨) 구조 추출 분석 ──────────────────────────────────
+        // [실행] Routing3D.Viewer.exe --racktiers <projectId> <cellMm> <outPath>
+        // 기존설계(사람 설계) 배관의 '수평 런 z-고도'를 런 길이 가중으로 히스토그램→클러스터링해 실제 랙
+        // 단(tier) 구조를 뽑는다. ① 전역 단 목록(z·총런·배관수·점유%) ② 그룹→지배단 매핑 ③ 깨끗한 다단인지
+        // 판정. 자동설계의 BuildGroupTierZ(휴리스틱 push-up)를 '학습된 실단'으로 교체할 수 있는지 검증용.
+        public static string RunRackTiers(int projectId, double cellMm)
+        {
+            var sb = new StringBuilder();
+            var cfg = DbConfig.FromEnv();
+            SceneData sd;
+            try { sd = ObstacleDbLoader.LoadScene(cfg, projectId, cellMm); }
+            catch (Exception ex) { return "LOAD ERROR: " + ex; }
+
+            var g = sd.Grid; double cell = g.CellMm;
+            sb.AppendLine($"grid {g.Nx}x{g.Ny}x{g.Nz} cell={g.CellMm} origin=({g.Ox:0},{g.Oy:0},{g.Oz:0})");
+            sb.AppendLine($"기존배관 {sd.ExistingPipes.Count}개 — 수평 런 z-고도(랙 단) 추출");
+            sb.AppendLine();
+            if (sd.ExistingPipes.Count == 0) { sb.AppendLine("기존배관 없음 — 추출 불가(이 그룹은 다단 학습 비대상)."); return sb.ToString(); }
+
+            const double MinRunMm = 800.0, HorizTol = 0.34;
+            // 전역/그룹별 z-셀 히스토그램(런 길이 mm 가중) + z-셀별 배관 수.
+            var globalZ = new Dictionary<int, double>();
+            var globalZpipes = new Dictionary<int, HashSet<string>>();
+            var groupZ = new Dictionary<string, Dictionary<int, double>>(StringComparer.OrdinalIgnoreCase);
+            int pIdx = 0;
+            foreach (var pipe in sd.ExistingPipes)
+            {
+                pIdx++;
+                if (pipe.Points.Count < 2) continue;
+                string grp = string.IsNullOrEmpty(pipe.Group) ? "?" : pipe.Group!;
+                if (!groupZ.TryGetValue(grp, out var gz)) groupZ[grp] = gz = new Dictionary<int, double>();
+                string pkey = pipe.RoutePathGuid ?? ("p" + pIdx);
+                for (int i = 1; i < pipe.Points.Count; i++)
+                {
+                    var a = pipe.Points[i - 1]; var b = pipe.Points[i];
+                    double horiz = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+                    if (horiz <= 1e-6 || Math.Abs(b.Z - a.Z) > HorizTol * horiz) continue;   // 수평 런만.
+                    double len = Math.Sqrt(horiz * horiz + (b.Z - a.Z) * (b.Z - a.Z));
+                    if (len < MinRunMm) continue;
+                    int zk = (int)Math.Floor(((a.Z + b.Z) / 2 - g.Oz) / cell);
+                    if (zk < 0 || zk >= g.Nz) continue;
+                    globalZ[zk] = (globalZ.TryGetValue(zk, out var v) ? v : 0) + len;
+                    gz[zk] = (gz.TryGetValue(zk, out var v2) ? v2 : 0) + len;
+                    if (!globalZpipes.TryGetValue(zk, out var set)) globalZpipes[zk] = set = new HashSet<string>();
+                    set.Add(pkey);
+                }
+            }
+            if (globalZ.Count == 0) { sb.AppendLine($"수평 런(≥{MinRunMm:0}mm) 없음 — 단 구조 추출 불가."); return sb.ToString(); }
+
+            // 인접 z-셀(gap 이내)을 한 단으로 병합 → 가중 중심고도. gap=약 250mm 까지 같은 단.
+            int gapCells = Math.Max(1, (int)Math.Round(250.0 / cell));
+            List<(double zmm, double w, int lo, int hi, int pipes)> Cluster(Dictionary<int, double> zmap)
+            {
+                var res = new List<(double, double, int, int, int)>();
+                if (zmap.Count == 0) return res;
+                var keys = zmap.Keys.OrderBy(k => k).ToList();
+                int lo = keys[0], hi = keys[0]; double wsum = zmap[keys[0]], zsum = zmap[keys[0]] * (double)keys[0];
+                void Flush()
+                {
+                    var pipeSet = new HashSet<string>();
+                    for (int z = lo; z <= hi; z++) if (globalZpipes.TryGetValue(z, out var s)) pipeSet.UnionWith(s);
+                    res.Add((g.Oz + (zsum / wsum + 0.5) * cell, wsum, lo, hi, pipeSet.Count));
+                }
+                for (int i = 1; i < keys.Count; i++)
+                {
+                    if (keys[i] - hi <= gapCells) { hi = keys[i]; wsum += zmap[keys[i]]; zsum += zmap[keys[i]] * (double)keys[i]; }
+                    else { Flush(); lo = hi = keys[i]; wsum = zmap[keys[i]]; zsum = zmap[keys[i]] * (double)keys[i]; }
+                }
+                Flush();
+                return res;
+            }
+
+            // ① 전역 단(런 길이 큰 순).
+            var tiers = Cluster(globalZ).OrderByDescending(t => t.w).ToList();
+            double totW = tiers.Sum(t => t.w);
+            sb.AppendLine($"== 전역 랙 단(tier) {tiers.Count}개 (병합 gap={gapCells}셀, 총 수평런 {totW:N0}mm) ==");
+            int tno = 0;
+            foreach (var t in tiers)
+                sb.AppendLine($"  단{++tno}: z≈{t.zmm:0}mm (셀 {t.lo}~{t.hi}) · 런 {t.w:N0}mm ({t.w * 100.0 / totW:0.0}%) · 배관 {t.pipes}개");
+            // 유의미 단 = 점유 ≥ 5%.
+            var bigTiers = tiers.Where(t => t.w >= 0.05 * totW).ToList();
+            sb.AppendLine($"  → 유의미 단(≥5%): {bigTiers.Count}개  [{string.Join(", ", bigTiers.Select(t => $"{t.zmm:0}"))}]mm");
+            sb.AppendLine();
+
+            // ② 그룹 → 지배 단 매핑. 각 그룹의 최대 가중 단을 전역 단에 스냅.
+            sb.AppendLine($"== 그룹 → 지배 랙 단 ({groupZ.Count}그룹) ==");
+            int NearestTier(double zmm) { int bi = 0; double bd = double.MaxValue; for (int i = 0; i < tiers.Count; i++) { double d = Math.Abs(tiers[i].zmm - zmm); if (d < bd) { bd = d; bi = i; } } return bi; }
+            var groupTier = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in groupZ.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var gt = Cluster(kv.Value).OrderByDescending(t => t.w).ToList();
+                if (gt.Count == 0) { sb.AppendLine($"  {kv.Key}: (수평런 없음)"); continue; }
+                double gTot = gt.Sum(t => t.w);
+                var dom = gt[0];
+                int ti = NearestTier(dom.zmm);
+                groupTier[kv.Key] = ti;
+                string others = gt.Count > 1
+                    ? "  | 보조: " + string.Join(", ", gt.Skip(1).Take(3).Select(t => $"{t.zmm:0}mm({t.w * 100.0 / gTot:0}%)"))
+                    : "";
+                sb.AppendLine($"  {kv.Key,-14}→ 단{ti + 1} z≈{dom.zmm:0}mm (그룹내 {dom.w * 100.0 / gTot:0.0}%){others}");
+            }
+            sb.AppendLine();
+
+            // ③ 판정 — 다단 구조가 깨끗한가(그룹들이 서로 다른 단에 분산되는가).
+            int distinctUsed = groupTier.Values.Distinct().Count();
+            sb.AppendLine("== 판정 ==");
+            sb.AppendLine($"  유의미 단 {bigTiers.Count}개 · 그룹이 점유한 단 {distinctUsed}개 / 전체 그룹 {groupTier.Count}개");
+            if (bigTiers.Count >= 2 && distinctUsed >= 2)
+                sb.AppendLine("  ✅ 깨끗한 다단 구조 — 그룹별로 다른 z-단에 배치됨. 추출→자동설계 적용 권장(BuildGroupTierZ 를 학습 실단으로 교체).");
+            else if (bigTiers.Count >= 2 && distinctUsed < 2)
+                sb.AppendLine("  ⚠ 단은 여러 개지만 그룹들이 같은 단에 몰림 — 그룹 간 z-분리는 약함(그룹 내 다발 분리가 핵심).");
+            else
+                sb.AppendLine("  ⚠ 단일 평면 설계 — 사람설계도 한 높이로 수렴. z-분리 전략 효과 제한적(cell≤pitch/2 로 그룹 내 패킹 우선).");
+            return sb.ToString();
+        }
+
         static string Try(SceneData sd, List<TaskInfo> rows, bool fac, bool drop,
                           double wClear, string mode, string label, PatternStore? patterns = null,
                           BundleStore? bundles = null, int factor = 6, int radius = 2)
@@ -68,6 +188,8 @@ namespace Routing3D.Viewer.Diagnostics
             int[]? rackLevels = null;   // L3a 랙 z-셀(측정에 재사용 위해 try 밖 선언).
             int stubMatched = 0;        // 스텁 라우팅으로 처리된 작업 수(매칭 배관 있는 것).
             int corrCells = 0;          // 주입된 회랑 셀 수(번들/L2b). 0=회랑 미적용.
+            var aEnds = new List<(double sx, double sy, double sz, double gx, double gy, double gz)>();  // 작업별 실제 A* 시작/목표(스텁 끝/스냅).
+            var stubDump = new Dictionary<int, (List<Pt3> ss, List<Pt3> es)>();  // R3D_STUBDUMP — 행별 출발/종단 스텁(렌더 폴리라인 재구성·꺾임 분류용).
             double wCorrUsed = 0;       // 적용된 w_corridor(셀당 회랑 밖 가산).
             Engine eng;
             try
@@ -258,8 +380,10 @@ namespace Routing3D.Viewer.Diagnostics
                 // 스텁 라우팅(GUI UseStubRouting 미러) — R3D_STUB=on 이면 매칭 기존배관 스텁 끝~끝으로 A*.
                 bool useStub = string.Equals(Environment.GetEnvironmentVariable("R3D_STUB"), "on",
                                              StringComparison.OrdinalIgnoreCase);
+                int ri = -1;
                 foreach (var t in rows)
                 {
+                    ri++;
                     if (useStub)
                     {
                         var pipe = MatchPipe(sd, t, cell);
@@ -277,7 +401,22 @@ namespace Routing3D.Viewer.Diagnostics
                                 var se = ss[ss.Count - 1]; var ee = es[es.Count - 1];
                                 var (bx, by, bz) = SnapFree(se.X, se.Y, se.Z, null);
                                 var (cx, cy, cz) = SnapFree(ee.X, ee.Y, ee.Z, null);
-                                eng.AddTask(bx, by, bz, cx, cy, cz, t.Utility, t.Group);
+                                int sti = eng.AddTask(bx, by, bz, cx, cy, cz, t.Utility, t.Group);
+                                eng.SetTaskDiameter(sti, pipe.DiameterMm);   // 굵은 배관 먼저 정렬.
+                                // 목표 진입축 제약(GUI 미러) — 실측 무효라 기본 OFF. R3D_GOALDIR=on 일 때만(A/B 실험).
+                                bool useGoalDir = string.Equals(Environment.GetEnvironmentVariable("R3D_GOALDIR"), "on",
+                                                                StringComparison.OrdinalIgnoreCase);
+                                if (useGoalDir && es.Count >= 2)
+                                {
+                                    var ep = es[es.Count - 2];
+                                    int gd = StubExtractor.AxisSnap(ep.X - ee.X, ep.Y - ee.Y, ep.Z - ee.Z);
+                                    if (gd / 2 != 2) eng.SetTaskGoalDir(sti, gd);   // 수평 리드인(x/y)만.
+                                }
+                                aEnds.Add((bx, by, bz, cx, cy, cz));
+                                // 렌더 폴리라인 재구성용 — GUI 처럼 스텁 첫 점을 작업 PoC 로 고정(표시 일치).
+                                var ssR = new List<Pt3>(ss); ssR[0] = new Pt3(t.Sx, t.Sy, t.Sz);
+                                var esR = new List<Pt3>(es); esR[0] = new Pt3(t.Gx, t.Gy, t.Gz);
+                                stubDump[ri] = (ssR, esR);
                                 stubMatched++;
                                 continue;   // 스텁 끝~끝으로 A* — PoC 직접 라우팅 분기 스킵.
                             }
@@ -298,7 +437,9 @@ namespace Routing3D.Viewer.Diagnostics
                     string? ductFace = DuctFace(t);   // L3b ANN(다중면 키) 또는 집계 폴백.
                     var (gx, gy, gz) = Lift(t.Gx, t.Gy, t.Gz, ductFace);
                     (gx, gy, gz) = SnapFree(gx, gy, gz, ductFace);
-                    eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
+                    int pti = eng.AddTask(sx, sy, sz, gx, gy, gz, t.Utility, t.Group);
+                    eng.SetTaskDiameter(pti, MatchPipe(sd, t, cell)?.DiameterMm ?? 0);   // 굵은 배관 먼저 정렬.
+                    aEnds.Add((sx, sy, sz, gx, gy, gz));
                 }
 
                 // 회랑 시드 주입(w_corridor>0 일 때 효력): L2b(매칭, useCorr) + 번들 공용 트렁크(bundles) 합집합.
@@ -342,14 +483,26 @@ namespace Routing3D.Viewer.Diagnostics
             }
             catch (Exception ex) { return $"{label}: BUILD-EXCEPTION {ex.Message}"; }
 
+            // 실데이터 회귀 골든(D1) 픽스처 동결 — env R3D_EXPORT_SCENE=<path> 면 라우팅 직전 엔진 씬(장애물+설비
+            //   +스텁 종단점 작업)을 scene.txt 로 덤프한다. DB 비의존 재현 → cpp/tests 의 test_realdata 골든에 쓴다.
+            if (Environment.GetEnvironmentVariable("R3D_EXPORT_SCENE") is string expPath && !string.IsNullOrEmpty(expPath))
+            {
+                try { System.IO.File.WriteAllText(expPath, eng.DumpSceneText(), new System.Text.UTF8Encoding(false)); }
+                catch (Exception ex2) { eng.Dispose(); return $"{label}: EXPORT-EXCEPTION {ex2.Message}"; }
+            }
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int cbCount = 0, cbFail = 0;  // 진행 콜백 검증(다이얼로그와 동일 경로).
             var failExp = new List<long>();  // 실패 배관의 확장수(상한 도달=12M 근처 / 막힘=작은 값 구분).
             try
             {
+                // 우선순위 — 기본 "diameter"(굵은 배관 먼저, 굵은 배관이 최단 경로 선점 → 가는 배관이 우회·충돌 안 함).
+                //   env R3D_PRIORITY 로 A/B 비교(longest|shortest|utility|original|diameter).
+                string prio = System.Environment.GetEnvironmentVariable("R3D_PRIORITY");
+                if (string.IsNullOrEmpty(prio)) prio = "diameter";
                 if (mode == "multi")
-                    eng.RouteMultiProgress("longest", p => { if (p.Phase == 1) { cbCount++; if (!p.Success) { cbFail++; failExp.Add(p.ExpandedNodes); } } });
-                else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, "longest", 0);
+                    eng.RouteMultiProgress(prio, p => { if (p.Phase == 1) { cbCount++; if (!p.Success) { cbFail++; failExp.Add(p.ExpandedNodes); } } });
+                else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, prio, 0);
                 else eng.RouteCorridor(factor, radius);
             }
             catch (Exception ex) { eng.Dispose(); return $"{label}: ROUTE-EXCEPTION {ex.Message}"; }
@@ -359,13 +512,21 @@ namespace Routing3D.Viewer.Diagnostics
             // 랙 집중도(L3a) — 성공 경로의 수평 이동 셀 중 학습된 랙 z-셀에 놓인 비율. 번들링 강화 시 증가.
             var rackSet = rackLevels != null ? new HashSet<int>(rackLevels) : null;
             long horizCells = 0, rackCells = 0;
+            var failRows = new List<string>();   // 실패 배관별: 행#·유틸·확장수(12M 근접=상한·작은 값=차단 구분).
+            var succExp = new List<(long exp, int idx, string? u)>();  // 성공 배관 확장수(폴백 예산 튜닝용 분포).
+            var detours = new List<(double pct, int idx, string? u, double len, double man)>();  // 우회율(A*길이/PoC맨해튼).
+            var pathCache = new Dictionary<int, PathCell[]>();  // 진단용 경로 캐시(eng 해제 후 꺾임점 출력).
             for (int i = 0; i < rows.Count; i++)
             {
                 try
                 {
                     var r = eng.GetResult(i);
-                    if (!r.Success) continue;
+                    if (!r.Success) { failRows.Add($"#{i}({rows[i].Utility}) exp={r.ExpandedNodes:N0}"); continue; }
                     ok++; tot += r.LengthMm; totTurns += r.Turns;
+                    succExp.Add((r.ExpandedNodes, i, rows[i].Utility));
+                    if (r.Path.Length > 0) pathCache[i] = r.Path;
+                    double man137 = Math.Abs(rows[i].Gx - rows[i].Sx) + Math.Abs(rows[i].Gy - rows[i].Sy) + Math.Abs(rows[i].Gz - rows[i].Sz);
+                    if (man137 > 1) detours.Add(((r.LengthMm / man137 - 1.0) * 100.0, i, rows[i].Utility, r.LengthMm, man137));
                     if (rackSet != null)
                         for (int p = 1; p < r.Path.Length; p++)
                         {
@@ -555,7 +716,93 @@ namespace Routing3D.Viewer.Diagnostics
             string stub = stubMatched > 0 ? $" [stub {stubMatched}/{rows.Count}]" : "";
             string corr = corrCells > 0 ? $" corridor={corrCells}셀 wCorr={wCorrUsed:0}" : "";
             string nr = nearPct >= 0 ? $" 번들밀집={nearPct:0.0}%" : "";
-            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}{replic}{gcorn}";
+            string fr = failRows.Count > 0 ? $"\n  실패행: {string.Join(" · ", failRows)}" : "";
+            // 폴백 예산 튜닝: 확장수 많은(>300k) 성공 배관 상위 — 이 최대값 위로 폴백 예산을 잡아야 회귀 0.
+            var pricey = succExp.Where(e => e.exp > 300_000).OrderByDescending(e => e.exp).Take(15).ToList();
+            string priceyStr = pricey.Count > 0
+                ? $"\n  비싼성공(>300k, {succExp.Count(e => e.exp > 300_000)}개): "
+                  + string.Join(" · ", pricey.Select(e => $"#{e.idx}({e.u}) {e.exp:N0}"))
+                : "";
+            // 최악 우회 top8 — A* 길이 vs PoC맨해튼 vs A*끝점맨해튼(=스텁 끝 사이). idx=Exhaust 스코프 내 순번.
+            //   len≫aMan 이면 A* 비최적(가중/막힘), aMan≫poc 이면 스텁이 끝점을 멀리 밀어냄(스텁 형상 문제).
+            var worst = detours.OrderByDescending(d => d.pct).Take(8).ToList();
+            string AMan(int i) => i < aEnds.Count
+                ? (Math.Abs(aEnds[i].gx - aEnds[i].sx) + Math.Abs(aEnds[i].gy - aEnds[i].sy) + Math.Abs(aEnds[i].gz - aEnds[i].sz)).ToString("0")
+                : "?";
+            string worstStr = worst.Count > 0
+                ? "\n  최악우회(top8) [len/poc/astar]: " + string.Join(" · ",
+                    worst.Select(d => $"#{d.idx}({d.u}) {d.pct:0}%[{d.len:0}/{d.man:0}/{AMan(d.idx)}]"))
+                : "";
+            // 최악 1건 상세 — PoC·A*끝점·경로 bbox(어디로 돌아가는지 좌표로 확인).
+            if (worst.Count > 0)
+            {
+                int wi = worst[0].idx; var wt = rows[wi];
+                string corners = "?";
+                try
+                {
+                    if (pathCache.TryGetValue(wi, out var P) && P.Length > 0)
+                    {
+                        // 방향전환(꺾임) 셀만 골라 월드좌표로 — 경로 모양(어디로 돌아가는지).
+                        var pts = new List<string>();
+                        string W(int q) => $"({g.Ox + (P[q].I + 0.5) * cell:0},{g.Oy + (P[q].J + 0.5) * cell:0},{g.Oz + (P[q].K + 0.5) * cell:0})";
+                        pts.Add(W(0));
+                        for (int q = 1; q < P.Length - 1; q++)
+                        {
+                            int d1i = Math.Sign(P[q].I - P[q - 1].I), d1j = Math.Sign(P[q].J - P[q - 1].J), d1k = Math.Sign(P[q].K - P[q - 1].K);
+                            int d2i = Math.Sign(P[q + 1].I - P[q].I), d2j = Math.Sign(P[q + 1].J - P[q].J), d2k = Math.Sign(P[q + 1].K - P[q].K);
+                            if (d1i != d2i || d1j != d2j || d1k != d2k) pts.Add(W(q));
+                        }
+                        pts.Add(W(P.Length - 1));
+                        corners = string.Join(" → ", pts);
+                    }
+                }
+                catch (Exception ex2) { corners = "ERR " + ex2.Message; }
+                var ae = wi < aEnds.Count ? aEnds[wi] : default;
+                worstStr += $"\n  최악#{wi} 상세: PoC start=({wt.Sx:0},{wt.Sy:0},{wt.Sz:0}) end=({wt.Gx:0},{wt.Gy:0},{wt.Gz:0})"
+                          + $"\n    A* start=({ae.sx:0},{ae.sy:0},{ae.sz:0}) goal=({ae.gx:0},{ae.gy:0},{ae.gz:0})"
+                          + $"\n    경로 꺾임점: {corners}";
+            }
+
+            // STUBDUMP — 렌더 폴리라인([스텁]+[A*]+[스텁]) 전체 꺾임을 구간별로 분류(스텁 자체/접속부/A*).
+            //   화면에 보이는 '심한 꺾임'이 어디서 오는지 정량화: turns 지표는 A* 만 세므로 스텁·접속부가 누락된다.
+            string stubDumpStr = "";
+            if (string.Equals(Environment.GetEnvironmentVariable("R3D_STUBDUMP"), "on", StringComparison.OrdinalIgnoreCase)
+                && stubDump.Count > 0)
+            {
+                var sbd = new StringBuilder();
+                int shown = 0, agS = 0, agSA = 0, agA = 0, agAE = 0, agE = 0, agN = 0;
+                static int AxOf(Pt3 a, Pt3 b)
+                { double dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y), dz = Math.Abs(b.Z - a.Z); return dx >= dy && dx >= dz ? 0 : (dy >= dz ? 1 : 2); }
+                foreach (var kv in stubDump.OrderBy(k => k.Key))
+                {
+                    int idx = kv.Key;
+                    if (!pathCache.TryGetValue(idx, out var P) || P.Length == 0) continue;
+                    var (ss, es) = kv.Value;
+                    var poly = new List<Pt3>();
+                    void Add(Pt3 p) { if (poly.Count == 0 || Math.Abs(poly[poly.Count - 1].X - p.X) + Math.Abs(poly[poly.Count - 1].Y - p.Y) + Math.Abs(poly[poly.Count - 1].Z - p.Z) > 1.0) poly.Add(p); }
+                    foreach (var p in ss) Add(p);
+                    int sEnd = poly.Count - 1;                       // 출발 스텁 끝(렌더 인덱스).
+                    foreach (var c in P) Add(new Pt3(g.Ox + (c.I + 0.5) * cell, g.Oy + (c.J + 0.5) * cell, g.Oz + (c.K + 0.5) * cell));
+                    int aEnd = poly.Count - 1;                       // A* 끝(=종단 스텁 끝 직전).
+                    for (int q = es.Count - 1; q >= 0; q--) Add(es[q]);
+                    int bS = 0, bSA = 0, bA = 0, bAE = 0, bE = 0;
+                    for (int v = 1; v < poly.Count - 1; v++)
+                    {
+                        if (AxOf(poly[v - 1], poly[v]) == AxOf(poly[v], poly[v + 1])) continue;
+                        if (v < sEnd) bS++; else if (v == sEnd) bSA++;
+                        else if (v < aEnd) bA++; else if (v == aEnd) bAE++; else bE++;
+                    }
+                    agS += bS; agSA += bSA; agA += bA; agAE += bAE; agE += bE; agN++;
+                    if (shown < 8)
+                    {
+                        sbd.Append($"\n  #{idx}({rows[idx].Utility}) 렌더꺾임 {bS + bSA + bA + bAE + bE} [스텁S {bS}·접속SA {bSA}·A* {bA}·접속AE {bAE}·스텁E {bE}] 점{poly.Count}(s{ss.Count}+a{P.Length}+e{es.Count})");
+                        shown++;
+                    }
+                }
+                if (agN > 0)
+                    stubDumpStr = $"\n  [STUBDUMP 렌더꺾임 평균/{agN}배관] 스텁S {(double)agS / agN:0.0}·접속SA {(double)agSA / agN:0.0}·A* {(double)agA / agN:0.0}·접속AE {(double)agAE / agN:0.0}·스텁E {(double)agE / agN:0.0} = 합 {(double)(agS + agSA + agA + agAE + agE) / agN:0.0}/배관" + sbd.ToString();
+            }
+            return $"{label}: success {ok}/{rows.Count} totalLen {tot:0} turns {totTurns} ({sw.ElapsedMilliseconds} ms){cb}{fe}{rk}{stub}{corr}{nr}{replic}{gcorn}{fr}{priceyStr}{worstStr}{stubDumpStr}";
         }
 
         // 유틸그룹 랙 번들링(L3a) — rows 의 그룹에 속한 기존배관 수평 런의 z-셀(랙 높이)을 학습.

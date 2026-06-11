@@ -10,6 +10,9 @@ namespace Routing3D.Viewer.Interop
     /// <summary>경로 셀 (i, j, k).</summary>
     public readonly record struct PathCell(int I, int J, int K);
 
+    /// <summary>라우팅 실패 사유(A1) — 엔진 RouteFail 과 1:1. Success=false 일 때만 의미.</summary>
+    public enum RouteFail { None = 0, StartBlocked = 1, GoalBlocked = 2, CorridorMiss = 3, ExpansionLimit = 4, GoalDirBlocked = 5, NoPath = 6 }
+
     /// <summary>한 작업의 라우팅 결과(성공/길이/회전/경로/방문 셀).</summary>
     public sealed class RouteResult
     {
@@ -18,6 +21,8 @@ namespace Routing3D.Viewer.Interop
         public double CostMm { get; init; }
         public int Turns { get; init; }
         public long ExpandedNodes { get; init; }
+        /// <summary>실패 사유(A1). 성공 시 None. UI 실패 진단(ExplainFailure)에서 정확 분류.</summary>
+        public RouteFail Fail { get; init; }
         public PathCell[] Path { get; init; } = Array.Empty<PathCell>();
         /// <summary>이 작업의 A* 가 확장한 셀(가시화 '방문맵'). 엔진의 collect_visited 가 ON 일 때만.</summary>
         public PathCell[] Visited { get; init; } = Array.Empty<PathCell>();
@@ -61,6 +66,29 @@ namespace Routing3D.Viewer.Interop
             Check(Native.r3d_set_params(H, in p), "set_params");
         }
 
+        /// <summary>배관 점유 팽창 반경(셀) 설정 — 배관-배관 충돌 회피(옵션1). route_multi(_progress) 가
+        /// 깔린 배관을 경로 ±radius 6-이웃까지 점유로 막아 다음 배관 중심선을 띄운다(실제 관경 렌더 시 표면
+        /// 겹침 방지). 0=기존 동작(경로 셀만). 관경/셀 기반 산출은 호출자(BuildEngineForRows)가 수행한다.</summary>
+        public void SetPipeRadius(int radiusCells)
+            => Check(Native.r3d_set_pipe_radius(H, radiusCells), "set_pipe_radius");
+
+        /// <summary>per-task 관경 반경(B1) 활성화 — ON 이면 route_multi 가 각 배관 diameter_mm 로 마킹 반경을
+        /// 자동 산출(글로벌 SetPipeRadius 책임 제거·가는 배관 과패킹 해소). 관경 미상은 글로벌 폴백.</summary>
+        public void SetPerTaskRadius(bool on)
+            => Check(Native.r3d_set_per_task_radius(H, on ? 1 : 0), "set_per_task_radius");
+
+        /// <summary>C1 negotiated-congestion(CBS-lite, Phase C) 깊이 — 0=OFF(평면 rip-up만·기존 동작).
+        /// >0 이면 평면 rip-up 으로도 안 풀린 실패 배관을 blocker 의 blocker 까지 재귀 양보시켜 해소(무손실·
+        /// 결정적). [0,3] 클램프(엔진). 고밀도 병목의 잔여 실패를 줄인다.</summary>
+        public void SetCbsDepth(int depth)
+            => Check(Native.r3d_set_cbs_depth(H, depth), "set_cbs_depth");
+
+        /// <summary>C2 코너 최소반경 배수(Phase C) — 엘보 사이 직선(런) ≥ (mult × 관경) 보장(제작성).
+        /// 경로(셀) 단계에서 충돌검사 하에 짧은 단관을 흡수(꺾임 비증가일 때만, 양 끝점 고정). 0=OFF(기존
+        /// 동작). 권장 2.0. PathRectifier(렌더 레벨, 되돌림)와 달리 충돌 안전.</summary>
+        public void SetMinStraight(double mult)
+            => Check(Native.r3d_set_min_straight(H, mult), "set_min_straight");
+
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
 
@@ -78,6 +106,17 @@ namespace Routing3D.Viewer.Interop
 
         public void SetTaskEndpoints(int task, double sx, double sy, double sz, double gx, double gy, double gz)
             => Check(Native.r3d_set_task_endpoints(H, task, sx, sy, sz, gx, gy, gz), "set_task_endpoints");
+
+        /// <summary>작업 관경(mm) 설정 — 우선순위 "diameter"/"utility" 정렬에서 '굵은 배관 먼저' 키.
+        /// 0=관경 무시(기존 거리 정렬과 동일). 굵은 배관이 최단 경로를 선점해 가는 배관이 우회·충돌하지 않게 한다.</summary>
+        public void SetTaskDiameter(int task, double diameterMm)
+            => Check(Native.r3d_set_task_diameter(H, task, diameterMm), "set_task_diameter");
+
+        /// <summary>작업 목표 진입축 제약 — A* 가 목표(end)에 axis(0..5 = +x,-x,+y,-y,+z,-z) 방향으로 진입할
+        /// 때만 도달 인정. 덕트 종단 스텁 리드인 축을 주면 배관이 스텁에 일직선 진입(군더더기 꺾임 제거).
+        /// -1=무제약(기본). 제약으로 막히면 엔진이 무제약 1회 폴백(연결 우선).</summary>
+        public void SetTaskGoalDir(int task, int axis)
+            => Check(Native.r3d_set_task_goal_dir(H, task, axis), "set_task_goal_dir");
 
         // ---- 라우팅 ----
         public void RouteMulti(string priority = "longest")
@@ -161,6 +200,7 @@ namespace Routing3D.Viewer.Interop
                 CostMm = r.cost_mm,
                 Turns = r.turns,
                 ExpandedNodes = r.expanded_nodes,
+                Fail = (RouteFail)r.fail_reason,
                 Path = path,
                 Visited = visited,
             };

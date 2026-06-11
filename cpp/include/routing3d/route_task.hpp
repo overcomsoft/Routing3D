@@ -26,6 +26,14 @@ struct RouteTask {
     std::optional<std::string> start_name;         // 시작 PoC 이름.
     std::optional<std::string> end_name;           // 끝 PoC 이름.
     std::optional<std::string> end_instance_guid;  // 끝 객체 GUID.
+    // 배관 관경(mm) — 우선순위 "diameter"(굵은 배관 먼저)·"utility"(유틸 내 굵은 배관 먼저) 정렬 키.
+    // scene.txt 에는 직렬화하지 않는다(F2 무손실 왕복 불변). 0=미상(관경 무시, 기존 거리 정렬과 동일).
+    double diameter_mm = 0.0;
+
+    // 목표 진입축 제약 — A* 가 end_mm(목표)에 '이 6직교 방향(NEIGHBORS_6 인덱스 0..5 = +x,-x,+y,-y,+z,-z)
+    // 으로 이동해 도달할 때만' 목표로 인정한다. 덕트 종단 스텁의 리드인 축과 같은 값을 주면 배관이 스텁에
+    // 일직선으로 진입한다(접속부 군더더기 꺾임 제거). -1=무제약(기본, 기존 동작·골든 불변). scene.txt 미직렬화.
+    int goal_dir = -1;
 
     // 유틸리티 라벨 = "[그룹] 유틸" (예: "[Water] NW"). priority="utility" 그룹핑/정렬 키.
     // Python `group or '?'` 의미를 따른다: None **또는 빈 문자열**이면 '?'.

@@ -27,6 +27,18 @@
 
 namespace routing3d {
 
+// 라우팅 실패 사유(A1) — success=false 일 때 '왜' 실패했는지 분류. 디버깅/제품 UI(C# ExplainFailure)·
+// 진단 골든에 쓴다. 성공이면 None. 값은 C ABI(R3dResult.fail_reason)·C# 으로 그대로 전달된다.
+enum class RouteFail : int {
+    None = 0,           // 성공(또는 미시도).
+    StartBlocked = 1,   // 시작 셀이 막힘(장애물/격자 밖).
+    GoalBlocked = 2,    // 목표 셀이 막힘.
+    CorridorMiss = 3,   // 시작/목표가 하드 corridor(튜브) 밖.
+    ExpansionLimit = 4, // 확장 상한 도달(거대격자 어려운 배관/사실상 막힘).
+    GoalDirBlocked = 5, // 목표엔 닿았으나 요구된 진입축(goal_dir)으로 못 들어감.
+    NoPath = 6,         // 탐색 고갈(연결 경로 없음 = 국소 차단).
+};
+
 struct AStarResult {
     bool success = false;
     std::vector<Cell> path;        // [start..goal], 실패 시 비어 있음
@@ -35,6 +47,7 @@ struct AStarResult {
     long long expanded_nodes = 0;  // 확장한 노드(상태) 수
     double cost_mm = 0.0;          // 페널티 포함 총 비용(균일이면 length 와 동일)
     double elapsed_ms = 0.0;
+    RouteFail fail = RouteFail::None;  // 실패 사유(A1) — success=false 일 때만 의미. 성공=None.
     // 방문(확장) 셀 목록 — collect_visited=true 일 때만 채워진다(셀 단위 중복 제거).
     // 가시화(방문맵 레이어, scene.txt [visited] 섹션) 용도. 길이 = 고유 expanded 셀 수.
     std::vector<Cell> visited;
@@ -171,15 +184,17 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
                            long long max_expansions = -1, bool collect_visited = false,
                            const std::unordered_set<long long>* corridor = nullptr,
                            const std::function<bool(long long, double)>* on_progress = nullptr,
-                           long long progress_every = 0, InCorridor in_corridor = {}) {
+                           long long progress_every = 0, InCorridor in_corridor = {},
+                           int goal_dir = -1) {
     auto t0 = detail::Clock::now();
     AStarResult R;
     const double cell_mm = params.cell_mm;
 
-    if (occ.is_blocked(start) || occ.is_blocked(goal)) { R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (occ.is_blocked(start)) { R.fail = RouteFail::StartBlocked; R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (occ.is_blocked(goal)) { R.fail = RouteFail::GoalBlocked; R.elapsed_ms = detail::ms_since(t0); return R; }
     // corridor 술어(하드 제한) — start/goal 이 튜브 밖이면 즉시 실패(호출자가 무제한으로 폴백).
     // 기본 AllowAll 이면 항상 true → 분기 제거(기존 동작·골든 결과 완전 불변).
-    if (!in_corridor(start) || !in_corridor(goal)) { R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (!in_corridor(start) || !in_corridor(goal)) { R.fail = RouteFail::CorridorMiss; R.elapsed_ms = detail::ms_since(t0); return R; }
     if (start == goal) {
         R.success = true; R.path = {start}; R.expanded_nodes = 1; R.elapsed_ms = detail::ms_since(t0);
         return R;
@@ -222,6 +237,8 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     };
     open.push({weighted_h(start), counter++, start, -1});
     long long expanded = 0;
+    bool reached_goal_wrong_dir = false;  // goal_dir 제약 시: 목표엔 닿았으나 진입축 불일치(실패 사유 구분).
+    bool hit_limit = false;               // 확장 상한 도달로 중단(NoPath 와 구분).
 
     while (!open.empty()) {
         detail::PQItem cur = open.top();
@@ -246,7 +263,11 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             }
         }
 
-        if (cur.cell == goal) {
+        // 목표 도달 — goal_dir 제약이 있으면(≥0) '그 방향으로 진입(cur.dir==goal_dir)' 할 때만 인정한다.
+        //   잘못된 방향으로 도달한 goal 상태는 closed 에 박혀도 (goal,올바른방향)은 다른 state 라 계속 탐색됨.
+        //   goal_dir<0(기본)이면 항상 인정 → 기존 동작·골든 불변.
+        if (cur.cell == goal && goal_dir >= 0 && cur.dir != goal_dir) reached_goal_wrong_dir = true;
+        if (cur.cell == goal && (goal_dir < 0 || cur.dir == goal_dir)) {
             std::vector<Cell> path;
             long long s = st;
             path.push_back(occ.unlin(s / 7));  // unlin 은 long long 인자(백엔드 무관, S2).
@@ -266,7 +287,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             R.elapsed_ms = detail::ms_since(t0);
             return R;
         }
-        if (max_expansions > 0 && expanded >= max_expansions) break;
+        if (max_expansions > 0 && expanded >= max_expansions) { hit_limit = true; break; }
 
         const Cell* prev_off = (cur.dir < 0) ? nullptr : &NEIGHBORS_6[static_cast<size_t>(cur.dir)];
         double g_cur = g[st];
@@ -288,6 +309,10 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     }
     R.expanded_nodes = expanded;
     R.elapsed_ms = detail::ms_since(t0);
+    // 실패 사유(A1) — 상한 도달/진입축 막힘/연결 없음 구분.
+    R.fail = hit_limit ? RouteFail::ExpansionLimit
+           : reached_goal_wrong_dir ? RouteFail::GoalDirBlocked
+           : RouteFail::NoPath;
     return R;
 }
 

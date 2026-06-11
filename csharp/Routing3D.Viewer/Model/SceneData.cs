@@ -59,6 +59,10 @@ namespace Routing3D.Viewer.Model
         public string? Utility { get; set; }
         public string? Group { get; set; }
 
+        /// <summary>이 작업이 유래한 기존배관(TB_ROUTE_PATH.ROUTE_PATH_GUID). 세그먼트 상세 조회 키.
+        /// DB 로드 시에만 채워짐(scene.txt 엔 없음 → null).</summary>
+        public string? RoutePathGuid { get; set; }
+
         /// <summary>시작 PoC 이름(POC_LIST.name). DB 로드 시에만 채워짐(scene.txt 엔 없음 → null).</summary>
         public string? PocName { get; set; }
         /// <summary>끝 PoC 이름(POC_LIST.endPocs[].endName). DB 로드 시에만.</summary>
@@ -67,6 +71,31 @@ namespace Routing3D.Viewer.Model
         /// <summary>유틸리티 라벨 "[그룹] 유틸"(None/빈 → ?). Python utility_label 과 동일.</summary>
         public string UtilityLabel =>
             $"[{(string.IsNullOrEmpty(Group) ? "?" : Group)}] {(string.IsNullOrEmpty(Utility) ? "?" : Utility)}";
+    }
+
+    /// <summary>기존배관 한 줄의 세그먼트 상세(TB_ROUTE_SEGMENT_DETAIL) 한 행 — 하단 '세그먼트 상세' 탭 표시용.
+    /// (s.ORDER, sd.ORDER) 정렬 순서의 1-based 일련번호 Seq + 종류/관경/FROM·TO 좌표/연결 소유타입.</summary>
+    public sealed class SegmentDetailRow
+    {
+        public int Seq { get; init; }                      // 정렬 순서(1-based 일련번호).
+        public string Type { get; init; } = string.Empty;  // TYPE (POC/PIPE/ELBOW/…).
+        public string Size { get; init; } = string.Empty;  // SIZE (호칭경).
+
+        // Owner(소유 객체) 정보 — POC 세그먼트는 그 PoC 의 OWNER_INSTANCE_TYPE(DUCT/MODEL/MAIN_EQUIPMENT…),
+        // 시작/종단 POC 는 라우트 헤더의 실제 owner 이름(EQUIPMENT_NAME / TARGET_OWNER_NAME)을 덧붙인다.
+        // PIPE/ELBOW 등 PoC 가 아닌 세그먼트는 "-". 후처리로 채우므로 set 허용.
+        public string Owner { get; set; } = "-";
+
+        // 수치 좌표(mm) — 행 클릭 시 3D 강조·카메라 이동용(표시는 안 함). 유효 플래그로 NULL 좌표 구분.
+        public double Fx { get; init; }
+        public double Fy { get; init; }
+        public double Fz { get; init; }
+        public double Tx { get; init; }
+        public double Ty { get; init; }
+        public double Tz { get; init; }
+        public bool FromValid { get; init; }
+        public bool ToValid { get; init; }
+        public bool HasPos => FromValid || ToValid;
     }
 
     /// <summary>공간 영역(TB_BIM_SPACE_INFO) — 층/구역(CR, A/F, CSF 등) AABB(mm) + 이름.</summary>

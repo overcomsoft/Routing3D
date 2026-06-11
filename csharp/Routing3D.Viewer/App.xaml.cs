@@ -38,6 +38,23 @@ namespace Routing3D.Viewer
                 return;
             }
 
+            // 다단 랙(z-레벨) 구조 추출 분석(헤드리스): --racktiers <projectId> <cellMm> <outPath>
+            int rt = Array.FindIndex(args, a => a == "--racktiers");
+            if (rt >= 0 && rt + 3 < args.Length)
+            {
+                try
+                {
+                    int pid = int.Parse(args[rt + 1]);
+                    double cell = double.Parse(args[rt + 2], System.Globalization.CultureInfo.InvariantCulture);
+                    string outp = args[rt + 3];
+                    string report = Diagnostics.DbRouteDiag.RunRackTiers(pid, cell);
+                    File.WriteAllText(outp, report, new System.Text.UTF8Encoding(true));
+                }
+                catch (Exception ex) { File.WriteAllText(args[rt + 3], "RACKTIERS ERROR: " + ex); }
+                Shutdown(0);
+                return;
+            }
+
             // AI 자동설계 비교 리포트(헤드리스): --autodesign-report <projectId> <cellMm> <outDir> [maxCases]
             //   → CSV/TXT/HTML + img/ 3D 스냅샷(P4). env R3D_ADR_NOIMG=1 이면 스냅샷/HTML 생략.
             int ar = Array.FindIndex(args, a => a == "--autodesign-report");

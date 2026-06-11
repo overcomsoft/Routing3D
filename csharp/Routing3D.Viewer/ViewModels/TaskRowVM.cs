@@ -27,6 +27,9 @@ namespace Routing3D.Viewer.ViewModels
         public string? PocName { get; init; }
         public string? EndName { get; init; }
 
+        /// <summary>유래한 기존배관 GUID(TB_ROUTE_PATH.ROUTE_PATH_GUID) — '세그먼트 상세' 탭 조회 키. DB 로드 시에만.</summary>
+        public string? RoutePathGuid { get; init; }
+
         /// <summary>개별 PoC 목록 항목 표시: "#idx 시작→끝" (이름 없으면 좌표).</summary>
         public string PocDisplay
         {
@@ -80,6 +83,14 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>마지막 라우팅에서 A* 가 확장(방문)한 노드 수 — 실패 원인 진단에 쓴다(0/소수=출발 막힘,
         /// 대량=혼잡/막힘, 상한=탐색 초과). CacheResults 에서 엔진 결과로 채운다.</summary>
         public long ExpandedNodes { get; set; }
+
+        /// <summary>마지막 라우팅의 엔진 실패 사유(A1) — 성공 시 None. ExplainFailure 가 정확 분류에 쓴다.</summary>
+        public Interop.RouteFail LastFail { get; set; } = Interop.RouteFail.None;
+
+        /// <summary>이번 자동설계 배치에서 이 배관이 라우팅된 순서(0부터, 우선순위 정렬 결과 = 굵은 배관 먼저).
+        /// 진행 콜백(phase==1)의 OrderIndex 로 채운다. −1=이 배치에 미포함 또는 콜백 없는 모드. 결과 리포트의
+        /// '설계 순서'에 쓴다.</summary>
+        public int RouteOrder { get; set; } = -1;
 
         // 엔진에 실제로 전달된 A* 시작/목표(월드 mm). 원본 PoC(Sx/Gx)는 장비·덕트 내부(의도적 솔리드)이고,
         // 실제 탐색은 스텁 끝(랙 위 자유공간) 또는 표면투영·스냅된 자유 셀에서 시작/종료한다. 실패 진단
