@@ -294,6 +294,9 @@
                             <CheckBox Content="🪜 다단 랙(z-분리)"
                                       IsChecked="{Binding UseTieredRack}" Margin="0,0,12,0" Foreground="#9ED88A"
                                       ToolTip="다단 랙(z-분리) 통합 — '자동설계'가 범위에 유틸그룹이 2개 이상이면 기존설계의 실제 랙 단(수평 런 z 클러스터)을 학습해 그룹마다 다른 높이로 순차 라우팅(사람설계 유사, 그룹 간 혼잡 차단). 단일 그룹/유틸은 일반 라우팅. 기본 ON. 끄면 옛 한-평면 번들 라우팅."/>
+                            <CheckBox Content="배관 이격(60mm)"
+                                      IsChecked="{Binding UseClearanceGap}" Margin="0,0,12,0" Foreground="#9ED88A"
+                                      ToolTip="배관 이격(규격) — 두 배관 센터선 거리 ≥ 반경1+반경2+60mm 보장(표면 사이 최소 60mm 띄움). 끄면 표면이 맞닿을 수 있습니다(겹쳐 보임). 기본 ON. 주의: 평면에서 이격하면 배관이 서로 우회해 꺾임이 늘 수 있습니다(둘 다 줄이려면 다단 랙 z-분리)."/>
                             <CheckBox Content="협상 라우팅(CBS)"
                                       IsChecked="{Binding UseCbs}" Margin="0,0,12,0" Foreground="#C8A2E8"
                                       ToolTip="협상 라우팅(C1, CBS-lite) — 평면 rip-up 으로도 안 풀린 실패 배관을, 막는 배관(blocker)이 재배치 못 하면 그 blocker 의 blocker 까지 재귀적으로 양보시켜 해소합니다(무손실=성공만 늘림·결정적). 고밀도 병목의 잔여 실패를 줄입니다. 대형격자 재귀 재라우팅 비용이 있어 기본 OFF."/>

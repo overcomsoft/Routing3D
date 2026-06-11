@@ -622,6 +622,8 @@ namespace Routing3D.Viewer.ViewModels
         private int _cbsDepth = EnvInt("R3D_CBS", 0);
         // C2 코너 최소반경 배수(엘보 간 직선 ≥ mult×관경) — 0=OFF. 체크박스/ env R3D_MIN_STRAIGHT 로 설정.
         private double _minStraightMult = EnvDouble("R3D_MIN_STRAIGHT", 0.0);
+        // 배관-배관 이격(mm) — 두 배관 센터선 거리 ≥ r1+r2+gap. 규격 60mm 기본 ON(겹침 방지). env R3D_PIPE_GAP.
+        private double _pipeGapMm = EnvDouble("R3D_PIPE_GAP", 60.0);
 
         /// <summary>협상 라우팅(CBS) — 고밀도 병목의 잔여 실패를 연쇄 rip-up 으로 추가 해소(무손실). 기본 OFF.</summary>
         public bool UseCbs
@@ -634,6 +636,13 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _minStraightMult > 0.0;
             set { _minStraightMult = value ? 2.0 : 0.0; OnChanged(); }
+        }
+        /// <summary>배관 이격(60mm) — 두 배관 센터선 거리 ≥ r1+r2+60mm(표면 사이 60mm). 겹침 방지. 기본 ON.
+        /// 끄면 표면이 맞닿을 수 있다(센터선 ~관경). 평면에서 이격하면 배관이 서로 우회해 꺾임이 늘 수 있다.</summary>
+        public bool UseClearanceGap
+        {
+            get => _pipeGapMm > 0.0;
+            set { _pipeGapMm = value ? 60.0 : 0.0; OnChanged(); }
         }
 
         private static int EnvInt(string name, int def)
@@ -1683,6 +1692,9 @@ namespace Routing3D.Viewer.ViewModels
             // C2 코너 최소반경 — 엘보 간 직선 < (배수×관경)인 짧은 단관을 충돌검사 하에 흡수(제작성). 기본 OFF(0)
             //   — 형상을 바꾸므로(과거 PathRectifier 렌더 문제 이력) 명시 opt-in(체크박스 또는 env R3D_MIN_STRAIGHT).
             _engine.SetMinStraight(_minStraightMult);
+            // 배관-배관 이격(규격) — 두 배관 센터선 거리 ≥ r1+r2+60mm 보장. 기존 마킹은 센터선을 ~관경만큼만
+            //   띄워 표면이 맞닿아(겹쳐 보임) 있었다. 메인 루프가 깔린 배관을 쌍 반경으로 막아 표면 사이 60mm 띄운다.
+            _engine.SetPipeGap(_pipeGapMm);
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -3459,6 +3471,13 @@ namespace Routing3D.Viewer.ViewModels
                 IsRouting = false;
                 _cancelRequested = false;   // 다음 배치를 위해 취소 플래그 해제.
                 RefreshRouteProgress();
+                // 가시성 보강 — 라우팅 중 라이브 오버레이는 disp.BeginInvoke 로 갱신되므로, 그 일부가 위
+                //   BuildModel(최종 렌더) 이후에 실행되면 자동 경로가 가려져 '체크박스를 눌러야 보이는' 현상이
+                //   생긴다. 디스패처가 그 큐를 모두 비운 유휴 시점(Background)에 한 번 더 확정 렌더해 경로를 보장한다.
+                var disp2 = System.Windows.Application.Current?.Dispatcher;
+                if (disp2 != null && _scene != null && _engine != null)
+                    disp2.BeginInvoke(new Action(() => { if (_scene != null && _engine != null) BuildModel(); }),
+                                      System.Windows.Threading.DispatcherPriority.Background);
             }
         }
 

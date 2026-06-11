@@ -89,6 +89,12 @@ namespace Routing3D.Viewer.Interop
         public void SetMinStraight(double mult)
             => Check(Native.r3d_set_min_straight(H, mult), "set_min_straight");
 
+        /// <summary>배관-배관 이격(mm) — 두 배관 센터선 거리 ≥ r1 + r2 + gap 보장(표면 사이 최소 gap mm 띄움).
+        /// 기존 마킹은 센터선을 ~관경만큼만 띄워 표면이 맞닿았다(겹쳐 보임). gap>0 이면 route_multi 가 깔린
+        /// 배관을 쌍 반경으로 막아 정확히 띄운다. 0=기존 동작. 규격 60mm.</summary>
+        public void SetPipeGap(double gapMm)
+            => Check(Native.r3d_set_pipe_gap(H, gapMm), "set_pipe_gap");
+
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
 

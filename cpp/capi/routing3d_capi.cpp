@@ -48,6 +48,10 @@ struct R3dEngine {
     // 호출자(뷰어 BuildEngineForRows)가 수행. env R3D_PIPE_RADIUS 로도 재정의 가능(헤드리스 A/B).
     int pipe_radius = 0;
     bool per_task_radius = false;  // B1 — ON 이면 route_multi 가 각 배관 diameter_mm 로 반경 자동 산출.
+    // 배관-배관 이격(mm) — 두 배관 센터선 거리 ≥ r1 + r2 + pipe_gap_mm 보장. 0=기존 동작(표면 맞닿음·골든 불변).
+    //   >0 이면 메인 루프가 깔린 배관을 routing 배관 기준 쌍 반경(ceil((r_a+r_b+gap)/cell))으로 막는다(per-pipe
+    //   재구성). r3d_set_pipe_gap. 규격: 표면 사이 최소 60mm 띄움. env R3D_PIPE_GAP.
+    double pipe_gap_mm = 0.0;
     // C1 negotiated-congestion(CBS-lite, Phase C) — 연쇄(재귀) rip-up 최대 깊이. 0=OFF(평면 rip-up만,
     //   기존 동작·골든 불변). >0 이면 평면 rip-up 후 남은 실패 배관을, blocker 가 재배치 못 하면 그 blocker 의
     //   blocker 까지 이 깊이만큼 재귀적으로 양보시켜 해소(무손실·결정적). r3d_set_cbs_depth / env R3D_CBS.
@@ -335,7 +339,8 @@ template <class Occ>
 void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited,
                       const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                       int pipe_radius = 0, bool per_task_radius = false,
-                      int cbs_depth = 0, double min_straight_mult = 0.0) {
+                      int cbs_depth = 0, double min_straight_mult = 0.0,
+                      double pipe_gap_mm = 0.0) {
     Occ work = occ.copy();  // 원본 점유 불변(M2).
     // C1 CBS 깊이(연쇄 rip-up) — 인자 우선, env R3D_CBS(>=0) 가 있으면 재정의. 0=OFF(평면 rip-up만·골든 불변).
     int eff_cbs_depth = cbs_depth < 0 ? 0 : cbs_depth;
@@ -376,6 +381,33 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             }
         }
         return eff_pipe_radius;   // OFF/관경 미상 → 글로벌.
+    };
+    // ── 배관-배관 이격(센터선 거리 ≥ r1 + r2 + gap, 기본 60mm) ──
+    // 기존 마킹(radius_of ≈ ceil(d/cell)-1)은 센터선을 '약 관경(d)'만큼만 띄워 두 배관 '표면이 딱 붙는다'
+    // (gap=0). 규격은 두 배관 반경합 + 여유(60mm). gap>0 이면 **메인 루프에서 깔린 배관을 routing 배관 기준
+    // 쌍(pairwise) 반경 = ceil((r_a + r_b + gap)/cell) 으로 막아** 다음 배관 센터선을 정확히 r_a+r_b+gap 만큼
+    // 띄운다(per-pipe 재구성). gap=0(기본)이면 기존 증분 마킹(골든/기존 동작 불변). 인자 우선·env R3D_PIPE_GAP.
+    double eff_gap_mm = pipe_gap_mm < 0.0 ? 0.0 : pipe_gap_mm;
+    if (const char* pg = std::getenv("R3D_PIPE_GAP")) {
+        char* end = nullptr; double v = std::strtod(pg, &end);
+        if (end != pg && v >= 0.0) eff_gap_mm = v;
+    }
+    const bool use_gap = eff_gap_mm > 0.0 && cell_for_r > 0.0;
+    const int PAIR_RADIUS_MAX = 24;   // 쌍 반경 상한(거대 관경+gap 폭주 차단).
+    // 관경 반경(mm) — per_task & 관경 알면 d/2, 아니면 글로벌 반경(셀)을 mm 로 환산.
+    auto rmm_of = [&](int ti) -> double {
+        if (eff_per_task && ti >= 0 && ti < static_cast<int>(doc.tasks.size())) {
+            double d = doc.tasks[static_cast<size_t>(ti)].diameter_mm;
+            if (d > 0.0) return d * 0.5;
+        }
+        return eff_pipe_radius * cell_for_r;
+    };
+    // 쌍(pairwise) 마킹 반경(셀): 깔린 a 를 routing b 기준으로 막을 때 = ceil((r_a + r_b + gap)/cell).
+    auto pair_radius = [&](int a, int b) -> int {
+        double sep = rmm_of(a) + rmm_of(b) + eff_gap_mm;
+        int r = static_cast<int>(std::ceil(sep / cell_for_r));
+        if (r < 0) r = 0; if (r > PAIR_RADIUS_MAX) r = PAIR_RADIUS_MAX;
+        return r;
     };
     // per-task 관경 clearance(B2) — per_task 가 ON 이고 w_clear>0 이면, 그 배관의 관경 반경만큼 벽(장애물)에서
     //   중심선을 띄우도록 clearance_radius 임계를 max(기존, 반경)으로 올린다(굵은 배관이 벽에 표면을 박지 않게).
@@ -476,10 +508,18 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
+        // 이격 갭(use_gap) 모드 — 깔린 배관을 'routing 배관(oi) 기준 쌍 반경'으로 다시 막아 센터선 거리를
+        //   정확히 r_a + r_b + gap 으로 보장한다(per-pipe 재구성). gap=0 이면 위에서 만든 증분 work 를 그대로 쓴다.
+        if (use_gap) {
+            work = occ.copy();
+            for (const auto& kv : placed) mark_pipe(work, kv.second, pair_radius(kv.first, oi));
+        }
         // 종단 스냅 반경 — 기본 2. 배관 팽창(eff_pipe_radius>0)을 쓰면 앞 배관이 인접 종단 셀까지 막아
         // (공용 랙·근접 PoC) 종단이 묻혀 exp=0 즉시 실패가 난다 → 스냅 반경을 팽창분만큼 키워 종단이
         // 자유셀로 탈출하게 한다(가장 가까운 자유셀 선택이라 위치 왜곡 최소). radius=0 이면 기존(2) 동일.
-        const int snap_r = 2 + radius_of(oi);   // per-task 반경(B1) 반영(OFF면 eff_pipe_radius).
+        // use_gap 이면 깔린 배관이 쌍 반경(더 큼)으로 막혀 있어, 종단이 그 확장영역을 벗어나도록 스냅 반경도
+        //   쌍 자기반경(ceil((2r+gap)/cell))만큼 키운다(근접 PoC 가 묻혀 실패하지 않게). gap=0 이면 기존(2+radius).
+        const int snap_r = use_gap ? 2 + pair_radius(oi, oi) : 2 + radius_of(oi);
         Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), snap_r);
         Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), snap_r);
         const RouteParams tp = params_for(oi);   // per-task 관경 clearance(B2) 반영(OFF/가는관=doc.params 동일).
@@ -798,15 +838,16 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
 void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited,
                           const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                           int pipe_radius = 0, bool per_task_radius = false,
-                          int cbs_depth = 0, double min_straight_mult = 0.0) {
+                          int cbs_depth = 0, double min_straight_mult = 0.0,
+                          double pipe_gap_mm = 0.0) {
     const long long cells =
         static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
     if (cells > 5000000LL) {
         route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm);
     } else {
         route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm);
     }
 }
 
@@ -987,7 +1028,8 @@ extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     try {
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, {}, seed,
-                             e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult);
+                             e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
+                             e->pipe_gap_mm);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
@@ -1015,6 +1057,14 @@ extern "C" R3dStatus r3d_set_cbs_depth(R3dEngine* e, int32_t depth) {
 extern "C" R3dStatus r3d_set_min_straight(R3dEngine* e, double mult) {
     if (!e) return R3D_ERR_ARG;
     e->min_straight_mult = mult > 0.0 ? mult : 0.0;
+    return R3D_OK;
+}
+
+// 배관-배관 이격(mm) 설정 — 두 배관 센터선 거리 ≥ r1 + r2 + gap 보장(표면 사이 최소 gap mm). 0=OFF(기존
+//   동작·표면 맞닿음·골든 불변). 규격 60mm. route_multi 메인 루프가 깔린 배관을 쌍 반경으로 막는다. env R3D_PIPE_GAP.
+extern "C" R3dStatus r3d_set_pipe_gap(R3dEngine* e, double gap_mm) {
+    if (!e) return R3D_ERR_ARG;
+    e->pipe_gap_mm = gap_mm > 0.0 ? gap_mm : 0.0;
     return R3D_OK;
 }
 
@@ -1047,7 +1097,8 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
         }
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe, seed,
-                             e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult);
+                             e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
+                             e->pipe_gap_mm);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;

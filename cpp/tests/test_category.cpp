@@ -15,6 +15,7 @@
 #include "routing3d_capi.h"
 
 #include <cstdio>
+#include <vector>
 
 static int g_failures = 0;
 static void check(bool cond, const char* msg) {
@@ -157,6 +158,51 @@ int main() {
         check(okM >= ok0, "cat5: min-straight never reduces success");
         check(tnM <= tn0, "cat5: min-straight never increases turns (lossless post-process)");
         check(okM == okM2 && tnM == tnM2 && sigM == sigM2, "cat5: min-straight deterministic");
+    }
+
+    // ── ⑥ 배관-배관 이격(규격): gap=60 → 두 평행 배관 센터선 거리 ≥ r1+r2+60mm ──
+    //    좁은 통로에서 두 배관이 나란히 깔릴 때, 이격 OFF 면 센터선이 ~관경(맞닿음)까지 붙고, ON 이면
+    //    r1+r2+60 이상 벌어져야 한다(표면 사이 60mm). 큰 격자(>5M=메인 루프 이격 경로) + per_task.
+    {
+        auto run = [&](double gap, int& sep_cells, int& ok) {
+            R3dEngine* e = r3d_create();
+            R3dGrid grid{50.0, 0.0, 0.0, 0.0, 400, 200, 80};   // cell=50, 6.4M셀.
+            r3d_set_grid(e, &grid);
+            R3dParams p{50.0, 500.0, 10.0, 0.0, 2.0, 1.0, 2, 6};
+            r3d_set_params(e, &p);
+            // 두 배관이 '같은 종단점'을 공유(겹치고 싶어함) → B(t1)는 A(t0)를 우회해 평행으로 깔린다.
+            //   우회 거리 = A 의 유효 마킹 반경. 이격 OFF=관경 기반(좁음)·ON=쌍 반경(r1+r2+60). 200mm 관경.
+            int t0 = r3d_add_task(e, 500, 5000, 2000, 19500, 5000, 2000, "U", "G");
+            int t1 = r3d_add_task(e, 500, 5000, 2000, 19500, 5000, 2000, "U", "G");
+            r3d_set_task_diameter(e, t0, 200.0);
+            r3d_set_task_diameter(e, t1, 200.0);
+            r3d_set_per_task_radius(e, 1);
+            if (gap > 0.0) r3d_set_pipe_gap(e, gap);
+            r3d_route_multi(e, "longest");
+            R3dResult r0{}, r1{};
+            r3d_get_result(e, t0, &r0); r3d_get_result(e, t1, &r1);
+            ok = (r0.success ? 1 : 0) + (r1.success ? 1 : 0);
+            // 중앙 x 구간에서 두 경로의 y 셀 차이(센터선 분리) 측정 — r3d_copy_path 로 셀 가져와 중앙점 y 비교.
+            sep_cells = 0;
+            if (r0.success && r1.success && r0.path_len > 2 && r1.path_len > 2) {
+                std::vector<int> p0(static_cast<size_t>(r0.path_len) * 3), p1(static_cast<size_t>(r1.path_len) * 3);
+                r3d_copy_path(e, t0, p0.data(), r0.path_len);
+                r3d_copy_path(e, t1, p1.data(), r1.path_len);
+                int j0 = p0[static_cast<size_t>(r0.path_len / 2) * 3 + 1];
+                int j1 = p1[static_cast<size_t>(r1.path_len / 2) * 3 + 1];
+                sep_cells = j1 > j0 ? j1 - j0 : j0 - j1;
+            }
+            r3d_destroy(e);
+        };
+        int sepOff = 0, sepOn = 0, okOff = 0, okOn = 0;
+        run(0.0, sepOff, okOff);
+        run(60.0, sepOn, okOn);
+        std::printf("cat6 gap: OFF sep=%d cells (ok %d) | ON(60) sep=%d cells (ok %d)\n",
+                    sepOff, okOff, sepOn, okOn);
+        check(okOn == 2, "cat6: both pipes still route with gap=60");
+        // r1+r2+60 = 100+100+60 = 260mm = 5.2셀 → 6셀. OFF 는 보통 ~관경(4셀) 이하로 붙는다.
+        check(sepOn >= 6, "cat6: gap=60 → centerline separation >= ceil((r1+r2+60)/cell) cells");
+        check(sepOn > sepOff, "cat6: gap increases separation vs OFF");
     }
 
     if (g_failures == 0) std::printf("ALL CATEGORY CHECKS PASSED\n");

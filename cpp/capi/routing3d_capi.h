@@ -210,6 +210,12 @@ R3D_API R3dStatus r3d_set_cbs_depth(R3dEngine* e, int32_t depth);
 // 0=OFF(기존 동작·골든 불변). 권장 2.0(엘보 간 직선 ≥ 2×관경). env R3D_MIN_STRAIGHT 도 가능.
 R3D_API R3dStatus r3d_set_min_straight(R3dEngine* e, double mult);
 
+// 배관-배관 이격(mm) 설정 — 두 배관 센터선 거리 ≥ r1 + r2 + gap_mm 보장(표면 사이 최소 gap_mm 띄움).
+// 기존 마킹은 센터선을 ~관경(d)만큼만 띄워 표면이 맞닿았다(겹쳐 보임). gap>0 이면 route_multi 메인 루프가
+// 깔린 배관을 'routing 배관 기준 쌍 반경 = ceil((r_a+r_b+gap)/cell)'으로 막아 정확히 r_a+r_b+gap 띄운다
+// (per-pipe 재구성). 0=OFF(기존 동작·골든 불변). 규격 권장 60mm. env R3D_PIPE_GAP.
+R3D_API R3dStatus r3d_set_pipe_gap(R3dEngine* e, double gap_mm);
+
 // 점유맵(블록된 셀) 인덱스를 buf 에 복사(가시화 '점유맵'). 현재 doc 의 obstacles 로 즉석 voxelize.
 // 반환=실제 복사한 셀 수. buf_cells 가 부족하면 처음 buf_cells 개만 복사하고 그만큼 반환.
 // 총 블록 셀 수를 미리 알려면 buf=NULL, buf_cells=0 으로 호출(총 셀 수 반환).

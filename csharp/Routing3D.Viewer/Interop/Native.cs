@@ -121,6 +121,7 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_per_task_radius(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_cbs_depth(IntPtr e, int depth);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight(IntPtr e, double mult);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_gap(IntPtr e, double gapMm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 
         // 문자열 → UTF-8 바이트(널 종료). 한글 보존.
