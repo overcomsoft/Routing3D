@@ -526,6 +526,50 @@ namespace Routing3D.Viewer.ViewModels
             return pts;
         }
 
+        // 렌더용 '직관(직선 런) + 코너' 단순화 — 셀마다 찍힌 점·½셀 접속 지터를 제거해 꺾임 전까지 한 줄
+        //   직관으로 만든다(밴딩 가능한 배관). RDP(Ramer–Douglas–Peucker, 수직거리 tol 이하 중간점 제거)로
+        //   직선 런의 셀 단위 점·미세 지터를 직선 하나로 합치고, 실제 꺾임(코너)만 남긴다. 라우팅·충돌엔 무관
+        //   (이미 충돌없는 셀 경로의 '표시'만 정리). 결과 = 코너 점열(끝점 포함).
+        private static List<Point3D> BuildSpoolPolyline(List<Point3D> raw, double tolMm)
+        {
+            // 1) 중복(거의 같은) 점 제거.
+            var p = new List<Point3D>();
+            foreach (var q in raw) if (p.Count == 0 || (q - p[p.Count - 1]).Length > 1e-6) p.Add(q);
+            if (p.Count < 3) return p;
+            // 2) RDP — 직선 런(수직편차 ≤ tol)의 중간점 제거 → 직관, 실제 코너만 보존.
+            return Rdp(p, tolMm);
+        }
+
+        private static List<Point3D> Rdp(List<Point3D> pts, double tol)
+        {
+            if (pts.Count < 3) return new List<Point3D>(pts);
+            var keep = new bool[pts.Count];
+            keep[0] = keep[pts.Count - 1] = true;
+            RdpRec(pts, 0, pts.Count - 1, tol, keep);
+            var o = new List<Point3D>();
+            for (int i = 0; i < pts.Count; i++) if (keep[i]) o.Add(pts[i]);
+            return o;
+        }
+        private static void RdpRec(List<Point3D> p, int a, int b, double tol, bool[] keep)
+        {
+            if (b <= a + 1) return;
+            double max = 0; int idx = -1;
+            for (int i = a + 1; i < b; i++)
+            {
+                double d = PerpDist(p[i], p[a], p[b]);
+                if (d > max) { max = d; idx = i; }
+            }
+            if (idx >= 0 && max > tol) { keep[idx] = true; RdpRec(p, a, idx, tol, keep); RdpRec(p, idx, b, tol, keep); }
+        }
+        // 점 pt 에서 선분(a,b) 까지의 수직 거리(3D). a==b 면 점거리.
+        private static double PerpDist(Point3D pt, Point3D a, Point3D b)
+        {
+            var ab = b - a; double L = ab.Length;
+            if (L < 1e-9) return (pt - a).Length;
+            var ap = pt - a;
+            return Vector3D.CrossProduct(ap, ab).Length / L;
+        }
+
         private static string DescribeRoutedPipe(TaskRowVM row)
         {
             string poc = string.IsNullOrEmpty(row.PocName) ? $"({F(row.Sx)}, {F(row.Sy)}, {F(row.Sz)})" : row.PocName!;
@@ -3830,9 +3874,15 @@ namespace Routing3D.Viewer.ViewModels
                         row.DiameterMm = (exm != null && exm.DiameterMm > 0) ? exm.DiameterMm : 0;
                     }
                     double routeDia = row.DiameterMm > 0 ? Math.Max(row.DiameterMm, 8.0) : fallbackTubeDia;
-                    // 표시 경로 = [출발 스텁] + [A* 중간] + [reverse(종단 스텁)] 합성(원시).
-                    var pts = BuildRoutedPolyline(row, grid);
-                    if (pts.Count >= 2) mb.AddTube(pts, routeDia, 10, false);
+                    // 표시 경로 = [출발 스텁] + [A* 중간] + [reverse(종단 스텁)] 합성(원시) → '직관+코너'로 단순화.
+                    //   셀마다 찍힌 점·½셀 접속 지터를 RDP 로 제거해 꺾임 전까지 한 줄 직관(직선 튜브)으로 그린다.
+                    //   tol = 0.6×셀(½셀 지터는 흡수, 실제 코너는 보존). 라우팅/충돌 무관(표시 정리만).
+                    var raw = BuildRoutedPolyline(row, grid);
+                    var pts = BuildSpoolPolyline(raw, grid.CellMm * 0.6);
+                    if (pts.Count >= 2) mb.AddTube(pts, routeDia, 12, false);
+                    // 밴딩(엘보) 객체 — 각 내부 코너에 관경 반경 구를 얹어 직관↔직관 전환을 둥근 엘보로 표현
+                    //   (직선 튜브 두 개가 코너에서 매끈히 만나도록 = 실제 배관의 밴딩 부속).
+                    for (int ci = 1; ci + 1 < pts.Count; ci++) mb.AddSphere(pts[ci], routeDia * 0.5);
                     mb.AddSphere(pts[0], markerR);
                     mb.AddSphere(pts[^1], markerR);
 
