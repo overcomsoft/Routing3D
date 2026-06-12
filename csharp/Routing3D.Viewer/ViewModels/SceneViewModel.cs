@@ -3019,14 +3019,15 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var e in s.Equipment) AddBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
             foreach (var d in s.DuctsLaterals) AddBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
 
-            bool gapOn = _pipeGapMm > 0.0;
             var placedKeys = new HashSet<long>();
             long Key(int i, int j, int k) => ((long)(i & 0x1FFFFF) << 42) | ((long)(j & 0x1FFFFF) << 21) | (long)(k & 0x1FFFFF);
-            int GapR(TaskRowVM r)
+            // 마킹 반경 = 관경 반경(이격 제외) — 직선화를 막지 않게 '겹침만' 방지(인접 레인엔 붙어도 OK).
+            //   '관경+이격'으로 막으면 다발 안 배관이 직관화(L자)를 시도하다 막혀 계단이 그대로 남는다. 이격(60mm)
+            //   은 라우팅 단계에서 best-effort, 여기선 직관(계단 제거)을 우선하고 표면 겹침만 회피한다.
+            int RadiusCells(TaskRowVM r)
             {
-                if (!gapOn) return 0;
                 double d = r.DiameterMm > 0 ? r.DiameterMm : g.CellMm;
-                return Math.Clamp((int)Math.Ceiling((d + _pipeGapMm) / g.CellMm), 0, 12);
+                return Math.Clamp((int)Math.Ceiling(d * 0.5 / g.CellMm), 0, 6);
             }
             void MarkBall(PathCell c, int rr)
             {
@@ -3039,7 +3040,7 @@ namespace Routing3D.Viewer.ViewModels
             }
             bool Blocked(int ci, int cj, int ck)
             {
-                if (placedKeys.Contains(Key(ci, cj, ck))) return true;   // 이미 편 다른 자동 배관(이격) 회피.
+                if (placedKeys.Contains(Key(ci, cj, ck))) return true;   // 이미 편 다른 자동 배관(표면 겹침) 회피.
                 double clx = g.Ox + ci * g.CellMm, chx = clx + g.CellMm;
                 double cly = g.Oy + cj * g.CellMm, chy = cly + g.CellMm;
                 double clz = g.Oz + ck * g.CellMm, chz = clz + g.CellMm;
@@ -3056,17 +3057,14 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pos in order)
             {
                 var row = Tasks[pos];
-                var straight = StraightenOrtho(row.Path, Blocked);   // 계단/톱니 → 충돌 없는 직교 L.
+                var straight = StraightenOrtho(row.Path, Blocked);   // 계단/톱니 → 충돌 없는 가장 먼 직교 L.
                 if (straight != null && straight.Length >= 2)
                 {
                     row.Path = straight;
                     row.LengthMm = (straight.Length - 1) * g.CellMm;
                 }
-                if (gapOn)   // 이 배관 셀을 막아 다음(가는) 배관이 직관화하며 겹치지 않게(종단 근처 제외).
-                {
-                    int rr = GapR(row), margin = rr + 1;
-                    for (int ci = margin; ci < row.Path.Length - margin; ci++) MarkBall(row.Path[ci], rr);
-                }
+                int rr = RadiusCells(row), margin = rr + 1;   // 이 배관 셀을 관경 반경으로 막아 다음 배관 겹침 방지.
+                for (int ci = margin; ci < row.Path.Length - margin; ci++) MarkBall(row.Path[ci], rr);
                 rect++;
             }
             return rect;
