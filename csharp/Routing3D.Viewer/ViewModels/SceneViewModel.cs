@@ -2863,8 +2863,36 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var o in s.Obstacles) if (!o.IsPassThrough) AddBox(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
             foreach (var e in s.Equipment) AddBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
             foreach (var d in s.DuctsLaterals) AddBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+
+            // ── 복제 배관 간 이격(규격 r1+r2+60mm) ──
+            // 복제 수리 엔진(rep)은 다른 배관을 장애물로 안 넣어, 각 복제가 독립적으로 기존을 따라가 '서로
+            // 겹쳤다'(분홍끼리 포개짐). 이미 깔린 복제 셀을 관경+이격 반경만큼 막힘에 추가해, 다음 복제가 60mm
+            // 띄워 회피(겹치는 구간만 국소 우회)하게 한다. _pipeGapMm=0(이격 OFF)이면 비활성(기존 동작). 같은
+            // 묶음(같은 관경)에서 센터선 분리 ≈ 관경+gap = r1+r2+gap. 막힌 곳은 RepairAStar 가 띄워 잇거나
+            //   불가하면 A*(이미 60mm 이격) 폴백 유지 → 어느 경로든 이격 확보.
+            bool gapOn = _pipeGapMm > 0.0;
+            var placedKeys = gapOn ? new HashSet<long>() : null;
+            long Key(int i, int j, int k) => ((long)(i & 0x1FFFFF) << 42) | ((long)(j & 0x1FFFFF) << 21) | (long)(k & 0x1FFFFF);
+            int GapR(TaskRowVM r)   // 마킹 반경(셀) = ceil((관경 + gap)/cell), [0,16] 클램프. 같은 관경 묶음에서 r1+r2+gap.
+            {
+                double d = r.DiameterMm > 0 ? r.DiameterMm : g.CellMm;
+                int rc = (int)Math.Ceiling((d + _pipeGapMm) / g.CellMm);
+                return Math.Clamp(rc, 0, 16);
+            }
+            void MarkBall(PathCell c, int rr)   // 셀 c 의 맨해튼 볼(반경 rr)을 placedKeys 에 추가(인접 복제 회피용).
+            {
+                for (int di = -rr; di <= rr; di++)
+                    for (int dj = -rr; dj <= rr; dj++)
+                    {
+                        int rem = rr - Math.Abs(di) - Math.Abs(dj);
+                        if (rem < 0) continue;
+                        for (int dk = -rem; dk <= rem; dk++)
+                            placedKeys!.Add(Key(c.I + di, c.J + dj, c.K + dk));
+                    }
+            }
             bool Blocked(int ci, int cj, int ck)
             {
+                if (placedKeys != null && placedKeys.Contains(Key(ci, cj, ck))) return true;   // 이미 깔린 복제(이격) 회피.
                 double clx = g.Ox + ci * g.CellMm, chx = clx + g.CellMm;
                 double cly = g.Oy + cj * g.CellMm, chy = cly + g.CellMm;
                 double clz = g.Oz + ck * g.CellMm, chz = clz + g.CellMm;
@@ -2887,6 +2915,14 @@ namespace Routing3D.Viewer.ViewModels
                 row.Success = true;
                 row.LengthMm = (path.Length - 1) * g.CellMm;            // 직교 셀 경로 근사 길이.
                 replaced++;
+                if (placedKeys != null)   // 이 복제 셀을 관경+이격 반경으로 막아 다음 복제가 띄워 회피.
+                {
+                    int rr = GapR(row);
+                    // 종단(PoC) 근처는 마킹 제외 — 인접 배관 PoC 가 묻혀 끊기지 않게(이격은 중간 구간에만,
+                    //   PoC 는 설계상 가까이 수렴해도 무방). margin 만큼 양 끝을 건너뛴다.
+                    int margin = rr + 1;
+                    for (int ci = margin; ci < path.Length - margin; ci++) MarkBall(path[ci], rr);
+                }
             }
             return replaced;
         }
