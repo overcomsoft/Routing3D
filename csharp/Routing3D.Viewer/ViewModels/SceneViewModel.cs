@@ -4114,9 +4114,10 @@ namespace Routing3D.Viewer.ViewModels
                     // 출발/종단 스텁 강조(반투명 셸) — 기존배관 ShowStubs 와 동일. 자동 경로의 고정 스텁 구간을 표시.
                     if (ShowStubs)
                     {
-                        // 본관 튜브(BuildRoutedPolyline)가 이미 스텁 구간을 같은 관경으로 그리므로, 강조 셸도
-                        //   동일 관경으로 얹는다(예전 1.35× 셸은 스텁↔본관 접합부에 굵기 단차='관경이상'을 만들었다).
-                        double stubDia = routeDia;
+                        // 스텁 강조 셸 = 본관보다 살짝 굵은(×1.35) 반투명 halo(기존배관 스텁과 동일 방식).
+                        //   본관과 같은 관경(1.0×)으로 두면 반투명 셸이 불투명 본관과 정확히 겹쳐 z-파이팅
+                        //   줄무늬가 생긴다 → 굵기 단차 없이 살짝 키워 halo 로만 보이게(겹침 아티팩트 방지).
+                        double stubDia = routeDia * 1.35;
                         if (row.StartStub != null && row.StartStub.Count >= 2)
                         {
                             autoStartStubMb.AddTube(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);
