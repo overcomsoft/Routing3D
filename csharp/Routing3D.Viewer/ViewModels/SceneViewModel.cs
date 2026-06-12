@@ -526,18 +526,40 @@ namespace Routing3D.Viewer.ViewModels
             return pts;
         }
 
-        // 렌더용 '직관(직선 런) + 코너' 단순화 — 셀마다 찍힌 점·½셀 접속 지터를 제거해 꺾임 전까지 한 줄
-        //   직관으로 만든다(밴딩 가능한 배관). RDP(Ramer–Douglas–Peucker, 수직거리 tol 이하 중간점 제거)로
-        //   직선 런의 셀 단위 점·미세 지터를 직선 하나로 합치고, 실제 꺾임(코너)만 남긴다. 라우팅·충돌엔 무관
-        //   (이미 충돌없는 셀 경로의 '표시'만 정리). 결과 = 코너 점열(끝점 포함).
+        // 렌더용 '직관(직선 런) + 코너' 단순화 — 직교를 보존하며 직선 런의 셀 단위 중간점을 합쳐 한 줄 직관
+        //   으로 만든다. 경로는 RectifyRoutedPaths 가 이미 계단→L자로 펴두므로(직교), 여기선 같은 방향 연속
+        //   세그먼트만 병합(collinear) + 스텁 접합부 미세 지터(< tol)만 흡수. 계단을 대각선화하지 않는다.
+        //   (RDP 전체는 계단을 사선으로 만들어 부적절 → collinear 병합 + 미세 jog 직선화로 한정.)
         private static List<Point3D> BuildSpoolPolyline(List<Point3D> raw, double tolMm)
         {
             // 1) 중복(거의 같은) 점 제거.
             var p = new List<Point3D>();
             foreach (var q in raw) if (p.Count == 0 || (q - p[p.Count - 1]).Length > 1e-6) p.Add(q);
             if (p.Count < 3) return p;
-            // 2) RDP — 직선 런(수직편차 ≤ tol)의 중간점 제거 → 직관, 실제 코너만 보존.
+            // 2) collinear(같은 방향) 연속 세그먼트 병합 — 직선 런의 셀 단위 점 제거(직교 보존).
+            p = CollapseCollinear(p);
+            // 3) 스텁 접합부 등 tol 미만 미세 jog 흡수 — RDP 를 '아주 작은 tol'로만 적용(계단[≥tol]은 코너 보존).
             return Rdp(p, tolMm);
+        }
+
+        // 같은 방향(평행·동부호) 연속 세그먼트의 중간점을 제거(직교 보존). 직선 런 → 양 끝점만.
+        private static List<Point3D> CollapseCollinear(List<Point3D> p)
+        {
+            if (p.Count < 3) return p;
+            var o = new List<Point3D> { p[0] };
+            for (int i = 1; i + 1 < p.Count; i++)
+            {
+                var d1 = p[i] - o[o.Count - 1];
+                var d2 = p[i + 1] - p[i];
+                if (d1.Length < 1e-6) continue;
+                if (d2.Length < 1e-6) continue;
+                var u1 = d1; u1.Normalize();
+                var u2 = d2; u2.Normalize();
+                if ((u1 - u2).Length < 1e-3) continue;   // 같은 방향 → 중간점 생략.
+                o.Add(p[i]);
+            }
+            o.Add(p[p.Count - 1]);
+            return o;
         }
 
         private static List<Point3D> Rdp(List<Point3D> pts, double tol)
@@ -2971,6 +2993,85 @@ namespace Routing3D.Viewer.ViewModels
             return replaced;
         }
 
+        // ===================================================== 자동 경로 직관화(계단 제거)
+        // 라우팅·복제 후, 각 자동 배관의 셀 경로를 '충돌검사 하에 직교 L자'로 편다 — 계단(2축 교대 톱니)을
+        //   '한 축 직진 → 한 번 꺾임' L 로 바꿔 단관 쪼개짐을 없앤다(StraightenOrtho, 가장 먼 자유 L 우선).
+        //   충돌 = 장애물·설비·덕트 + 이미 편 다른 자동 배관(관경+이격 반경). 따라서 직관화하면서 다른 배관을
+        //   피해 '바깥 레인'으로 펴진다(겹침·이격 유지). 막힌 L 은 적용 안 함(원 경로=장애물 회피 보존).
+        //   굵은 배관부터(직선 선점). row.Path·LengthMm 갱신 → 렌더·모델·길이 일관. 모든 모드 공용(복제/A*).
+        private int RectifyRoutedPaths(IReadOnlyList<int> added)
+        {
+            if (_scene == null) return 0;
+            var s = _scene; var g = s.Grid;
+            if ((long)g.Nx * g.Ny * g.Nz > 300_000_000L) return 0;   // 극단 정밀격자 생략(메모리).
+
+            // 막힘 박스(장애물 통과 제외 + 설비 + 덕트), minT 팽창 — ReplicateMatchedPipes 와 동일.
+            double minT = g.CellMm;
+            var boxes = new List<(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)>();
+            void AddBox(double a, double b, double c2, double d, double e2, double f2)
+            {
+                if (d - a < minT) { double m = (a + d) / 2; a = m - minT / 2; d = m + minT / 2; }
+                if (e2 - b < minT) { double m = (b + e2) / 2; b = m - minT / 2; e2 = m + minT / 2; }
+                if (f2 - c2 < minT) { double m = (c2 + f2) / 2; c2 = m - minT / 2; f2 = m + minT / 2; }
+                boxes.Add((a, b, c2, d, e2, f2));
+            }
+            foreach (var o in s.Obstacles) if (!o.IsPassThrough) AddBox(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            foreach (var e in s.Equipment) AddBox(e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+            foreach (var d in s.DuctsLaterals) AddBox(d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+
+            bool gapOn = _pipeGapMm > 0.0;
+            var placedKeys = new HashSet<long>();
+            long Key(int i, int j, int k) => ((long)(i & 0x1FFFFF) << 42) | ((long)(j & 0x1FFFFF) << 21) | (long)(k & 0x1FFFFF);
+            int GapR(TaskRowVM r)
+            {
+                if (!gapOn) return 0;
+                double d = r.DiameterMm > 0 ? r.DiameterMm : g.CellMm;
+                return Math.Clamp((int)Math.Ceiling((d + _pipeGapMm) / g.CellMm), 0, 12);
+            }
+            void MarkBall(PathCell c, int rr)
+            {
+                for (int di = -rr; di <= rr; di++)
+                    for (int dj = -rr; dj <= rr; dj++)
+                    {
+                        int rem = rr - Math.Abs(di) - Math.Abs(dj); if (rem < 0) continue;
+                        for (int dk = -rem; dk <= rem; dk++) placedKeys.Add(Key(c.I + di, c.J + dj, c.K + dk));
+                    }
+            }
+            bool Blocked(int ci, int cj, int ck)
+            {
+                if (placedKeys.Contains(Key(ci, cj, ck))) return true;   // 이미 편 다른 자동 배관(이격) 회피.
+                double clx = g.Ox + ci * g.CellMm, chx = clx + g.CellMm;
+                double cly = g.Oy + cj * g.CellMm, chy = cly + g.CellMm;
+                double clz = g.Oz + ck * g.CellMm, chz = clz + g.CellMm;
+                foreach (var bx in boxes)
+                    if (clx < bx.mxx && chx > bx.mnx && cly < bx.mxy && chy > bx.mny && clz < bx.mxz && chz > bx.mnz)
+                        return true;
+                return false;
+            }
+
+            int rect = 0;
+            // 굵은 배관부터 — 직선 경로를 먼저 선점(가는 배관이 그 곁을 피해 직관 유지).
+            var order = added.Where(p => Tasks[p].Success && Tasks[p].Path != null && Tasks[p].Path.Length >= 3)
+                             .OrderByDescending(p => Tasks[p].DiameterMm).ThenBy(p => p).ToList();
+            foreach (var pos in order)
+            {
+                var row = Tasks[pos];
+                var straight = StraightenOrtho(row.Path, Blocked);   // 계단/톱니 → 충돌 없는 직교 L.
+                if (straight != null && straight.Length >= 2)
+                {
+                    row.Path = straight;
+                    row.LengthMm = (straight.Length - 1) * g.CellMm;
+                }
+                if (gapOn)   // 이 배관 셀을 막아 다음(가는) 배관이 직관화하며 겹치지 않게(종단 근처 제외).
+                {
+                    int rr = GapR(row), margin = rr + 1;
+                    for (int ci = margin; ci < row.Path.Length - margin; ci++) MarkBall(row.Path[ci], rr);
+                }
+                rect++;
+            }
+            return rect;
+        }
+
         // ===================================================== 경로 방식 2: 그룹패턴 경유(코너 waypoint)
         // 매칭 기존배관(그룹배관)의 '꺾임점(코너)'을 추출해, 신규 경로가 그 코너들을 '반드시 경유'하도록
         // 코너 사이를 순차 A*(RepairAStar)로 잇는다. 코너 사이는 최단(자유), 코너는 강제 통과 → 결과가
@@ -3517,6 +3618,9 @@ namespace Routing3D.Viewer.ViewModels
                     cornered = await Task.Run(() => RouteThroughGroupCorners(added));
                 else if (!cancelled && _useDesignReplicate)
                     replicated = await Task.Run(() => ReplicateMatchedPipes(added));
+                // 직관화(계단 제거) — 모든 자동 경로를 충돌검사 하에 직교 L자로 펴 단관 쪼개짐을 없앤다(복제/A* 공용).
+                if (!cancelled)
+                    await Task.Run(() => RectifyRoutedPaths(added));
                 ResetLiveRoute();   // 라이브 오버레이 제거 → 아래 BuildModel 의 최종 렌더로 대체(중복 방지).
                 BuildModel();   // 누적(전체 씬) 기준 상태바를 먼저 갱신한 뒤,
                 // 이번 배치 결과를 명확히 덮어쓴다 — "성공 16/113"(전체 대비)이 실패로 오해되지 않도록
