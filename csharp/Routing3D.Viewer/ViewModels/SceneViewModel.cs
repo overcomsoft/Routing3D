@@ -1514,6 +1514,7 @@ namespace Routing3D.Viewer.ViewModels
                 {
                     Index = i, Label = t.UtilityLabel, Swatch = new SolidColorBrush(color),
                     Utility = t.Utility, Group = t.Group,
+                    DiameterMm = t.DiameterMm,   // 작업 본인의 SOURCE_SIZE — 미매칭 작업도 실관경으로 렌더(관경이상 방지).
                     PocName = t.PocName, EndName = t.EndName, RoutePathGuid = t.RoutePathGuid,
                     Sx = t.Sx, Sy = t.Sy, Sz = t.Sz, Gx = t.Gx, Gy = t.Gy, Gz = t.Gz
                 });
@@ -3050,6 +3051,36 @@ namespace Routing3D.Viewer.ViewModels
                 return false;
             }
 
+            // 고정 스텁(라이저)도 점유로 선마킹 — 엔진/복제는 스텁을 모르므로 종단 근처 스텁끼리·본관과 겹쳤다
+            //   (이미지 하단 '배관끼리 충돌'). 모든 행의 출발/종단 스텁을 셀로 표본화(cell/2 간격)해 막아, 이후
+            //   직선화되는 본관들이 스텁 기하를 피해 가게 한다. 스텁은 짧은 직교 라이저라 표본화로 충분.
+            void MarkStub(List<Model.Pt3>? stub, int rr)
+            {
+                if (stub == null || stub.Count < 2) return;
+                for (int si = 0; si + 1 < stub.Count; si++)
+                {
+                    var p0 = stub[si]; var p1 = stub[si + 1];
+                    double dx = p1.X - p0.X, dy = p1.Y - p0.Y, dz = p1.Z - p0.Z;
+                    double len = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    int steps = Math.Max(1, (int)Math.Ceiling(len / (g.CellMm * 0.5)));
+                    for (int t = 0; t <= steps; t++)
+                    {
+                        double f = (double)t / steps;
+                        int ci = (int)Math.Floor((p0.X + dx * f - g.Ox) / g.CellMm);
+                        int cj = (int)Math.Floor((p0.Y + dy * f - g.Oy) / g.CellMm);
+                        int ck = (int)Math.Floor((p0.Z + dz * f - g.Oz) / g.CellMm);
+                        MarkBall(new PathCell(ci, cj, ck), rr);
+                    }
+                }
+            }
+            foreach (var pos in added)
+            {
+                var r0 = Tasks[pos];
+                int rr0 = RadiusCells(r0);
+                MarkStub(r0.StartStub, rr0);
+                MarkStub(r0.EndStub, rr0);
+            }
+
             int rect = 0;
             // 굵은 배관부터 — 직선 경로를 먼저 선점(가는 배관이 그 곁을 피해 직관 유지).
             var order = added.Where(p => Tasks[p].Success && Tasks[p].Path != null && Tasks[p].Path.Length >= 3)
@@ -3057,13 +3088,15 @@ namespace Routing3D.Viewer.ViewModels
             foreach (var pos in order)
             {
                 var row = Tasks[pos];
-                var straight = StraightenOrtho(row.Path, Blocked);   // 계단/톱니 → 충돌 없는 가장 먼 직교 L.
+                // 직교 L 직선화 + 막힌 L 은 '외곽 우회'(U자, 길이 증가 감수)로 펴 계단을 끝까지 없앤다.
+                var straight = StraightenOuter(row.Path, Blocked, 20);
                 if (straight != null && straight.Length >= 2)
                 {
                     row.Path = straight;
                     row.LengthMm = (straight.Length - 1) * g.CellMm;
                 }
-                int rr = RadiusCells(row), margin = rr + 1;   // 이 배관 셀을 관경 반경으로 막아 다음 배관 겹침 방지.
+                // 종단(PoC) 직전까지 관경 반경으로 마킹(margin=1 — 공유 PoC 셀만 제외) → 종단 근처 본관 겹침도 방지.
+                int rr = RadiusCells(row), margin = 1;
                 for (int ci = margin; ci < row.Path.Length - margin; ci++) MarkBall(row.Path[ci], rr);
                 rect++;
             }
@@ -3421,6 +3454,96 @@ namespace Routing3D.Viewer.ViewModels
                 i = pick;
             }
             return outp.ToArray();
+        }
+
+        // StraightenOrtho 와 같되, 가장 먼 자유 L 이 '막혀 없을 때' 외곽 우회(U자, 길이 증가)로 한 번에 잇는다.
+        //   혼잡 다발에서 직선 L 이 옆 배관에 막혀 계단이 남던 것을, 바깥으로 돌아서라도 직선 런 2~3개의
+        //   깔끔한 형태로 만든다(사용자 요구: "길이가 늘어나더라도 외각으로 이동"). 우회도 막히면 원 경로 유지.
+        //   RectifyRoutedPaths(렌더 직전 후처리)에서만 사용 — 라우팅/충돌 불변(blk 통과 시에만 채택).
+        private static PathCell[] StraightenOuter(IReadOnlyList<PathCell> path, Func<int, int, int, bool> blk, int maxK)
+        {
+            int n = path.Count;
+            if (n < 3) return path is PathCell[] a ? a : path.ToArray();
+            const int WIN = 24;          // 외곽 우회는 '국소 계단'(≤WIN 셀 스팬)만 — 긴 막힘 구간 O(n²) 폭주 방지.
+            int budget = 4000;           // 우회 시도 총예산(blk 호출 폭주 차단). 소진되면 직선화만 적용.
+            var outp = new List<PathCell> { path[0] };
+            int i = 0;
+            while (i < n - 1)
+            {
+                int pick = i + 1; PathCell[]? pickSeg = null;
+                for (int j = n - 1; j >= i + 2; j--)         // 1) 가장 먼 자유 직교 L 우선(최대 직선화).
+                {
+                    var L = FreeOrthoL(path[i], path[j], blk);
+                    if (L != null) { pick = j; pickSeg = L; break; }
+                }
+                if (pickSeg == null && budget > 0)            // 2) 직선 L 이 전부 막힘 → 국소 외곽 U자 우회 시도.
+                {
+                    int jHi = Math.Min(n - 1, i + 1 + WIN);
+                    for (int j = jHi; j >= i + 2 && budget > 0; j--)
+                    {
+                        budget--;
+                        var U = OuterConnect(path[i], path[j], blk, maxK);
+                        if (U != null) { pick = j; pickSeg = U; break; }
+                    }
+                }
+                if (pickSeg != null) outp.AddRange(pickSeg);  // 세그먼트 = path[i] 제외·끝점 포함.
+                else outp.Add(path[i + 1]);                   // 우회도 막힘 → 한 칸 전진(원 경로 유지).
+                i = pick;
+            }
+            return outp.ToArray();
+        }
+
+        // 평면(2축) A→B 를 '바깥으로 돌아가는' 직교 U자(직선 3런·엘보 2~3)로 잇는다. 직선 L 이 막혔을 때 대안.
+        //   두 차이축 중 하나(bow축)로 K셀 바깥으로 나갔다가, 가로질러(span축), 다시 들어와 B 에 닿는다.
+        //   4방향(±bow) × K=1..maxK 중 '전 구간 충돌 없는' 가장 작은 K 를 채택(최소 우회). 반환=A 제외·B 포함.
+        //   1축(직선)·3축은 대상 아님(null). blk=막힘 판정.
+        private static PathCell[]? OuterConnect(PathCell a, PathCell b, Func<int, int, int, bool> blk, int maxK)
+        {
+            int dI = b.I - a.I, dJ = b.J - a.J, dK = b.K - a.K;
+            var nz = new List<int>();
+            if (dI != 0) nz.Add(0); if (dJ != 0) nz.Add(1); if (dK != 0) nz.Add(2);
+            if (nz.Count != 2) return null;                  // 평면(정확히 2축)만 우회.
+
+            int Coord(PathCell c, int ax) => ax == 0 ? c.I : ax == 1 ? c.J : c.K;
+            PathCell With(PathCell c, int ax, int v) => ax == 0 ? new PathCell(v, c.J, c.K)
+                                                      : ax == 1 ? new PathCell(c.I, v, c.K)
+                                                                : new PathCell(c.I, c.J, v);
+            // a→b(단일 축 직선) 채움. A 제외·B 포함. 막힘 셀 만나면 false(부분 채움 무효).
+            bool Line(PathCell from, PathCell to, List<PathCell> acc)
+            {
+                int ax = from.I != to.I ? 0 : from.J != to.J ? 1 : from.K != to.K ? 2 : -1;
+                if (ax == -1) return true;                   // 동일 셀.
+                int s = Math.Sign(Coord(to, ax) - Coord(from, ax));
+                var cur = from;
+                while (Coord(cur, ax) != Coord(to, ax))
+                {
+                    cur = With(cur, ax, Coord(cur, ax) + s);
+                    if (blk(cur.I, cur.J, cur.K)) return false;
+                    acc.Add(cur);
+                }
+                return true;
+            }
+
+            PathCell[]? best = null; int bestK = int.MaxValue;
+            foreach (int bow in nz)
+            {
+                int span = bow == nz[0] ? nz[1] : nz[0];
+                foreach (int sign in new[] { +1, -1 })
+                {
+                    for (int K = 1; K <= maxK; K++)
+                    {
+                        if (K >= bestK) break;               // 이미 더 짧은 우회 확보 → 이 방향 중단.
+                        int outc = (sign > 0 ? Math.Max(Coord(a, bow), Coord(b, bow))
+                                             : Math.Min(Coord(a, bow), Coord(b, bow))) + sign * K;
+                        var c1 = With(a, bow, outc);                 // a 에서 bow 축으로 바깥(outc).
+                        var c2 = With(c1, span, Coord(b, span));     // span 축으로 b 의 span 좌표까지.
+                        var cells = new List<PathCell>();
+                        if (Line(a, c1, cells) && Line(c1, c2, cells) && Line(c2, b, cells))
+                        { best = cells.ToArray(); bestK = K; break; }   // 이 방향 최소 K.
+                    }
+                }
+            }
+            return best;
         }
 
         // A→B 가 1축(직선) 또는 2축(L)만 다르면, 충돌 없는 직교 채움 셀열(A 제외·B 포함)을 반환. 없으면 null.
@@ -3991,7 +4114,9 @@ namespace Routing3D.Viewer.ViewModels
                     // 출발/종단 스텁 강조(반투명 셸) — 기존배관 ShowStubs 와 동일. 자동 경로의 고정 스텁 구간을 표시.
                     if (ShowStubs)
                     {
-                        double stubDia = routeDia * 1.35;
+                        // 본관 튜브(BuildRoutedPolyline)가 이미 스텁 구간을 같은 관경으로 그리므로, 강조 셸도
+                        //   동일 관경으로 얹는다(예전 1.35× 셸은 스텁↔본관 접합부에 굵기 단차='관경이상'을 만들었다).
+                        double stubDia = routeDia;
                         if (row.StartStub != null && row.StartStub.Count >= 2)
                         {
                             autoStartStubMb.AddTube(row.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)).ToList(), stubDia, 10, false);

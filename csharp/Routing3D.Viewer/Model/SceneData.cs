@@ -59,6 +59,11 @@ namespace Routing3D.Viewer.Model
         public string? Utility { get; set; }
         public string? Group { get; set; }
 
+        /// <summary>이 작업의 관경(외경, mm). 작업이 유래한 TB_ROUTE_PATH.SOURCE_SIZE 에서 직접 채운다.
+        /// 매칭 기존배관 탐색에 의존하지 않고 작업 본인의 규격을 쓰므로, 미매칭 작업도 실관경으로 렌더된다
+        /// (0 이면 렌더가 격자 기반 폴백 — 가는 튜브로 그려져 이웃과 굵기 불일치하던 '관경이상'의 원인).</summary>
+        public double DiameterMm { get; set; }
+
         /// <summary>이 작업이 유래한 기존배관(TB_ROUTE_PATH.ROUTE_PATH_GUID). 세그먼트 상세 조회 키.
         /// DB 로드 시에만 채워짐(scene.txt 엔 없음 → null).</summary>
         public string? RoutePathGuid { get; set; }

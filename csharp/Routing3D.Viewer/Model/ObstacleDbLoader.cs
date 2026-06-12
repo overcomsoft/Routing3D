@@ -336,6 +336,7 @@ namespace Routing3D.Viewer.Model
                             Sx = curStart.Value.X, Sy = curStart.Value.Y, Sz = curStart.Value.Z,
                             Gx = curEnd.Value.X, Gy = curEnd.Value.Y, Gz = curEnd.Value.Z,
                             Utility = util, Group = grp,
+                            DiameterMm = r.IsDBNull(3) ? 0 : ParsePipeSizeMm(r.GetString(3)),  // SOURCE_SIZE → 작업 관경.
                             RoutePathGuid = g,                                   // 세그먼트 상세 조회 키.
                             PocName = r.IsDBNull(4) ? null : r.GetString(4),     // EQUIPMENT_NAME.
                             EndName = r.IsDBNull(5) ? null : r.GetString(5),     // TARGET_OWNER_NAME.
