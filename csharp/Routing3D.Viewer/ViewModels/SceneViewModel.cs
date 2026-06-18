@@ -4741,7 +4741,7 @@ namespace Routing3D.Viewer.ViewModels
             }
 
             // 세션 선택 창
-            var picker = new Views.SessionPickerWindow(sessions)
+            var picker = new Views.SessionPickerWindow(sessions, _dbConfig)
             {
                 Owner = System.Windows.Application.Current?.MainWindow
             };

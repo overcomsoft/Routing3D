@@ -246,6 +246,18 @@ LIMIT 50";
             return result;
         }
 
+        // ── 세션 삭제 ─────────────────────────────────────────────────────────
+        /// <summary>세션과 CASCADE 배관 전체를 삭제한다.</summary>
+        public static async Task DeleteSessionAsync(DbConfig cfg, Guid sessionId)
+        {
+            await using var conn = new NpgsqlConnection(cfg.ConnectionString);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"DELETE FROM ""TB_AUTOROUTING_SESSION"" WHERE ""SESSION_ID"" = @sid";
+            AddParam(cmd, "sid", sessionId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
         // ── 배관 로드 ─────────────────────────────────────────────────────────
         /// <summary>세션에 속한 배관 목록 전체를 ROUTE_ORDER 순으로 반환.</summary>
         public static async Task<List<AutoRoutingPathRow>> LoadPathsAsync(DbConfig cfg, Guid sessionId)
