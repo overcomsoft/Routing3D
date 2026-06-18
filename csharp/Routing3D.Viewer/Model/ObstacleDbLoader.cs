@@ -18,6 +18,7 @@
 // =============================================================================
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Npgsql;
 
 namespace Routing3D.Viewer.Model
@@ -65,6 +66,17 @@ namespace Routing3D.Viewer.Model
             $"{GroupName} / {Bay ?? "?"} / {Process ?? "?"}";
 
         public override string ToString() => Display;
+    }
+
+    /// <summary>특징 프로필 정보 - route_feature_group_profile 테이블 대응</summary>
+    public sealed class FeatureProfileRow
+    {
+        public string ProjectId { get; init; } = string.Empty;
+        public string UtilityGroup { get; init; } = string.Empty;
+        public string PreferredSourceFace { get; init; } = "Any";
+        public string PreferredTargetFace { get; init; } = "Any";
+        public List<double> PreferredRackZs { get; init; } = new();
+        public string TrunkCenterlineJson { get; init; } = "[]";
     }
 
     /// <summary>DB → SceneData. 정적 API.</summary>
@@ -219,10 +231,14 @@ namespace Routing3D.Viewer.Model
 
             // ── 5) 작업(start→end) + 기존배관 — TB_ROUTE_PATH(SOURCE_POS→TARGET_POS) + 세그먼트 폴리라인 ──
             //   route_path 1행 = 작업 1개(엔드포인트) + 기존 설계배관 1개(폴리라인). 둘을 함께 만든다.
+            TryLoadProjectPocs(conn, minx, maxx, miny, maxy, data);
+
             try { LoadRoutesAndTasks(conn, minx, maxx, miny, maxy, data); }
             catch { /* 라우트 테이블 부재/스키마 차이 → 작업/기존배관 생략(다른 레이어는 정상). */ }
 
             // ── 5') 배관 자재(연결부) — TB_ROUTE_SEGMENT_DETAIL 의 실제 부속(엘보/티/밸브/플랜지 등). ──
+            AddRouteEndpointPocs(data);
+
             try { LoadFittings(conn, minx, maxx, miny, maxy, minz, maxz, data); }
             catch { /* 부속 로딩 실패 → 자재 표시만 생략(무해). */ }
 
@@ -356,6 +372,220 @@ namespace Routing3D.Viewer.Model
         //   하단 '세그먼트 상세' 탭에서 선택 배관 클릭 시 호출(별도 짧은 쿼리). GUID 빈값/DB 예외 → 빈 리스트.
         //   각 세그먼트의 INSTANCE_ID 를 TB_POCINSTANCES 에 LEFT JOIN 해 Owner(소유 객체) 타입을 가져오고,
         //   시작/종단 POC 에는 라우트 헤더의 실제 owner 이름(EQUIPMENT_NAME / TARGET_OWNER_NAME)을 덧붙인다.
+
+        private static void TryLoadProjectPocs(NpgsqlConnection conn,
+            double minx, double maxx, double miny, double maxy, SceneData data)
+        {
+            try { LoadProjectPocs(conn, minx, maxx, miny, maxy, data); }
+            catch { /* PoC table/column differences are tolerated; route endpoints still provide PoC markers. */ }
+        }
+
+        private static void LoadProjectPocs(NpgsqlConnection conn,
+            double minx, double maxx, double miny, double maxy, SceneData data)
+        {
+            var cols = ColumnSet(conn, "TB_POCINSTANCES");
+            if (cols.Count == 0) return;
+
+            string? cx = Pick(cols, "POSX", "POS_X", "POSITION_X", "POINT_X", "X", "POC_POSX", "FROM_POSX");
+            string? cy = Pick(cols, "POSY", "POS_Y", "POSITION_Y", "POINT_Y", "Y", "POC_POSY", "FROM_POSY");
+            string? cz = Pick(cols, "POSZ", "POS_Z", "POSITION_Z", "POINT_Z", "Z", "POC_POSZ", "FROM_POSZ");
+            if (cx == null || cy == null || cz == null) return;
+
+            string? cName = Pick(cols, "POC_NAME", "NAME", "INSTANCE_NAME", "TAG_NAME");
+            string? cOwner = Pick(cols, "OWNER_INSTANCE_NAME", "OWNER_NAME", "EQUIPMENT_NAME", "TARGET_OWNER_NAME");
+            string? cOwnerId = Pick(cols, "OWNER_INSTANCE_ID", "OWNER_ID", "OWNER_GUID", "INSTANCE_ID");
+            string? cOwnerType = Pick(cols, "OWNER_INSTANCE_TYPE", "OWNER_TYPE", "CATEGORY", "TYPE");
+            string? cUtility = Pick(cols, "UTILITY", "SOURCE_UTILITY");
+
+            string S(string? c) => c == null ? "NULL" : Q(c);
+            using var cmd = new NpgsqlCommand(
+                $@"SELECT {Q(cx)}, {Q(cy)}, {Q(cz)}, {S(cName)}, {S(cOwner)}, {S(cOwnerId)}, {S(cOwnerType)}, {S(cUtility)}
+                    FROM ""TB_POCINSTANCES""
+                   WHERE {Q(cx)} BETWEEN @minx AND @maxx
+                     AND {Q(cy)} BETWEEN @miny AND @maxy", conn);
+            cmd.Parameters.AddWithValue("@minx", minx); cmd.Parameters.AddWithValue("@maxx", maxx);
+            cmd.Parameters.AddWithValue("@miny", miny); cmd.Parameters.AddWithValue("@maxy", maxy);
+
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                double x = DblAny(r, 0), y = DblAny(r, 1), z = DblAny(r, 2);
+                if (x < minx || x > maxx || y < miny || y > maxy) continue;
+                string name = Str(r, 3);
+                string owner = Str(r, 4);
+                string? ownerId = NullStr(r, 5);
+                string ownerType = Str(r, 6);
+                string? util = NullStr(r, 7);
+                var kind = ClassifyPoc(ownerType, owner, x, y, z, data, out var matchedOwner, out var matchedUtil);
+                if (string.IsNullOrWhiteSpace(owner)) owner = matchedOwner;
+                if (string.IsNullOrWhiteSpace(util)) util = matchedUtil;
+                AddPoc(data, new PocMarker
+                {
+                    Kind = kind,
+                    Name = string.IsNullOrWhiteSpace(name) ? owner : name,
+                    OwnerName = owner,
+                    OwnerId = ownerId,
+                    Utility = util,
+                    X = x, Y = y, Z = z,
+                });
+            }
+        }
+
+        private static HashSet<string> ColumnSet(NpgsqlConnection conn, string table)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using var cmd = new NpgsqlCommand(
+                @"SELECT column_name FROM information_schema.columns WHERE table_name = @t", conn);
+            cmd.Parameters.AddWithValue("@t", table);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) set.Add(r.GetString(0));
+            return set;
+        }
+
+        private static string? Pick(HashSet<string> cols, params string[] names)
+        {
+            foreach (var n in names) if (cols.Contains(n)) return n;
+            return null;
+        }
+
+        private static string Q(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+        private static string Str(NpgsqlDataReader r, int i) => r.IsDBNull(i) ? string.Empty : Convert.ToString(r.GetValue(i), CultureInfo.InvariantCulture) ?? string.Empty;
+        private static string? NullStr(NpgsqlDataReader r, int i)
+        {
+            var s = Str(r, i);
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        private static double DblAny(NpgsqlDataReader r, int i)
+        {
+            if (r.IsDBNull(i)) return 0.0;
+            object v = r.GetValue(i);
+            if (v is double d) return d;
+            if (v is float f) return f;
+            if (v is decimal m) return (double)m;
+            if (v is int n) return n;
+            if (v is long l) return l;
+            return double.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0.0;
+        }
+
+        private static PocOwnerKind ClassifyPoc(string ownerType, string ownerName, double x, double y, double z,
+            SceneData data, out string matchedOwner, out string? matchedUtility)
+        {
+            matchedOwner = ownerName;
+            matchedUtility = null;
+            string key = (ownerType + " " + ownerName).ToUpperInvariant();
+            if (key.Contains("LATERAL"))
+            {
+                var d = NearestDuctLateral(data, x, y, z, lateralOnly: true);
+                if (d != null) { matchedOwner = d.Name; matchedUtility = d.Utility; }
+                return PocOwnerKind.Lateral;
+            }
+            if (key.Contains("DUCT"))
+            {
+                var d = NearestDuctLateral(data, x, y, z, lateralOnly: false);
+                if (d != null) { matchedOwner = d.Name; matchedUtility = d.Utility; return d.IsLateral ? PocOwnerKind.Lateral : PocOwnerKind.Duct; }
+                return PocOwnerKind.Duct;
+            }
+            if (key.Contains("EQUIP") || key.Contains("MODEL") || key.Contains("TOOL"))
+            {
+                var e = NearestEquipment(data, x, y, z);
+                if (e != null) matchedOwner = e.Name;
+                return PocOwnerKind.Equipment;
+            }
+
+            var eq = NearestEquipment(data, x, y, z);
+            var dl = NearestDuctLateral(data, x, y, z, lateralOnly: null);
+            double de = eq == null ? double.MaxValue : BoxDistance2(x, y, z, eq.MinX, eq.MinY, eq.MinZ, eq.MaxX, eq.MaxY, eq.MaxZ);
+            double dd = dl == null ? double.MaxValue : BoxDistance2(x, y, z, dl.MinX, dl.MinY, dl.MinZ, dl.MaxX, dl.MaxY, dl.MaxZ);
+            if (de <= dd)
+            {
+                if (eq != null) matchedOwner = eq.Name;
+                return PocOwnerKind.Equipment;
+            }
+            if (dl != null) { matchedOwner = dl.Name; matchedUtility = dl.Utility; return dl.IsLateral ? PocOwnerKind.Lateral : PocOwnerKind.Duct; }
+            return PocOwnerKind.Unknown;
+        }
+
+        private static EquipmentBox? NearestEquipment(SceneData data, double x, double y, double z)
+        {
+            EquipmentBox? best = null; double bd = double.MaxValue;
+            foreach (var e in data.Equipment)
+            {
+                double d = BoxDistance2(x, y, z, e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+                if (d < bd) { bd = d; best = e; }
+            }
+            return best;
+        }
+
+        private static DuctLateral? NearestDuctLateral(SceneData data, double x, double y, double z, bool? lateralOnly)
+        {
+            DuctLateral? best = null; double bd = double.MaxValue;
+            foreach (var d in data.DuctsLaterals)
+            {
+                if (lateralOnly.HasValue && d.IsLateral != lateralOnly.Value) continue;
+                double dist = BoxDistance2(x, y, z, d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+                if (dist < bd) { bd = dist; best = d; }
+            }
+            return best;
+        }
+
+        private static double BoxDistance2(double x, double y, double z, double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+        {
+            double dx = x < mnx ? mnx - x : x > mxx ? x - mxx : 0;
+            double dy = y < mny ? mny - y : y > mxy ? y - mxy : 0;
+            double dz = z < mnz ? mnz - z : z > mxz ? z - mxz : 0;
+            return dx * dx + dy * dy + dz * dz;
+        }
+
+        private static void AddPoc(SceneData data, PocMarker p)
+        {
+            var target = p.Kind == PocOwnerKind.Equipment ? data.EquipmentPocs : data.DuctLateralPocs;
+            foreach (var old in target)
+            {
+                if (Math.Abs(old.X - p.X) < 1.0 && Math.Abs(old.Y - p.Y) < 1.0 && Math.Abs(old.Z - p.Z) < 1.0
+                    && string.Equals(old.OwnerName, p.OwnerName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(old.Name, p.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    old.IsRouteStart |= p.IsRouteStart;
+                    old.IsRouteEnd |= p.IsRouteEnd;
+                    if (string.IsNullOrWhiteSpace(old.RoutePathGuid)) old.RoutePathGuid = p.RoutePathGuid;
+                    return;
+                }
+            }
+            target.Add(p);
+        }
+
+        private static void AddRouteEndpointPocs(SceneData data)
+        {
+            foreach (var t in data.Tasks)
+            {
+                AddPoc(data, new PocMarker
+                {
+                    Kind = PocOwnerKind.Equipment,
+                    Name = string.IsNullOrWhiteSpace(t.PocName) ? "Start PoC" : t.PocName!,
+                    OwnerName = string.IsNullOrWhiteSpace(t.PocName) ? "Equipment" : t.PocName!,
+                    Utility = t.Utility,
+                    Group = t.Group,
+                    X = t.Sx, Y = t.Sy, Z = t.Sz,
+                    IsRouteStart = true,
+                    RoutePathGuid = t.RoutePathGuid,
+                });
+                var endKind = PocOwnerKind.Duct;
+                var near = NearestDuctLateral(data, t.Gx, t.Gy, t.Gz, lateralOnly: null);
+                if (near != null && near.IsLateral) endKind = PocOwnerKind.Lateral;
+                AddPoc(data, new PocMarker
+                {
+                    Kind = endKind,
+                    Name = string.IsNullOrWhiteSpace(t.EndName) ? "End PoC" : t.EndName!,
+                    OwnerName = string.IsNullOrWhiteSpace(t.EndName) ? "Duct/Lateral" : t.EndName!,
+                    Utility = t.Utility,
+                    Group = t.Group,
+                    X = t.Gx, Y = t.Gy, Z = t.Gz,
+                    IsRouteEnd = true,
+                    RoutePathGuid = t.RoutePathGuid,
+                });
+            }
+        }
         public static List<SegmentDetailRow> LoadSegmentDetail(DbConfig config, string? routePathGuid,
                                                                string? equipmentName = null, string? targetOwnerName = null)
         {
@@ -522,6 +752,77 @@ namespace Routing3D.Viewer.Model
                 Ny = Math.Max(1, (int)Math.Ceiling((cymax - cymin) / cellMm)),
                 Nz = Math.Max(1, (int)Math.Ceiling((czmax - czmin) / cellMm)),
             };
+        }
+
+        /// <summary>프로젝트(장비 태그)에 매핑된 유틸리티별 특징 프로필을 route_feature_group_profile 에서 로드.</summary>
+        public static Dictionary<string, FeatureProfileRow> LoadFeatureProfiles(DbConfig config, string projectTag)
+        {
+            var dict = new Dictionary<string, FeatureProfileRow>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(projectTag)) return dict;
+            
+            try
+            {
+                using var conn = new NpgsqlConnection(config.ConnectionString);
+                conn.Open();
+                
+                using var cmd = new NpgsqlCommand(
+                    @"SELECT ""project_id"", ""utility_group"", ""preferred_source_face"", 
+                             ""preferred_target_face"", ""preferred_rack_zs"", ""trunk_centerline_json""
+                      FROM ""route_feature_group_profile""
+                      WHERE ""project_id"" = @proj", conn);
+                cmd.Parameters.AddWithValue("@proj", projectTag);
+                
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    string projId = r.IsDBNull(0) ? string.Empty : r.GetString(0);
+                    string utilGrp = r.IsDBNull(1) ? string.Empty : r.GetString(1);
+                    if (string.IsNullOrEmpty(utilGrp)) continue;
+                    
+                    string srcFace = r.IsDBNull(2) ? "Any" : r.GetString(2);
+                    string tgtFace = r.IsDBNull(3) ? "Any" : r.GetString(3);
+                    
+                    var zs = new List<double>();
+                    if (!r.IsDBNull(4))
+                    {
+                        var rawObj = r.GetValue(4);
+                        if (rawObj is double[] arr)
+                        {
+                            zs.AddRange(arr);
+                        }
+                        else if (rawObj is Array rawArr)
+                        {
+                            foreach (var item in rawArr)
+                            {
+                                if (item != null)
+                                {
+                                    zs.Add(Convert.ToDouble(item, CultureInfo.InvariantCulture));
+                                }
+                            }
+                        }
+                    }
+                    
+                    string centerlineJson = r.IsDBNull(5) ? "[]" : r.GetString(5);
+                    
+                    var row = new FeatureProfileRow
+                    {
+                        ProjectId = projId,
+                        UtilityGroup = utilGrp,
+                        PreferredSourceFace = srcFace,
+                        PreferredTargetFace = tgtFace,
+                        PreferredRackZs = zs,
+                        TrunkCenterlineJson = centerlineJson
+                    };
+                    
+                    dict[utilGrp] = row;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[경고] route_feature_group_profile 로딩 실패: {ex.Message}");
+            }
+            
+            return dict;
         }
     }
 }

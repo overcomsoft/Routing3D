@@ -10,6 +10,9 @@ namespace Routing3D.Viewer.Interop
     /// <summary>경로 셀 (i, j, k).</summary>
     public readonly record struct PathCell(int I, int J, int K);
 
+    /// <summary>옥트리 리프 노드 정보 (3D 가시화용). State: 0=FREE, 1=BLOCKED.</summary>
+    public readonly record struct OctreeLeaf(float X0Mm, float Y0Mm, float Z0Mm, float SizeMm, int State);
+
     /// <summary>라우팅 실패 사유(A1) — 엔진 RouteFail 과 1:1. Success=false 일 때만 의미.</summary>
     public enum RouteFail { None = 0, StartBlocked = 1, GoalBlocked = 2, CorridorMiss = 3, ExpansionLimit = 4, GoalDirBlocked = 5, NoPath = 6 }
 
@@ -89,11 +92,37 @@ namespace Routing3D.Viewer.Interop
         public void SetMinStraight(double mult)
             => Check(Native.r3d_set_min_straight(H, mult), "set_min_straight");
 
+        /// <summary>코너 최소직선(절대 mm, 하드 제약) — A* 가 '한 번 꺾인 뒤 이 길이만큼 직진하기 전엔 다시
+        /// 꺾지 못하도록' 탐색 단계에서 강제한다. 엘보 간 모든 직선 구간(단관)이 이 길이 이상 보장됨(관경 무관·
+        /// 전 배관, 목표 직전 마지막 접속 구간만 면제). SetMinStraight(관경 배수·후처리 흡수)와 달리 하드 보장.
+        /// 0=OFF(기존 동작·골든 불변). 권장 100mm.</summary>
+        public void SetMinStraightMm(double mm)
+            => Check(Native.r3d_set_min_straight_mm(H, mm), "set_min_straight_mm");
+
         /// <summary>배관-배관 이격(mm) — 두 배관 센터선 거리 ≥ r1 + r2 + gap 보장(표면 사이 최소 gap mm 띄움).
         /// 기존 마킹은 센터선을 ~관경만큼만 띄워 표면이 맞닿았다(겹쳐 보임). gap>0 이면 route_multi 가 깔린
         /// 배관을 쌍 반경으로 막아 정확히 띄운다. 0=기존 동작. 규격 60mm.</summary>
         public void SetPipeGap(double gapMm)
             => Check(Native.r3d_set_pipe_gap(H, gapMm), "set_pipe_gap");
+
+        /// <summary>대형 격자 최대 탐색 확장 수 — 0=환경변수/기본값(48M). 최단경로 모드 등에서 탐색 상한을
+        /// 줄여 배관당 탐색 폭발(수분 동결)을 방지한다. large_threshold(기본 5M셀) 이하 격자는 무제한(-1)이므로
+        /// 이 값은 대형 격자에서만 적용된다. 권장: 최단경로 8M, 특징점/기존설계 0(기본 48M).</summary>
+        public void SetMaxExpansions(long maxExp)
+        {
+            var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp };
+            Check(Native.r3d_set_runtime_options(H, in opt), "set_runtime_options");
+        }
+
+        /// <summary>대형 격자 탐색 상한 + 계층(hier) escalation 임계(hier_probe)를 함께 설정.
+        /// hierProbe 를 크게(=maxExp) 주면 어려운 배관도 '직접 가중 A*'로 먼저 충분히 탐색한 뒤에야 계층
+        /// corridor 로 넘어간다 → 직접 A*가 찾는 짧은(≤w_heur배) 경로를 계층의 3~4× 우회보다 우선한다.
+        /// 최단경로 모드처럼 '길이'가 중요한 경우에 쓴다(대신 어려운 배관은 더 오래 탐색).</summary>
+        public void SetRuntimeLimits(long maxExp, long hierProbe)
+        {
+            var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp, hier_probe = hierProbe };
+            Check(Native.r3d_set_runtime_options(H, in opt), "set_runtime_options");
+        }
 
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
@@ -244,6 +273,20 @@ namespace Routing3D.Viewer.Interop
         {
             Check(Native.r3d_dump_scene_text(H, out var p), "dump_scene_text");
             return Native.TakeString(p);
+        }
+
+        /// <summary>옥트리 리프 노드 배열 반환 (3D 가시화용).
+        /// maxLeaves: 상한(기본 1M). State: 0=FREE, 1=BLOCKED.</summary>
+        public OctreeLeaf[] EnumOctreeLeaves(int maxLeaves = 1_000_000)
+        {
+            var buf = new Native.R3dOctreeLeaf[maxLeaves];
+            int count;
+            int st = Native.r3d_enum_octree_leaves(H, buf, maxLeaves, out count);
+            if (st != 0 || count <= 0) return Array.Empty<OctreeLeaf>();
+            var result = new OctreeLeaf[count];
+            for (int i = 0; i < count; i++)
+                result[i] = new OctreeLeaf(buf[i].X0Mm, buf[i].Y0Mm, buf[i].Z0Mm, buf[i].SizeMm, buf[i].State);
+            return result;
         }
 
         private IntPtr H => _h.DangerousGetHandle();

@@ -1,26 +1,26 @@
-// 공간 박스 인덱스 (Spatial Box Index) — Routing3D C++ 엔진 (Phase 3, Step 3.11 — sparse 확장 S3)
+// 공간 박스 ?�덱??(Spatial Box Index) ??Routing3D C++ ?�진 (Phase 3, Step 3.11 ??sparse ?�장 S3)
 // =============================================================================
-// [이 파일이 하는 일]
-//   장애물 AABB(월드 mm) 목록을 **유니폼 그리드 해시(broadphase)** 로 색인해
-//   "이 작은 질의 박스(=셀)와 겹치는 장애물이 있는가?" 와 "이 점에서 가장 가까운
-//   장애물 표면까지 거리(mm)?" 를 빠르게 답한다.
+// [???�일???�는 ??
+//   ?�애�?AABB(?�드 mm) 목록??**?�니??그리???�시(broadphase)** �??�인??
+//   "???��? 질의 박스(=?�)?� 겹치???�애물이 ?�는가?" ?� "???�에??가??가까운
+//   ?�애�??�면까�? 거리(mm)?" �?빠르�??�한??
 //
-//   왜 필요한가 — 근본 동기(sparse 해법):
-//     기존 DenseOccupancy 는 장애물을 셀 격자에 칠해(voxelize) 1B/셀 배열로 저장한다.
-//     셀을 줄이면 셀 수가 부피로 폭증(25mm·1.3억셀=130MB, 10mm·20억셀=2GB→크래시).
-//     반면 장애물을 **AABB 그대로** 들고 질의로 점유를 판정하면 메모리 = O(장애물 수)로
-//     **셀 크기와 완전 무관**. 도메인이 커져도, 셀을 더 줄여도 저장이 폭발하지 않는다.
+//   ???�요?��? ??근본 ?�기(sparse ?�법):
+//     기존 DenseOccupancy ???�애물을 ?� 격자??칠해(voxelize) 1B/?� 배열�??�?�한??
+//     ?�??줄이�??� ?��? 부?�로 ??��(25mm·1.3?��?=130MB, 10mm·20?��?=2GB?�크?�시).
+//     반면 ?�애물을 **AABB 그�?�?* ?�고 질의�??�유�??�정?�면 메모�?= O(?�애�???�?
+//     **?� ?�기?� ?�전 무�?**. ?�메?�이 커져?? ?�????줄여???�?�이 ??��?��? ?�는??
 //
-//   질의 의미(보수적):
-//     overlaps(q) — 질의 박스 q 와 임의 장애물 AABB 의 '닿음 포함' 중첩(경계 일치도 점유).
-//                   ImplicitOccupancy 가 셀 AABB 로 호출하면 DenseOccupancy.add_box 의
-//                   복셀화(grid_box_range)와 사실상 동일한 점유 판정을 준다(과소차단 없음).
-//     nearest_dist(p, max) — 점 p 에서 가장 가까운 장애물 표면까지 유클리드 거리(내부면 0).
-//                   max 를 넘으면 탐색을 끊고 max 를 반환(온디맨드 클리어런스용 상한).
+//   질의 ?��?(보수??:
+//     overlaps(q) ??질의 박스 q ?� ?�의 ?�애�?AABB ??'?�음 ?�함' 중첩(경계 ?�치???�유).
+//                   ImplicitOccupancy 가 ?� AABB �??�출?�면 DenseOccupancy.add_box ??
+//                   복�???grid_box_range)?� ?�실???�일???�유 ?�정??준??과소차단 ?�음).
+//     nearest_dist(p, max) ????p ?�서 가??가까운 ?�애�??�면까�? ?�클리드 거리(?��?�?0).
+//                   max �??�으�??�색???�고 max �?반환(?�디맨드 ?�리?�런?�용 ?�한).
 //
-//   복잡도: 박스 ~1000개, 질의는 해당 버킷(+근방)만 스캔 → 질의당 상수 시간 수준.
+//   복잡?? 박스 ~1000�? 질의???�당 버킷(+근방)�??�캔 ??질의???�수 ?�간 ?��?.
 //
-// [빌드/실행]  헤더 전용. cmake --build cpp/build --config Release (occupancy.hpp 가 사용)
+// [빌드/?�행]  ?�더 ?�용. cmake --build cpp/build --config Release (occupancy.hpp 가 ?�용)
 // =============================================================================
 #pragma once
 
@@ -35,15 +35,15 @@
 
 namespace routing3d {
 
-// 두 AABB 의 '진짜' 중첩(경계가 정확히 맞닿기만 하면 false). 셀 AABB[c*cell,(c+1)*cell) 와
-// 장애물 AABB 에 적용하면 DenseOccupancy.add_box 의 반열린 복셀화(grid_box_range: floor lo /
-// ceil hi)와 **동일한 셀 점유**를 준다 → 경계의 인접 빈 셀을 과차단하지 않는다(불변식 O1 일치).
+// ??AABB ??'진짜' 중첩(경계가 ?�확??맞닿기만 ?�면 false). ?� AABB[c*cell,(c+1)*cell) ?�
+// ?�애�?AABB ???�용?�면 DenseOccupancy.add_box ??반열�?복�???grid_box_range: floor lo /
+// ceil hi)?� **?�일???� ?�유**�?준????경계???�접 �??�??과차?�하지 ?�는??불�???O1 ?�치).
 inline bool aabb_overlap(const Vec3& alo, const Vec3& ahi, const Vec3& blo, const Vec3& bhi) {
     return alo.x < bhi.x && ahi.x > blo.x && alo.y < bhi.y && ahi.y > blo.y &&
            alo.z < bhi.z && ahi.z > blo.z;
 }
 
-// 점 p 에서 AABB[lo,hi] 표면까지의 유클리드 거리(점이 내부면 0).
+// ??p ?�서 AABB[lo,hi] ?�면까�????�클리드 거리(?�이 ?��?�?0).
 inline double point_aabb_dist(const Vec3& p, const Vec3& lo, const Vec3& hi) {
     double dx = std::max(std::max(lo.x - p.x, 0.0), p.x - hi.x);
     double dy = std::max(std::max(lo.y - p.y, 0.0), p.y - hi.y);
@@ -51,17 +51,23 @@ inline double point_aabb_dist(const Vec3& p, const Vec3& lo, const Vec3& hi) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// 장애물 AABB 목록의 유니폼-그리드 broadphase 색인.
-//   bucket_mm 한 변의 정육면체 버킷에 각 박스를 '겹치는 모든 버킷' 으로 등록한다.
-//   질의 셀은 작아(≤버킷) 자신의 버킷만 스캔하면 그 셀과 겹치는 박스는 반드시 같은 버킷에
-//   등록돼 있으므로(박스가 셀을 덮으면 셀의 버킷도 덮음) 누락 없이 찾는다.
+// ?�애�?AABB 목록???�니??그리??broadphase ?�인.
+//   bucket_mm ??변???�육면체 버킷??�?박스�?'겹치??모든 버킷' ?�로 ?�록?�다.
+//   질의 ?�?� ?�아(?�버?? ?�신??버킷�??�캔?�면 �??��?겹치??박스??반드??같�? 버킷??
+//   ?�록???�으므�?박스가 ?�????���??�??버킷????��) ?�락 ?�이 찾는??
 class SpatialBoxIndex {
 public:
     explicit SpatialBoxIndex(double bucket_mm) : bucket_mm_(bucket_mm > 0.0 ? bucket_mm : 1000.0) {}
 
     long long box_count() const { return static_cast<long long>(lo_.size()); }
 
-    // 장애물 AABB 추가(월드 mm). lo<hi 가정(호출자가 퇴화 박스는 거른다).
+    template <class Fn>
+    void for_each_box(Fn&& fn) const {
+        for (size_t idx = 0; idx < lo_.size(); ++idx)
+            fn(lo_[idx], hi_[idx]);
+    }
+
+    // ?�애�?AABB 추�?(?�드 mm). lo<hi 가???�출?��? ?�화 박스??거른??.
     void add(const Vec3& lo, const Vec3& hi) {
         const int idx = static_cast<int>(lo_.size());
         lo_.push_back(lo);
@@ -75,7 +81,7 @@ public:
                     buckets_[key(bx, by, bz)].push_back(idx);
     }
 
-    // 질의 박스 q[lo,hi] 와 겹치는 장애물이 하나라도 있는가(닿음 포함).
+    // 질의 박스 q[lo,hi] ?� 겹치???�애물이 ?�나?�도 ?�는가(?�음 ?�함).
     bool overlaps(const Vec3& qlo, const Vec3& qhi) const {
         const int bx0 = fl(qlo.x), bx1 = fl(qhi.x);
         const int by0 = fl(qlo.y), by1 = fl(qhi.y);
@@ -93,8 +99,8 @@ public:
         return false;
     }
 
-    // 점 p 에서 가장 가까운 장애물 표면까지 거리(mm). max_dist 초과면 탐색 중단 후 max_dist 반환.
-    // p 를 중심으로 max_dist 반경이 닿는 버킷들만 스캔한다(온디맨드 클리어런스용).
+    // ??p ?�서 가??가까운 ?�애�??�면까�? 거리(mm). max_dist 초과�??�색 중단 ??max_dist 반환.
+    // p �?중심?�로 max_dist 반경???�는 버킷?�만 ?�캔?�다(?�디맨드 ?�리?�런?�용).
     double nearest_dist(const Vec3& p, double max_dist) const {
         if (lo_.empty()) return max_dist;
         const int bx0 = fl(p.x - max_dist), bx1 = fl(p.x + max_dist);
@@ -111,7 +117,7 @@ public:
                                                    hi_[static_cast<size_t>(bi)]);
                         if (d < best) {
                             best = d;
-                            if (best <= 0.0) return 0.0;  // 내부 → 더 볼 것 없음.
+                            if (best <= 0.0) return 0.0;  // ?��? ????�?�??�음.
                         }
                     }
                 }
@@ -121,7 +127,7 @@ public:
 private:
     int fl(double w) const { return static_cast<int>(std::floor(w / bucket_mm_)); }
 
-    // 버킷 좌표(음수 가능) → 64비트 키. 축당 21비트 + 바이어스(±2^20). 플랜트 도메인엔 충분.
+    // 버킷 좌표(?�수 가?? ??64비트 ?? 축당 21비트 + 바이?�스(±2^20). ?�랜???�메?�엔 충분.
     static uint64_t key(int bx, int by, int bz) {
         constexpr uint64_t B = 1u << 20;
         return ((static_cast<uint64_t>(static_cast<int64_t>(bx) + B) & 0x1FFFFF) << 42) |

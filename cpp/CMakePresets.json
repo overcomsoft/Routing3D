@@ -1,0 +1,128 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base-vcpkg-openvdb",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "USE_OPENVDB": "ON",
+        "ROUTING3D_REQUIRE_OPENVDB": "ON"
+      }
+    },
+    {
+      "name": "windows-vs2022-x64-openvdb",
+      "inherits": "base-vcpkg-openvdb",
+      "displayName": "Windows VS2022 x64 OpenVDB",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-ninja-x64-openvdb",
+      "inherits": "base-vcpkg-openvdb",
+      "displayName": "Linux Ninja x64 OpenVDB",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-linux"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "macos-ninja-x64-openvdb",
+      "inherits": "base-vcpkg-openvdb",
+      "displayName": "macOS Ninja x64 OpenVDB",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-osx"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-ninja-arm64-openvdb",
+      "inherits": "base-vcpkg-openvdb",
+      "displayName": "macOS Ninja arm64 OpenVDB",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-osx"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-vs2022-x64-openvdb",
+      "configurePreset": "windows-vs2022-x64-openvdb",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-ninja-x64-openvdb",
+      "configurePreset": "linux-ninja-x64-openvdb"
+    },
+    {
+      "name": "macos-ninja-x64-openvdb",
+      "configurePreset": "macos-ninja-x64-openvdb"
+    },
+    {
+      "name": "macos-ninja-arm64-openvdb",
+      "configurePreset": "macos-ninja-arm64-openvdb"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-vs2022-x64-openvdb",
+      "configurePreset": "windows-vs2022-x64-openvdb",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-ninja-x64-openvdb",
+      "configurePreset": "linux-ninja-x64-openvdb",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-ninja-x64-openvdb",
+      "configurePreset": "macos-ninja-x64-openvdb",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-ninja-arm64-openvdb",
+      "configurePreset": "macos-ninja-arm64-openvdb",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -70,8 +70,22 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern void r3d_destroy(IntPtr e);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_load_scene_text(IntPtr e, byte[] sceneUtf8);
 
+        // R3dRuntimeOptions (blittable, C 헤더 R3dRuntimeOptions 와 1:1). 0 필드=엔진 기본값 사용.
+        [StructLayout(LayoutKind.Sequential)]
+        public struct R3dRuntimeOptions
+        {
+            public long large_grid_threshold;   // 0=default 5,000,000 cells.
+            public long max_expansions;         // 0=env R3D_MAX_EXP/default(48M).
+            public long fallback_expansions;    // 0=max_expansions/env.
+            public int  hier_factor;            // 0=default 8.
+            public int  hier_radius;            // 0=default 2.
+            public long hier_probe;             // 0=default 300,000.
+            public int  ripup_enabled;          // -1=env/default, 0=off, 1=on.
+        }
+
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_grid(IntPtr e, in R3dGrid g);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_params(IntPtr e, in R3dParams p);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_runtime_options(IntPtr e, in R3dRuntimeOptions opt);
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_add_obstacle(IntPtr e, double minx, double miny, double minz,
                                                  double maxx, double maxy, double maxz);
@@ -121,8 +135,23 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_per_task_radius(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_cbs_depth(IntPtr e, int depth);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight(IntPtr e, double mult);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight_mm(IntPtr e, double mm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_gap(IntPtr e, double gapMm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
+
+        // ---- 옥트리 리프 열거 (3D 가시화) ----
+        // 엔진에 로드된 씬으로 옥트리를 빌드하고 모든 리프를 buf 에 채운다.
+        // state: 0=FREE, 1=BLOCKED. R3D_OK 면 *outCount 에 실제 개수.
+        [StructLayout(LayoutKind.Sequential)]
+        public struct R3dOctreeLeaf
+        {
+            public float X0Mm, Y0Mm, Z0Mm;   // 리프 원점 (world mm)
+            public float SizeMm;               // 리프 한 변 크기 (mm)
+            public int   State;                // 0=FREE, 1=BLOCKED
+        }
+        [DllImport(Dll, CallingConvention = Cdecl)]
+        public static extern int r3d_enum_octree_leaves(IntPtr e,
+            [Out] R3dOctreeLeaf[] buf, int maxCount, out int outCount);
 
         // 문자열 → UTF-8 바이트(널 종료). 한글 보존.
         public static byte[] Utf8(string? s) => Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");

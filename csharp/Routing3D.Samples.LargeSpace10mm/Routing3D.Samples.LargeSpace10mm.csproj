@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Routing3D.Engine\Routing3D.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HelixToolkit.Wpf" Version="2.24.0" />
+    <PackageReference Include="Npgsql" Version="8.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="D:\vcpkg\installed\x64-windows\bin\*.dll" Condition="Exists('D:\vcpkg\installed\x64-windows\bin')">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\cpp\build_legacy_check\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_legacy_check\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\cpp\build\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And !Exists('..\..\cpp\build_legacy_check\Release\routing3d_capi.dll') And Exists('..\..\cpp\build\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

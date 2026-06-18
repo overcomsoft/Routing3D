@@ -1,7 +1,8 @@
-// OpenVDB 점유맵 구현 — vdb_occupancy.hpp 참고. OpenVDB BoolGrid 를 점유 비트맵으로 사용.
+﻿// OpenVDB 점유맵 구현 — vdb_occupancy.hpp 참고. OpenVDB BoolGrid 를 점유 비트맵으로 사용.
 // 좌표/복셀화는 geometry.hpp 공유 함수로 Dense/Sparse 와 일치(불변식 O1).
 #include "routing3d/vdb_occupancy.hpp"
 
+#include <cstdlib>
 #include <mutex>
 #include <stdexcept>
 
@@ -90,15 +91,47 @@ long long VdbOccupancy::count_blocked() const {
     return static_cast<long long>(impl_->grid->activeVoxelCount());
 }
 
+std::vector<Cell> VdbOccupancy::blocked_cells() const {
+    std::vector<Cell> cells;
+    cells.reserve(static_cast<size_t>(impl_->grid->activeVoxelCount()));
+    for (auto it = impl_->grid->cbeginValueOn(); it; ++it) {
+        const openvdb::Coord c = it.getCoord();
+        cells.push_back(Cell{c.x(), c.y(), c.z()});
+    }
+    return cells;
+}
+
+int VdbOccupancy::clearance_cells(const Cell& c, int max_radius) const {
+    if (max_radius <= 0) return max_radius;
+    if (is_blocked(c)) return 0;
+
+    for (int r = 1; r <= max_radius; ++r) {
+        for (int di = -r; di <= r; ++di) {
+            for (int dj = -r; dj <= r; ++dj) {
+                for (int dk = -r; dk <= r; ++dk) {
+                    if (std::abs(di) + std::abs(dj) + std::abs(dk) > r) continue;
+                    Cell n{c.i + di, c.j + dj, c.k + dk};
+                    if (!in_bounds(n)) continue;
+                    if (is_blocked(n)) return r - 1;
+                }
+            }
+        }
+    }
+    return max_radius;
+}
+
 long long VdbOccupancy::memory_bytes() const {
     return static_cast<long long>(impl_->grid->memUsage());
 }
 
-Cell VdbOccupancy::unlin(int idx) const {
-    int i = idx % shape_.i;
-    int j = (idx / shape_.i) % shape_.j;
-    int k = idx / (shape_.i * shape_.j);
+Cell VdbOccupancy::unlin(long long idx) const {
+    const long long nx = shape_.i;
+    const long long ny = shape_.j;
+    int i = static_cast<int>(idx % nx);
+    int j = static_cast<int>((idx / nx) % ny);
+    int k = static_cast<int>(idx / (nx * ny));
     return Cell{i, j, k};
 }
 
 }  // namespace routing3d
+

@@ -167,6 +167,28 @@ namespace Routing3D.Viewer.Model
         public Pt3(double x, double y, double z) { X = x; Y = y; Z = z; }
     }
 
+
+    public enum PocOwnerKind
+    {
+        Unknown,
+        Equipment,
+        Duct,
+        Lateral
+    }
+
+    public sealed class PocMarker
+    {
+        public PocOwnerKind Kind { get; set; } = PocOwnerKind.Unknown;
+        public string Name { get; set; } = string.Empty;
+        public string OwnerName { get; set; } = string.Empty;
+        public string? OwnerId { get; set; }
+        public string? Utility { get; set; }
+        public string? Group { get; set; }
+        public double X, Y, Z;
+        public bool IsRouteStart { get; set; }
+        public bool IsRouteEnd { get; set; }
+        public string? RoutePathGuid { get; set; }
+    }
     /// <summary>scene.txt 한 개의 렌더 입력(격자/장애물/작업 + 원문).</summary>
     public sealed class SceneData
     {
@@ -176,6 +198,8 @@ namespace Routing3D.Viewer.Model
         public List<SpaceArea> Spaces { get; } = new();   // 공간 영역(시각화용). DB 로드 시에만 채워짐.
         public List<EquipmentBox> Equipment { get; } = new();   // 장비 박스(시각화용). DB 로드 시에만.
         public List<DuctLateral> DuctsLaterals { get; } = new();   // 덕트/레터럴 박스(시각화용). DB 로드 시에만.
+        public List<PocMarker> EquipmentPocs { get; } = new();
+        public List<PocMarker> DuctLateralPocs { get; } = new();
         public List<ExistingPipe> ExistingPipes { get; } = new();   // 기존 설계배관 폴리라인(시각화용). DB 로드 시에만.
         public List<PipeFitting> Fittings { get; } = new();         // 배관 자재(연결부, TB_ROUTE_SEGMENT_DETAIL). DB 로드 시에만.
         public string SourceFile { get; set; } = string.Empty;      // 프로젝트 SOURCE_FILE(DB 로드 시). 번들 템플릿 조회 키.

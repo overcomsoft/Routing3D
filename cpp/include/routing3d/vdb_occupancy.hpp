@@ -1,4 +1,4 @@
-// OpenVDB 점유맵 (VdbOccupancy) — Routing3D C++ 엔진 (Phase 3, Step 3.6)
+﻿// OpenVDB 점유맵 (VdbOccupancy) — Routing3D C++ 엔진 (Phase 3, Step 3.6)
 // =============================================================================
 // [이 파일이 하는 일]
 //   OpenVDB(BoolGrid) 를 점유 비트맵으로 사용하는 희소 백엔드. DenseOccupancy 와 동일
@@ -21,6 +21,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "routing3d/geometry.hpp"
 
@@ -47,6 +48,8 @@ public:
 
     // ---- 메타/통계 ----
     long long count_blocked() const;  // 활성 복셀 수(타일 포함 논리 개수).
+    std::vector<Cell> blocked_cells() const;  // active occupied voxel coordinates for visualization/copy.
+    int clearance_cells(const Cell& c, int max_radius) const;
     long long memory_bytes() const;   // 그리드 메모리 사용량(타일 압축 반영).
     Cell shape() const { return shape_; }
     Vec3 origin() const { return origin_; }
@@ -54,8 +57,12 @@ public:
     long long size() const { return static_cast<long long>(shape_.i) * shape_.j * shape_.k; }
 
     // A* g/closed 키(Dense 와 동일 공식). 초대형 격자에서는 호출 금지.
-    int lin(const Cell& c) const { return c.i + shape_.i * (c.j + shape_.j * c.k); }
-    Cell unlin(int idx) const;
+    long long lin(const Cell& c) const {
+        return static_cast<long long>(c.i) +
+               static_cast<long long>(shape_.i) *
+                   (static_cast<long long>(c.j) + static_cast<long long>(shape_.j) * c.k);
+    }
+    Cell unlin(long long idx) const;
 
     VdbOccupancy copy() const { return *this; }
 
@@ -68,3 +75,4 @@ private:
 };
 
 }  // namespace routing3d
+

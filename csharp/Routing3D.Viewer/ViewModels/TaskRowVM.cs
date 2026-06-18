@@ -56,6 +56,9 @@ namespace Routing3D.Viewer.ViewModels
         public System.Collections.Generic.List<Model.Pt3>? StartStub { get; set; }
         public System.Collections.Generic.List<Model.Pt3>? EndStub { get; set; }
 
+        /// <summary>DB에서 불러온 렌더 폴리라인(world mm). non-null 이면 BuildModel 이 Path/Stubs 대신 이 좌표로 렌더한다.</summary>
+        public System.Collections.Generic.List<System.Windows.Media.Media3D.Point3D>? LoadedPolylinePts { get; set; }
+
         private double _sx, _sy, _sz, _gx, _gy, _gz;
         public double Sx { get => _sx; set => Set(ref _sx, value); }
         public double Sy { get => _sy; set => Set(ref _sy, value); }
@@ -83,6 +86,19 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>마지막 라우팅에서 A* 가 확장(방문)한 노드 수 — 실패 원인 진단에 쓴다(0/소수=출발 막힘,
         /// 대량=혼잡/막힘, 상한=탐색 초과). CacheResults 에서 엔진 결과로 채운다.</summary>
         public long ExpandedNodes { get; set; }
+
+        /// <summary>이 배관 한 개에 걸린 라우팅 시간(ms). 진행 콜백 phase==1 의 ElapsedMs 로 채운다.</summary>
+        public double ElapsedMs { get; set; }
+
+        /// <summary>경로 탐색에 걸린 시간 표시 — 1초 미만은 ms, 1초 이상은 s 단위. 미라우팅이면 빈 칸.</summary>
+        public string ElapsedText
+        {
+            get
+            {
+                if (!Attempted || ElapsedMs <= 0) return "";
+                return ElapsedMs < 1000 ? $"{ElapsedMs:0}ms" : $"{ElapsedMs / 1000.0:0.0}s";
+            }
+        }
 
         /// <summary>마지막 라우팅의 엔진 실패 사유(A1) — 성공 시 None. ExplainFailure 가 정확 분류에 쓴다.</summary>
         public Interop.RouteFail LastFail { get; set; } = Interop.RouteFail.None;
@@ -123,7 +139,7 @@ namespace Routing3D.Viewer.ViewModels
         {
             OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay));
             OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush));
-            OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount));
+            OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount)); OnChanged(nameof(ElapsedText));
         }
 
         /// <summary>처리 상태 텍스트 — 결과 그리드 '상태' 컬럼. 진행 중엔 대기/탐색 %, 완료 후 성공/실패/미라우팅.</summary>

@@ -5,6 +5,10 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Routing3D.Viewer", "Routing3D.Viewer\Routing3D.Viewer.csproj", "{3094A3CD-BACC-43AB-8430-05D178A89775}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Routing3D.Engine", "Routing3D.Engine\Routing3D.Engine.csproj", "{60826F97-62F0-40C6-A70A-B0D62B891BF5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Routing3D.Samples.LargeSpace10mm", "Routing3D.Samples.LargeSpace10mm\Routing3D.Samples.LargeSpace10mm.csproj", "{A72E4577-4703-4F9E-A07E-88BA88B6912F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +31,30 @@ Global
 		{3094A3CD-BACC-43AB-8430-05D178A89775}.Release|x64.Build.0 = Release|x64
 		{3094A3CD-BACC-43AB-8430-05D178A89775}.Release|x86.ActiveCfg = Release|x64
 		{3094A3CD-BACC-43AB-8430-05D178A89775}.Release|x86.Build.0 = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|Any CPU.Build.0 = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|x64.ActiveCfg = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|x64.Build.0 = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|x86.ActiveCfg = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Debug|x86.Build.0 = Debug|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|Any CPU.ActiveCfg = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|Any CPU.Build.0 = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|x64.ActiveCfg = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|x64.Build.0 = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|x86.ActiveCfg = Release|x64
+		{60826F97-62F0-40C6-A70A-B0D62B891BF5}.Release|x86.Build.0 = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|Any CPU.Build.0 = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|x64.ActiveCfg = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|x64.Build.0 = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|x86.ActiveCfg = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Debug|x86.Build.0 = Debug|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|Any CPU.ActiveCfg = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|Any CPU.Build.0 = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|x64.ActiveCfg = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|x64.Build.0 = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|x86.ActiveCfg = Release|x64
+		{A72E4577-4703-4F9E-A07E-88BA88B6912F}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

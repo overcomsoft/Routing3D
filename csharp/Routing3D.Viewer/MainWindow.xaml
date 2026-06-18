@@ -88,6 +88,16 @@
                 <Button Content="📄 결과 리포트" Command="{Binding RouteResultReportCommand}" Margin="4,0,0,0"
                         Background="#3a4e7a" MinWidth="90"
                         ToolTip="직전 자동설계 결과를 별도 창으로 띄우고 .md 문서로 저장: 어떤 순서로 라우팅했는지(굵은 배관 먼저)·꺾임 지점을 어떻게 선정했는지(라이저/장애물 회피/랙/정렬)·최종 연결 성공/실패와 실패 원인. 먼저 자동설계를 실행해야 활성화됩니다."/>
+                <Button Content="📦 GLB 저장" Command="{Binding ExportGlbCommand}" Margin="4,0,0,0"
+                        Background="#3a4e7a" MinWidth="80"
+                        ToolTip="성공한 자동경로 배관을 glTF 2.0 Binary(.glb)로 내보냅니다. 유틸리티별 색상 재질 포함. Blender·Unity·온라인 뷰어(gltf.report)에서 바로 열 수 있습니다. 먼저 자동설계를 실행해야 활성화됩니다."/>
+                <Separator Width="1" Background="#404a64" Margin="4,2"/>
+                <Button Content="💾 결과 저장" Command="{Binding SaveRouteResultsCommand}" Margin="4,0,0,0"
+                        Background="#3a5a3a" MinWidth="85"
+                        ToolTip="현재 자동설계 결과(성공/실패 경로·폴리라인)를 PostgreSQL DB(TB_AUTOROUTING_SESSION / TB_AUTOROUTING_PATH)에 저장합니다. 먼저 자동설계를 실행해야 활성화됩니다."/>
+                <Button Content="📂 결과 불러오기" Command="{Binding LoadRouteResultsCommand}" Margin="2,0,0,0"
+                        Background="#3a4a5a" MinWidth="100"
+                        ToolTip="DB에 저장된 자동설계 결과를 불러와 3D 뷰어에 표시합니다. 세션 선택 창에서 원하는 날짜/장비 결과를 고르세요."/>
 
                 <!-- 진단 레이어(디버그용 복셀) — 하단 바에서 상단으로 이동 -->
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
@@ -109,6 +119,9 @@
                 <CheckBox Content="방문맵" IsChecked="{Binding ShowVisitedMap}" Foreground="#EBCD3C"
                           VerticalAlignment="Center" Margin="0,0,4,0"
                           ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>
+                <CheckBox Content="🌳 옥트리" IsChecked="{Binding ShowOctreeVoxels}" Foreground="#90EE90"
+                          VerticalAlignment="Center" Margin="0,0,4,0"
+                          ToolTip="가변셀 옥트리 분해도 — 자유공간 리프(민트 녹색·반투명·크기 가변)와 장애물 리프(적색)를 박스로 표시.&#x0a;리프가 클수록 A* 가 한 번에 점프하는 거리가 크다(개방 공간 확인). 장애물 근처는 작은 리프(세분화)."/>
             </StackPanel>
         </Border>
 
@@ -210,6 +223,7 @@
                                    ShowViewCube="True"
                                    IsHeadLightEnabled="True"
                                    ModelUpDirection="0,0,1">
+
                     <h:DefaultLights/>
                     <!-- 바닥 격자: 씬 좌표에 맞춰 코드비하인드가 Center/Width/Length 를 갱신(SceneRebuilt).
                          하드코딩하면 실제 DB 좌표(수만 mm)와 떨어져 ZoomExtents 가 빗나간다. -->
@@ -226,6 +240,18 @@
                     <ModelVisual3D Content="{Binding LiveRouteModel}"/>   <!-- 진행 다이얼로그 라우팅 라이브(배관 완료마다 점진) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
+
+                <!-- ── 성능 오버레이: FPS · 렌더오브젝트 · 옥트리 리프 수 ── -->
+                <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="8" Padding="6,4" CornerRadius="4"
+                        IsHitTestVisible="False" Panel.ZIndex="100">
+                    <Border.Background>
+                        <SolidColorBrush Color="#1e2230" Opacity="0.78"/>
+                    </Border.Background>
+                    <TextBlock x:Name="PerfOverlay"
+                               FontFamily="Consolas" FontSize="11" LineHeight="17"
+                               Foreground="#90EE90"/>
+                </Border>
 
                 <!-- 레이어 표시: SpaceAI 와 같이 viewport 하단 가로형 WrapPanel -->
                 <Border Grid.Row="1" Background="#252b3d" BorderBrush="#404a64"
@@ -284,40 +310,18 @@
                                       ToolTip="그룹배관 패턴 표시 — 기존설계에서 학습한 유틸별 '공용 트렁크 레인'(L4)을 보라색 반투명 큐브로 메인 3D 에 그립니다. 이 셀들이 곧 자동 라우팅에 주입되는 회랑이라, 새 경로가 어떤 레인을 따라 다발로 뭉칠지 미리 보입니다. 좌측에서 그룹/유틸을 선택하면 그 부분집합 패턴만. DB 적재 필요(bundle_detect --write-db). 미적재면 비활성."/>
 
                             <Border Width="1" Background="#404a64" Margin="2,1,12,1"/>
-                            <!-- ───── 라우팅: 경로 결과를 바꾸는 옵션 ───── -->
-                            <TextBlock Text="라우팅" Foreground="#7f8aa3" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <CheckBox Content="{Binding PatternStatus}"
-                                      IsChecked="{Binding UsePatterns}" Margin="0,0,12,0"
-                                      ToolTip="기존설계 패턴(L2a) — 학습한 진출/진입 면(장비=아래·덕트=상부 등)으로 시작/종단 PoC를 표면 투영해 자동라우팅을 사람 설계에 맞춥니다. 미적재/키 미스면 최근접-면 폴백. 기본 ON."/>
-                            <CheckBox Content="스텁 라우팅"
-                                      IsChecked="{Binding UseStubRouting}" Margin="0,0,12,0"
-                                      ToolTip="스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 고정 설계 구간으로 깔고, A*는 스텁 끝(랙 위)에서 시작/종료. 표시=출발 스텁+A* 중간+종단 스텁. 매칭 없으면 PoC 직접 라우팅 폴백. 기본 ON."/>
-                            <CheckBox Content="🪜 다단 랙(z-분리)"
-                                      IsChecked="{Binding UseTieredRack}" Margin="0,0,12,0" Foreground="#9ED88A"
-                                      ToolTip="다단 랙(z-분리) 통합 — '자동설계'가 범위에 유틸그룹이 2개 이상이면 기존설계의 실제 랙 단(수평 런 z 클러스터)을 학습해 그룹마다 다른 높이로 순차 라우팅(사람설계 유사, 그룹 간 혼잡 차단). 단일 그룹/유틸은 일반 라우팅. 기본 ON. 끄면 옛 한-평면 번들 라우팅."/>
-                            <CheckBox Content="배관 이격(60mm)"
-                                      IsChecked="{Binding UseClearanceGap}" Margin="0,0,12,0" Foreground="#9ED88A"
-                                      ToolTip="배관 이격(규격) — 두 배관 센터선 거리 ≥ 반경1+반경2+60mm 보장(표면 사이 최소 60mm 띄움). 끄면 표면이 맞닿을 수 있습니다(겹쳐 보임). 기본 ON. 주의: 평면에서 이격하면 배관이 서로 우회해 꺾임이 늘 수 있습니다(둘 다 줄이려면 다단 랙 z-분리)."/>
-                            <CheckBox Content="협상 라우팅(CBS)"
-                                      IsChecked="{Binding UseCbs}" Margin="0,0,12,0" Foreground="#C8A2E8"
-                                      ToolTip="협상 라우팅(C1, CBS-lite) — 평면 rip-up 으로도 안 풀린 실패 배관을, 막는 배관(blocker)이 재배치 못 하면 그 blocker 의 blocker 까지 재귀적으로 양보시켜 해소합니다(무손실=성공만 늘림·결정적). 고밀도 병목의 잔여 실패를 줄입니다. 대형격자 재귀 재라우팅 비용이 있어 기본 OFF."/>
-                            <CheckBox Content="코너 최소반경"
-                                      IsChecked="{Binding UseMinStraight}" Margin="0,0,12,0" Foreground="#C8A2E8"
-                                      ToolTip="코너 최소반경(C2) — 엘보 사이 직선(단관)이 2×관경보다 짧으면 제작 불가 → 경로(셀) 단계에서 충돌검사 하에 그 짧은 단관을 양옆 코너 직교 연결로 흡수합니다(꺾임 비증가일 때만, 양 끝점 고정). 형상을 바꾸므로 기본 OFF."/>
-                            <Border Width="1" Background="#404a64" Margin="2,1,8,1"/>
-                            <!-- 경로 방식 3-모드 선택(상호 배타) -->
-                            <TextBlock Text="경로 방식:" Foreground="#7f8aa3" FontWeight="SemiBold"
+                            <!-- ───── 경로 방식: 3-모드 상호 배타 선택 ───── -->
+                            <TextBlock Text="경로 방식:" Foreground="#e8eaf0" FontWeight="SemiBold"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <RadioButton Content="최단경로" GroupName="RouteMode" Margin="0,0,8,0"
-                                         VerticalAlignment="Center" IsChecked="{Binding IsModeShortest}"
-                                         ToolTip="최단경로 — 그룹/기존설계 패턴을 무시하고 순수 최단 A*로 라우팅합니다(스텁·면투영 토글은 별도)."/>
-                            <RadioButton Content="그룹패턴 경유" GroupName="RouteMode" Margin="0,0,8,0"
-                                         VerticalAlignment="Center" IsChecked="{Binding IsModeGroupPattern}"
-                                         ToolTip="그룹패턴 경유 — 매칭되는 그룹배관(기존설계)의 꺾임점(수직↔수평·수평간 꺾임)을 '반드시 경유'하도록 코너 사이를 A*로 잇습니다. 코너 사이는 최단, 코너는 강제 통과 → 그룹배관 골격을 따라 다발로 모입니다. 매칭 없으면 최단 폴백. 기본값."/>
-                            <RadioButton Content="기존설계 추종" GroupName="RouteMode" Margin="0,0,12,0"
-                                         VerticalAlignment="Center" IsChecked="{Binding IsModeFollowExisting}"
-                                         ToolTip="기존설계 추종 — 매칭 기존배관 폴리라인을 그대로 복제하고, 현재 점유에서 막힌(장애물이 달라진) 구간만 A*로 국소 우회합니다. 가장 강한 추종. 매칭 없으면 최단 폴백."/>
+                                         Foreground="#e8eaf0" VerticalAlignment="Center" IsChecked="{Binding IsModeShortest}"
+                                         ToolTip="최단경로 — 패턴·스텁·회랑 없이 순수 최단 A* 로 라우팅합니다. 기존설계 형상을 따르지 않아 경로가 사람설계와 다를 수 있습니다."/>
+                            <RadioButton Content="기존설계추종" GroupName="RouteMode" Margin="0,0,8,0"
+                                         Foreground="#e8eaf0" VerticalAlignment="Center" IsChecked="{Binding IsModeFollowExisting}"
+                                         ToolTip="기존설계추종 — 매칭되는 기존배관 폴리라인을 그대로 복제하고, 장애물로 막힌 구간만 A* 로 국소 우회합니다. 기존설계와 가장 유사한 경로입니다. 매칭 없으면 특징점반영 폴백."/>
+                            <RadioButton Content="특징점반영" GroupName="RouteMode" Margin="0,0,8,0"
+                                         Foreground="#e8eaf0" VerticalAlignment="Center" IsChecked="{Binding IsModePatternApplied}"
+                                         ToolTip="특징점반영 — 학습된 스텁 패턴(진출/진입 면·수직 라이저·첫 엘보) + 기존배관 회랑으로 사람설계에 근접한 경로를 탐색합니다. 스텁이 매칭되면 스텁 끝~끝 구간만 A* 탐색. 기본 설정입니다."/>
                         </WrapPanel>
                     </DockPanel>
                 </Border>
@@ -363,11 +367,15 @@
                                             ToolTip="자동설계가 너무 오래 걸릴 때 중단합니다. 현재 탐색 중인 배관에서 협력적으로 멈추며(약 5만 확장마다 검사), 이미 완료된 경로는 보존되고 나머지는 미라우팅으로 남습니다."/>
                                 </Grid>
                             </Border>
-                            <DataGrid ItemsSource="{Binding ResultList}"
+                            <DataGrid x:Name="TaskDataGrid"
+                                      ItemsSource="{Binding ResultList}"
                                       SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
                                       AutoGenerateColumns="False" IsReadOnly="True"
                                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                       CanUserAddRows="False" SelectionMode="Single"
+                                      ColumnWidth="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                                       Background="#252b3d" RowBackground="#252b3d"
                                       AlternatingRowBackground="#2b3548" Foreground="#e8eaf0"
                                       BorderBrush="#404a64" HorizontalGridLinesBrush="#333b50"
@@ -382,11 +390,8 @@
                                     </Style>
                                 </DataGrid.ColumnHeaderStyle>
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="34"/>
-                                    <DataGridTextColumn Header="유틸" Binding="{Binding Utility}" Width="64"/>
-                                    <DataGridTextColumn Header="시작PoC" Binding="{Binding PocName}" Width="*"/>
-                                    <DataGridTextColumn Header="종단PoC" Binding="{Binding EndName}" Width="*"/>
-                                    <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="62">
+                                    <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="Auto"/>
+                                    <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="Auto">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="Foreground" Value="{Binding StatusBrush}"/>
@@ -394,14 +399,25 @@
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
-                                    <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="72">
+                                    <DataGridTextColumn Header="유틸" Binding="{Binding Utility}" Width="Auto"/>
+                                    <DataGridTextColumn Header="시작PoC" Binding="{Binding PocName}" Width="Auto"/>
+                                    <DataGridTextColumn Header="종단PoC" Binding="{Binding EndName}" Width="Auto"/>
+                                    <DataGridTextColumn Header="길이mm" Binding="{Binding LengthText}" Width="Auto">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock"><Setter Property="TextAlignment" Value="Right"/></Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
-                                    <DataGridTextColumn Header="꺾임" Binding="{Binding TurnCount}" Width="48">
+                                    <DataGridTextColumn Header="꺾임" Binding="{Binding TurnCount}" Width="Auto">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock"><Setter Property="TextAlignment" Value="Right"/></Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="시간" Binding="{Binding ElapsedText}" Width="Auto">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="TextAlignment" Value="Right"/>
+                                                <Setter Property="Foreground" Value="#a8b4c8"/>
+                                            </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
                                 </DataGrid.Columns>
@@ -453,7 +469,53 @@
                                 </Border>
                             </TabItem>
 
-                            <!-- 탭 2: 세그먼트 상세(선택 배관의 TB_ROUTE_SEGMENT_DETAIL, ORDER 순) -->
+                            <!-- 탭 2: 단계별 경로(선택 배관의 시작 → 꺾임(사유) → 종단을 그리드로) -->
+                            <TabItem Header="단계별 경로">
+                                <DockPanel LastChildFill="True" Background="#2b3548" Margin="0,4,0,0">
+                                    <TextBlock DockPanel.Dock="Top"
+                                               Text="결과 리스트에서 배관을 선택하면 시작 → 각 구간(방향·길이·영역) → 꺾임 사유 → 종단을 표로 보여줍니다."
+                                               Foreground="#bfc6d6" TextWrapping="Wrap"
+                                               FontFamily="Consolas" FontSize="11" Margin="4,0,4,4"/>
+                                    <DataGrid ItemsSource="{Binding RouteStepRows}"
+                                              SelectedItem="{Binding SelectedRouteStep, Mode=TwoWay}"
+                                              AutoGenerateColumns="False" IsReadOnly="True"
+                                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                              CanUserAddRows="False" SelectionMode="Single"
+                                              ColumnWidth="Auto"
+                                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                              Background="#252b3d" RowBackground="#252b3d"
+                                              AlternatingRowBackground="#2b3548" Foreground="#e8eaf0"
+                                              BorderBrush="#404a64" HorizontalGridLinesBrush="#333b50"
+                                              FontFamily="Consolas" FontSize="11">
+                                        <DataGrid.ColumnHeaderStyle>
+                                            <Style TargetType="DataGridColumnHeader">
+                                                <Setter Property="Background" Value="#2b3548"/>
+                                                <Setter Property="Foreground" Value="#bfc6d6"/>
+                                                <Setter Property="Padding" Value="5,3"/>
+                                                <Setter Property="BorderBrush" Value="#404a64"/>
+                                                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                            </Style>
+                                        </DataGrid.ColumnHeaderStyle>
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="단계" Binding="{Binding Seq}" Width="44"/>
+                                            <DataGridTextColumn Header="구분" Binding="{Binding Kind}" Width="48"/>
+                                            <DataGridTextColumn Header="방향" Binding="{Binding Direction}" Width="92"/>
+                                            <DataGridTextColumn Header="길이" Binding="{Binding Length}" Width="80">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="TextAlignment" Value="Right"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="영역" Binding="{Binding Region}" Width="110"/>
+                                            <DataGridTextColumn Header="꺾임 사유 / 좌표" Binding="{Binding Reason}" Width="240"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </DockPanel>
+                            </TabItem>
+
+                            <!-- 탭 3: 세그먼트 상세(선택 배관의 TB_ROUTE_SEGMENT_DETAIL, ORDER 순) -->
                             <TabItem Header="세그먼트 상세">
                                 <DockPanel LastChildFill="True" Background="#2b3548" Margin="0,4,0,0">
                                     <TextBlock DockPanel.Dock="Top" Text="{Binding SegmentDetailStatus}"
