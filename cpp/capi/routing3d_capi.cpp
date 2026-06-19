@@ -1,4 +1,4 @@
-﻿// Routing3D ??�씠?곕툕 C ABI ?�ы쁽 (routing3d_capi) ??Phase 3
+// Routing3D ??�씠?곕툕 C ABI ?�ы쁽 (routing3d_capi) ??Phase 3
 // =============================================================================
 // [?????��????�뒗 ??
 //   routing3d_capi.h ??C ABI ??C++ ?�붿�??붿쭊 ?꾩뿉 ??�쾶 ?�ы쁽??�떎. 紐⑤�?export ??�닔??
@@ -405,6 +405,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     const int configured_hier_radius = runtime ? runtime->hier_radius : 0;
     const long long configured_hier_probe = runtime ? runtime->hier_probe : 0;
     const int configured_ripup_enabled = runtime ? runtime->ripup_enabled : -1;
+    const long long configured_cbs_exp = runtime ? runtime->cbs_expansions : 0;
 
     Occ work = occ.copy();  // ?�?�� ?�?? ?�덈?(M2).
     // C1 CBS 源딆???곗뇙 rip-up) ???몄옄 ?곗꽑, env R3D_CBS(>=0) 媛 ??�쑝�?????? 0=OFF(??�㈃ rip-up留뙿룰낏???�덈?).
@@ -536,6 +537,13 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     // ?�? 寃⑹???�⑤�??????곹븳 ??�쓬(-1) ??�줈 湲곗????�옉쨌寃곗젙??蹂댁??
     const long long max_exp = (occ.size() > large_threshold)
         ? opt_or_default(configured_max_exp, large_grid_cap()) : -1;
+    long long eff_cbs_exp = configured_cbs_exp > 0 ? configured_cbs_exp
+        : ((max_exp > 0) ? max_exp : 2000000LL);
+    if (const char* ce = std::getenv("R3D_CBS_EXP")) {
+        char* end = nullptr;
+        long long v = std::strtoll(ce, &end, 10);
+        if (end != ce && v > 0) eff_cbs_exp = v;
+    }
     // ?�?�� 吏꾪�??蹂닿??媛꾧�??뺤옣 ??. ??��????�硫??�쒕�???�???5留뚮�??諛곌?????�떗 ??.
     const long long progress_every = on_pipe ? 50000LL : 0;
     // ?�꾩�?corridor 媛??嫄곕?寃⑹????�???諛곌?) ??coarse 媛??�뱶濡?fine ?�?��????�툕????�젙???�?��??�쓣 以꾩???
@@ -770,14 +778,8 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         }
     }
 
-    // ---- C1 negotiated-congestion (CBS-lite, Phase C) ----
-    // ??�㈃ rip-up(吏곸??blocker�???같移???�줈????? ??�뙣 諛곌??? blocker 媛 ??같移?�???�㈃ �?blocker ??
-    // blocker 源뚯? bounded depth �?????곸쑝�??묐낫??�폒 ??�냼??�떎(conflict-based search 寃쎈???. ???�� ?�덈???
-    //   resolve(target, state) 媛 true �?寃곌??out ?? **state ??紐⑤�?諛곌? + target ???�? ??�?*(???
-    //   resolve ????�씪 蹂댁??by construction) ???깃났 ????��?+1(?�댁?�??. 寃곗????뺣젹 ??�룰?????�꽌). 源딆?�媛?
-    //   �???? 1 媛먯????�??�낅�??�꾧�???(MAXBLK+1)^(depth+1)). 湲곕??eff_cbs_depth=0 ??誘몄????�⑤�??�덈?).
     if (eff_cbs_depth > 0 && !aborted && has_fail()) {
-        const int CBS_MAXBLK = 4;   // ????�꺼 blocker ?곹븳(?�꾧�???�?李⑤??.
+        const int CBS_MAXBLK = 4;
         auto pack = [](const Cell& c) -> uint64_t {
             return (static_cast<uint64_t>(static_cast<uint32_t>(c.i)) << 42) |
                    (static_cast<uint64_t>(static_cast<uint32_t>(c.j)) << 21) |
@@ -789,10 +791,10 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             const RouteParams tpr = params_for(ti);
             Cell ss = snap_to_free_cell(w, w.to_cell(tt.start_mm), snap_r);
             Cell gg = snap_to_free_cell(w, w.to_cell(tt.end_mm), snap_r);
-            AStarResult r = astar_weighted(w, ss, gg, tpr, max_exp, false,
+            AStarResult r = astar_weighted(w, ss, gg, tpr, eff_cbs_exp, false,
                                            nullptr, nullptr, 0, AllowAll{}, tt.goal_dir);
             if ((!r.success || r.path.empty()) && tt.goal_dir >= 0)
-                r = astar_weighted(w, ss, gg, tpr, max_exp, false);
+                r = astar_weighted(w, ss, gg, tpr, eff_cbs_exp, false);
             return r;
         };
         auto build_work = [&](const std::map<int, std::vector<Cell>>& paths) -> Occ {
@@ -800,48 +802,51 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             for (const auto& kv : paths) mark_pipe(w, kv.second, radius_of(kv.first));
             return w;
         };
-        // 寃쎈�??? ??AStarResult(doc.results ???μ????湲몄?�쨌?�얠??????? ?뺤옣??�뒗 吏꾨??蹂댁???0).
-        auto result_from_path = [&](const std::vector<Cell>& p) -> AStarResult {
-            AStarResult r;
-            r.success = true; r.path = p;
-            r.length_mm = (p.size() - 1) * doc.params.cell_mm;
-            r.turns = count_turns(p);
-            return r;
-        };
-        // ??? ?묒긽: state ?꾩뿉 target ????�썙?ｋ릺, 留됰??blocker ??depth 留뚰�???? ?묐낫??�궓??
-        //   ?깃났 ??out = state ??諛곌? + target (?�? ??�슦??�맖). ??�뙣�?state ?�덈?(?�?묒슜 ??�쓬).
+
         std::function<bool(int, const std::map<int, std::vector<Cell>>&, int,
-                           std::map<int, std::vector<Cell>>&)> resolve;
+                           std::map<int, std::vector<Cell>>&,
+                           std::map<int, AStarResult>&)> resolve;
         resolve = [&](int target, const std::map<int, std::vector<Cell>>& state, int depth,
-                      std::map<int, std::vector<Cell>>& out) -> bool {
-            AStarResult ideal = route_on(occ, target);          // ?μ븷臾?�쭔??�줈????�긽 寃쎈�?
+                      std::map<int, std::vector<Cell>>& out,
+                      std::map<int, AStarResult>& out_results) -> bool {
+            AStarResult ideal = route_on(occ, target);
             if (!(ideal.success && !ideal.path.empty())) return false;
             std::unordered_set<uint64_t> cs;
             cs.reserve(ideal.path.size() * 2);
             for (const Cell& c : ideal.path) cs.insert(pack(c));
-            std::vector<int> blockers;                          // state ????�쫫李⑥??std::map) ??寃곗???
+            std::vector<int> blockers;
             for (const auto& kv : state) {
                 if (kv.first == target) continue;
                 for (const Cell& c : kv.second)
                     if (cs.count(pack(c))) { blockers.push_back(kv.first); break; }
             }
             if (blockers.empty() || static_cast<int>(blockers.size()) > CBS_MAXBLK) return false;
+
             std::map<int, std::vector<Cell>> trial = state;
-            for (int b : blockers) trial.erase(b);              // blocker ??�?
+            for (int b : blockers) trial.erase(b);
             AStarResult rf = route_on(build_work(trial), target);
             if (!(rf.success && !rf.path.empty())) return false;
-            trial[target] = rf.path;                            // target 諛곗??
-            for (int b : blockers) {                            // ??? blocker ??같移?or ??? ?묐낫).
+            trial[target] = rf.path;
+            out_results[target] = rf;
+
+            for (int b : blockers) {
                 AStarResult rb = route_on(build_work(trial), b);
-                if (rb.success && !rb.path.empty()) { trial[b] = rb.path; continue; }
-                if (depth <= 0) return false;                   // ??�??묐낫 ???�댁?�???꾨같 ???�?��.
+                if (rb.success && !rb.path.empty()) {
+                    trial[b] = rb.path;
+                    out_results[b] = rb;
+                    continue;
+                }
+                if (depth <= 0) return false;
                 std::map<int, std::vector<Cell>> sub;
-                if (!resolve(b, trial, depth - 1, sub)) return false;
-                trial = std::move(sub);                         // sub ??trial ??{b} (?�덈???.
+                std::map<int, AStarResult> sub_results;
+                if (!resolve(b, trial, depth - 1, sub, sub_results)) return false;
+                trial = std::move(sub);
+                out_results.insert(sub_results.begin(), sub_results.end());
             }
             out = std::move(trial);
             return true;
         };
+
         for (int round = 0; round < 4; ++round) {
             std::vector<int> failed;
             for (int i = 0; i < n; ++i)
@@ -851,23 +856,32 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             bool changed = false;
             for (int f : failed) {
                 std::map<int, std::vector<Cell>> out;
-                if (!resolve(f, placed, eff_cbs_depth, out)) continue;
-                // �?���??�댁?�?? ??out ??諛곌? �?寃쎈줈媛? 諛붾????�줈 ??�릿 寃껊�?寃곌??媛깆??
+                std::map<int, AStarResult> out_results;
+                if (!resolve(f, placed, eff_cbs_depth, out, out_results)) continue;
                 for (const auto& kv : out) {
                     auto it = placed.find(kv.first);
-                    if (it == placed.end() || it->second != kv.second)
-                        doc.results[static_cast<size_t>(kv.first)] = to_scene_result(result_from_path(kv.second));
+                    if (it == placed.end() || it->second != kv.second) {
+                        auto ri = out_results.find(kv.first);
+                        if (ri != out_results.end())
+                            doc.results[static_cast<size_t>(kv.first)] = to_scene_result(ri->second);
+                    }
                 }
                 placed = std::move(out);
                 changed = true;
-                if (on_pipe)   // ???��??諛곌? ??�씠??媛깆??oidx=-1=rip-up/CBS ??�떇).
-                    on_pipe(1, -1, f, true, (placed[f].size() - 1) * doc.params.cell_mm,
-                            count_turns(placed[f]), 0, 0.0, done, n, 1.0, &placed[f]);
+                if (on_pipe) {
+                    auto ri = out_results.find(f);
+                    const AStarResult* rr = (ri != out_results.end()) ? &ri->second : nullptr;
+                    on_pipe(1, -1, f, true,
+                            rr ? rr->length_mm : (placed[f].size() - 1) * doc.params.cell_mm,
+                            rr ? rr->turns : count_turns(placed[f]),
+                            rr ? rr->expanded_nodes : 0,
+                            rr ? rr->elapsed_ms : 0.0,
+                            done, n, 1.0, &placed[f]);
+                }
             }
             if (!changed) break;
         }
     }
-
     // ---- C2 ?�붾�?理쒖?�諛?�꼍 理쒖�???�뒪(Phase C) ----
     // 紐⑤�?諛곌? ??�슦??�톜ip-up쨌CBS 媛 ??�궃 ?? �??깃났 諛곌???吏㏃? ???(??�낫 �?吏곸�?< mult?�愿?�?????�닔??�떎.
     // **??��???**: ??�슦??�뿉 ???�??(work)??嫄�?뱶由?? ??��? 諛곌?留덈??'?μ븷臾?+ ??�Ⅸ 諛곌?(�?諛섍�?'留뚯?�濡?留뚮�?    // 寃???�??(chk)??????吏곴????�닔 ????�슫??�듃??諛곌? ??�슦??�쓣 諛붽?�吏 ??�뒗??諛곗???곹샇?묒슜??�줈 ???�얠???
@@ -1057,8 +1071,17 @@ extern "C" R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p) {
 extern "C" R3dStatus r3d_set_runtime_options(R3dEngine* e, const R3dRuntimeOptions* opt) {
     if (!e || !opt) return R3D_ERR_ARG;
     e->runtime = *opt;
+    if (e->runtime.large_grid_threshold < 0) e->runtime.large_grid_threshold = 0;
+    if (e->runtime.max_expansions < 0) e->runtime.max_expansions = 0;
+    if (e->runtime.fallback_expansions < 0) e->runtime.fallback_expansions = 0;
+    if (e->runtime.hier_factor < 0) e->runtime.hier_factor = 0;
+    if (e->runtime.hier_factor > 128) e->runtime.hier_factor = 128;
+    if (e->runtime.hier_radius < 0) e->runtime.hier_radius = 0;
+    if (e->runtime.hier_radius > 64) e->runtime.hier_radius = 64;
+    if (e->runtime.hier_probe < 0) e->runtime.hier_probe = 0;
     if (e->runtime.ripup_enabled < -1) e->runtime.ripup_enabled = -1;
     if (e->runtime.ripup_enabled > 1) e->runtime.ripup_enabled = 1;
+    if (e->runtime.cbs_expansions < 0) e->runtime.cbs_expansions = 0;
     return R3D_OK;
 }
 
@@ -1527,40 +1550,53 @@ extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t bu
 extern "C" int32_t r3d_copy_blocked_sampled(const R3dEngine* e, int32_t max_cells, int32_t* buf) {
     if (!e || max_cells <= 0 || !buf) return 0;
     try {
-        std::vector<Cell> all_cells;
-        const Cell& shape = e->doc.shape;
-        const long long total_cells = (long long)shape.i * shape.j * shape.k;
 #ifdef ROUTING3D_USE_OPENVDB
-        all_cells = vdb_from_doc(e->doc).blocked_cells();
+        std::vector<Cell> cells = vdb_from_doc(e->doc).blocked_cells_sampled(max_cells);
+        for (int32_t idx = 0; idx < static_cast<int32_t>(cells.size()); ++idx) {
+            buf[3 * idx + 0] = cells[static_cast<size_t>(idx)].i;
+            buf[3 * idx + 1] = cells[static_cast<size_t>(idx)].j;
+            buf[3 * idx + 2] = cells[static_cast<size_t>(idx)].k;
+        }
+        return static_cast<int32_t>(cells.size());
 #else
-        if (total_cells > 5000000LL) {
-            all_cells = implicit_from_doc(e->doc).blocked_cells();
-        } else {
-            auto occ = occupancy_from_doc(e->doc);
-            for (int i = 0; i < shape.i; ++i)
-                for (int j = 0; j < shape.j; ++j)
-                    for (int k = 0; k < shape.k; ++k) {
-                        Cell c{i, j, k};
-                        if (occ.is_blocked(c)) all_cells.push_back(c);
-                    }
+        const Cell& shape = e->doc.shape;
+        if (shape.i <= 0 || shape.j <= 0 || shape.k <= 0) return 0;
+        struct RangeInfo { CellRange r; long long count; };
+        std::vector<RangeInfo> ranges;
+        ranges.reserve(e->doc.obstacles.size());
+        long long total = 0;
+        for (const auto& ob : e->doc.obstacles) {
+            CellRange r = grid_box_range(AABB{ob.min_xyz, ob.max_xyz}, e->doc.origin, e->doc.cell_mm, shape);
+            if (r.empty()) continue;
+            const long long dx = static_cast<long long>(r.hi.i - r.lo.i);
+            const long long dy = static_cast<long long>(r.hi.j - r.lo.j);
+            const long long dz = static_cast<long long>(r.hi.k - r.lo.k);
+            const long long cnt = dx * dy * dz;
+            if (cnt <= 0) continue;
+            ranges.push_back(RangeInfo{r, cnt});
+            total += cnt;
         }
+        if (total <= 0) return 0;
+        const long long take = std::min<long long>(total, max_cells);
+        long long ordinal = 0;
+        long long picked = 0;
+        long long next_pick = 0;
+        auto emit = [&](const Cell& c) {
+            buf[3 * picked + 0] = c.i;
+            buf[3 * picked + 1] = c.j;
+            buf[3 * picked + 2] = c.k;
+            ++picked;
+            next_pick = (picked * total) / take;
+        };
+        for (const RangeInfo& ri : ranges) {
+            const CellRange& r = ri.r;
+            for (int i = r.lo.i; i < r.hi.i && picked < take; ++i)
+                for (int j = r.lo.j; j < r.hi.j && picked < take; ++j)
+                    for (int k = r.lo.k; k < r.hi.k && picked < take; ++k, ++ordinal)
+                        if (ordinal >= next_pick) emit(Cell{i, j, k});
+        }
+        return static_cast<int32_t>(picked);
 #endif
-        auto n = static_cast<int32_t>(all_cells.size());
-        if (n <= max_cells) {
-            for (int32_t idx = 0; idx < n; ++idx) {
-                buf[3 * idx + 0] = all_cells[static_cast<size_t>(idx)].i;
-                buf[3 * idx + 1] = all_cells[static_cast<size_t>(idx)].j;
-                buf[3 * idx + 2] = all_cells[static_cast<size_t>(idx)].k;
-            }
-            return n;
-        }
-        for (int32_t s = 0; s < max_cells; ++s) {
-            size_t idx = static_cast<size_t>((long long)s * n / max_cells);
-            buf[3 * s + 0] = all_cells[idx].i;
-            buf[3 * s + 1] = all_cells[idx].j;
-            buf[3 * s + 2] = all_cells[idx].k;
-        }
-        return max_cells;
     } catch (...) {
         return 0;
     }
@@ -1651,6 +1687,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
         out->expanded_nodes = res.expanded_nodes;
         out->elapsed_ms    = res.elapsed_ms;
         out->path_len      = res.success ? (int32_t)res.path.size() : 0;
+        out->visited_len   = e->collect_visited ? (int32_t)res.visited.size() : 0;
         out->fail_reason   = (int32_t)res.fail;
         return R3D_OK;
     } catch (...) {
@@ -1662,28 +1699,33 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
 extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
                                              R3dOctreeLeaf* buf, int32_t maxCount,
                                              int32_t* out_count) {
-    if (!e || !buf || maxCount <= 0 || !out_count) return R3D_ERR_ARG;
+    if (!e || !out_count) return R3D_ERR_ARG;
+    if (maxCount < 0) return R3D_ERR_ARG;
+    if (!buf && maxCount > 0) return R3D_ERR_ARG;
     if (e->doc.shape.i <= 0) return R3D_ERR_ARG;   // scene 미로드
     *out_count = 0;
     try {
         OctreeOccupancy occ;
         occ.build(e->doc);
 
-        int count = 0;
+        int total = 0;
+        int written = 0;
         const double cell = e->doc.cell_mm;
         const Vec3&  ori  = e->doc.origin;
 
         for (const auto& node : occ.nodes) {
             if (!node.is_leaf()) continue;
-            if (count >= maxCount) break;
-            buf[count].x0_mm  = (float)(ori.x + node.x0 * cell);
-            buf[count].y0_mm  = (float)(ori.y + node.y0 * cell);
-            buf[count].z0_mm  = (float)(ori.z + node.z0 * cell);
-            buf[count].size_mm = (float)(node.side * cell);
-            buf[count].state  = (int32_t)node.state;
-            count++;
+            if (buf && written < maxCount) {
+                buf[written].x0_mm  = (float)(ori.x + node.x0 * cell);
+                buf[written].y0_mm  = (float)(ori.y + node.y0 * cell);
+                buf[written].z0_mm  = (float)(ori.z + node.z0 * cell);
+                buf[written].size_mm = (float)(node.side * cell);
+                buf[written].state  = (int32_t)node.state;
+                ++written;
+            }
+            ++total;
         }
-        *out_count = count;
+        *out_count = total;
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;

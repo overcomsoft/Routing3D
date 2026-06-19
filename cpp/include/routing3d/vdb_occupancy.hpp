@@ -1,4 +1,4 @@
-﻿// OpenVDB 점유맵 (VdbOccupancy) — Routing3D C++ 엔진 (Phase 3, Step 3.6)
+// OpenVDB 점유맵 (VdbOccupancy) — Routing3D C++ 엔진 (Phase 3, Step 3.6)
 // =============================================================================
 // [이 파일이 하는 일]
 //   OpenVDB(BoolGrid) 를 점유 비트맵으로 사용하는 희소 백엔드. DenseOccupancy 와 동일
@@ -49,6 +49,7 @@ public:
     // ---- 메타/통계 ----
     long long count_blocked() const;  // 활성 복셀 수(타일 포함 논리 개수).
     std::vector<Cell> blocked_cells() const;  // active occupied voxel coordinates for visualization/copy.
+    std::vector<Cell> blocked_cells_sampled(int max_cells) const;  // deterministic preview sample without full materialization.
     int clearance_cells(const Cell& c, int max_radius) const;
     long long memory_bytes() const;   // 그리드 메모리 사용량(타일 압축 반영).
     Cell shape() const { return shape_; }

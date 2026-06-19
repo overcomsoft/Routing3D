@@ -1,6 +1,8 @@
-﻿// OpenVDB 점유맵 구현 — vdb_occupancy.hpp 참고. OpenVDB BoolGrid 를 점유 비트맵으로 사용.
+// OpenVDB 점유맵 구현 — vdb_occupancy.hpp 참고. OpenVDB BoolGrid 를 점유 비트맵으로 사용.
 // 좌표/복셀화는 geometry.hpp 공유 함수로 Dense/Sparse 와 일치(불변식 O1).
 #include "routing3d/vdb_occupancy.hpp"
+
+#include <algorithm>
 
 #include <cstdlib>
 #include <mutex>
@@ -97,6 +99,36 @@ std::vector<Cell> VdbOccupancy::blocked_cells() const {
     for (auto it = impl_->grid->cbeginValueOn(); it; ++it) {
         const openvdb::Coord c = it.getCoord();
         cells.push_back(Cell{c.x(), c.y(), c.z()});
+    }
+    return cells;
+}
+
+std::vector<Cell> VdbOccupancy::blocked_cells_sampled(int max_cells) const {
+    std::vector<Cell> cells;
+    if (max_cells <= 0) return cells;
+    const long long total = static_cast<long long>(impl_->grid->activeVoxelCount());
+    if (total <= 0) return cells;
+
+    const long long take = std::min<long long>(total, max_cells);
+    cells.reserve(static_cast<size_t>(take));
+
+    if (total <= max_cells) {
+        for (auto it = impl_->grid->cbeginValueOn(); it; ++it) {
+            const openvdb::Coord c = it.getCoord();
+            cells.push_back(Cell{c.x(), c.y(), c.z()});
+        }
+        return cells;
+    }
+
+    long long ordinal = 0;
+    long long picked = 0;
+    long long next_pick = 0;
+    for (auto it = impl_->grid->cbeginValueOn(); it && picked < take; ++it, ++ordinal) {
+        if (ordinal < next_pick) continue;
+        const openvdb::Coord c = it.getCoord();
+        cells.push_back(Cell{c.x(), c.y(), c.z()});
+        ++picked;
+        next_pick = (picked * total) / take;
     }
     return cells;
 }

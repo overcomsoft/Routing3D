@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Routing3D.Engine;
@@ -102,7 +102,7 @@ internal static class Native
     internal static extern int r3d_route_task_octree(IntPtr e, int task, long maxExpansions, int goalDir, out R3dResult outRes);
 
     [DllImport(Dll, CallingConvention = Cdecl)]
-    internal static extern int r3d_enum_octree_leaves(IntPtr e, [Out] R3dOctreeLeaf[] buf, int maxCount, out int outCount);
+    internal static extern int r3d_enum_octree_leaves(IntPtr e, [Out] R3dOctreeLeaf[]? buf, int maxCount, out int outCount);
     [DllImport(Dll, CallingConvention = Cdecl)] internal static extern int r3d_get_result(IntPtr e, int task, out R3dResult outRes);
     [DllImport(Dll, CallingConvention = Cdecl)] internal static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
     [DllImport(Dll, CallingConvention = Cdecl)] internal static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);

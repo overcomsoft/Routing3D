@@ -4173,7 +4173,7 @@ namespace Routing3D.Viewer.ViewModels
             // 큐브 1개 ≈ 12삼각형. 다운샘플 모드는 15만 상한(~180만 삼각형, 단일 병합 메시).
             // 원본 모드(_occupancyFullRes)는 상한 없이 전체 셀 표시(대형 장면에선 느릴 수 있음 — 사용자 선택).
             int cap = _occupancyFullRes ? int.MaxValue : 150_000;
-            var cells = _engine!.CopyBlocked();
+            var cells = _occupancyFullRes ? _engine!.CopyBlocked() : _engine!.CopyBlockedSampled(cap);
             if (cells.Length == 0) return (0, 0);
             int take = Math.Min(cap, cells.Length);
             double stride = (double)cells.Length / take;
@@ -4521,11 +4521,11 @@ namespace Routing3D.Viewer.ViewModels
         private void AddFullOccupancy(Model3DGroup group, GridMeta g)
         {
             if (_engine == null) return;
-            var cells = _engine.CopyBlocked();
-            if (cells.Length == 0) return;
             const int cap = 150_000;
-            int take = Math.Min(cap, cells.Length);
-            double stride = (double)cells.Length / take;
+            var cells = _engine.CopyBlockedSampled(cap);
+            if (cells.Length == 0) return;
+            int take = cells.Length;
+            double stride = 1.0;
             double s = g.CellMm;
             var mb = new MeshBuilder(false, false);
             for (int n = 0; n < take; n++) { var c = cells[(int)(n * stride)]; mb.AddBox(CellToWorld(g, c), s, s, s); }

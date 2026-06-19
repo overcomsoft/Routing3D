@@ -253,6 +253,17 @@ namespace Routing3D.Viewer.Interop
             return cells;
         }
 
+        /// <summary>점유 셀을 엔진에서 직접 균등 샘플링해 복사한다. 대형 장면 미리보기용.</summary>
+        public PathCell[] CopyBlockedSampled(int maxCells)
+        {
+            if (maxCells <= 0) return Array.Empty<PathCell>();
+            var buf = new int[maxCells * 3];
+            int n = Native.r3d_copy_blocked_sampled(H, maxCells, buf);
+            if (n <= 0) return Array.Empty<PathCell>();
+            var cells = new PathCell[n];
+            for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+            return cells;
+        }
         /// <summary>'통과 점유맵' 가시화 — doc.passthrough 의 voxelize 된 셀 전체 반환.</summary>
         public PathCell[] CopyPassthrough()
         {
@@ -279,12 +290,16 @@ namespace Routing3D.Viewer.Interop
         /// maxLeaves: 상한(기본 1M). State: 0=FREE, 1=BLOCKED.</summary>
         public OctreeLeaf[] EnumOctreeLeaves(int maxLeaves = 1_000_000)
         {
-            var buf = new Native.R3dOctreeLeaf[maxLeaves];
-            int count;
-            int st = Native.r3d_enum_octree_leaves(H, buf, maxLeaves, out count);
-            if (st != 0 || count <= 0) return Array.Empty<OctreeLeaf>();
-            var result = new OctreeLeaf[count];
-            for (int i = 0; i < count; i++)
+            if (maxLeaves <= 0) return Array.Empty<OctreeLeaf>();
+            int total;
+            int st = Native.r3d_enum_octree_leaves(H, null, 0, out total);
+            if (st != 0 || total <= 0) return Array.Empty<OctreeLeaf>();
+            int take = Math.Min(total, maxLeaves);
+            var buf = new Native.R3dOctreeLeaf[take];
+            st = Native.r3d_enum_octree_leaves(H, buf, take, out _);
+            if (st != 0) return Array.Empty<OctreeLeaf>();
+            var result = new OctreeLeaf[take];
+            for (int i = 0; i < take; i++)
                 result[i] = new OctreeLeaf(buf[i].X0Mm, buf[i].Y0Mm, buf[i].Z0Mm, buf[i].SizeMm, buf[i].State);
             return result;
         }

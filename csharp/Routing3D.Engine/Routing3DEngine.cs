@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace Routing3D.Engine;
 
@@ -196,11 +196,13 @@ public sealed class Routing3DEngine : IDisposable
     public IReadOnlyList<OctreeLeaf> EnumOctreeLeaves(int maxLeaves = 1_000_000)
     {
         if (maxLeaves <= 0) return Array.Empty<OctreeLeaf>();
-        var buffer = new Native.R3dOctreeLeaf[maxLeaves];
-        Check(Native.r3d_enum_octree_leaves(Handle, buffer, maxLeaves, out var count), "enum_octree_leaves");
-        if (count <= 0) return Array.Empty<OctreeLeaf>();
+        Check(Native.r3d_enum_octree_leaves(Handle, null, 0, out var total), "enum_octree_leaves");
+        if (total <= 0) return Array.Empty<OctreeLeaf>();
 
-        var resultCount = Math.Min(count, maxLeaves);
+        var resultCount = Math.Min(total, maxLeaves);
+        var buffer = new Native.R3dOctreeLeaf[resultCount];
+        Check(Native.r3d_enum_octree_leaves(Handle, buffer, resultCount, out _), "enum_octree_leaves");
+
         var leaves = new OctreeLeaf[resultCount];
         for (var i = 0; i < resultCount; i++)
         {

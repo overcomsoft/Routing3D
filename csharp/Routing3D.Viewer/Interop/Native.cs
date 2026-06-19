@@ -81,6 +81,7 @@ namespace Routing3D.Viewer.Interop
             public int  hier_radius;            // 0=default 2.
             public long hier_probe;             // 0=default 300,000.
             public int  ripup_enabled;          // -1=env/default, 0=off, 1=on.
+            public long cbs_expansions;         // 0=engine/env default; CBS-lite per-route cap.
         }
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_grid(IntPtr e, in R3dGrid g);
@@ -129,6 +130,7 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked_sampled(IntPtr e, int maxCells, [Out] int[] buf);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_passthrough(IntPtr e, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_collect_visited(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_radius(IntPtr e, int radiusCells);
@@ -151,7 +153,7 @@ namespace Routing3D.Viewer.Interop
         }
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_enum_octree_leaves(IntPtr e,
-            [Out] R3dOctreeLeaf[] buf, int maxCount, out int outCount);
+            [Out] R3dOctreeLeaf[]? buf, int maxCount, out int outCount);
 
         // 문자열 → UTF-8 바이트(널 종료). 한글 보존.
         public static byte[] Utf8(string? s) => Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
