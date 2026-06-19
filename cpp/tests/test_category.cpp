@@ -125,6 +125,43 @@ int main() {
         check(okC == okC2 && sigC == sigC2, "cat4: CBS deterministic");
     }
 
+    // ── ④b CBS 소형격자: large_grid 게이트 제거 검증(< 5M 셀에서도 cbs_depth>0 가 성공 비감소·결정적) ──
+    //    cat4 와 동일 병목 구조지만 100×100×50 = 500k 셀(small_grid)로 게이트 제거 후 실제 동작 확인.
+    {
+        auto build = [&](int cbs_depth, int& ok, long long& sig) {
+            R3dEngine* e = r3d_create();
+            // 100×100×50 = 500,000 셀 — 5M 미만 소형격자(large_grid=false).
+            R3dGrid grid{100.0, 0.0, 0.0, 0.0, 100, 100, 50};
+            r3d_set_grid(e, &grid);
+            R3dParams p{100.0, 500.0, 10.0, 0.0, 2.0, 1.0, 2, 6};
+            r3d_set_params(e, &p);
+            // 수직 벽 + 좁은 틈(y=4000~6000) — 4배관이 같은 틈으로 몰려 congestion.
+            r3d_add_obstacle(e, 4500, 0,    0, 5500, 4000, 5000);
+            r3d_add_obstacle(e, 4500, 6000, 0, 5500, 10000, 5000);
+            int t[4];
+            for (int q = 0; q < 4; ++q)
+                t[q] = r3d_add_task(e, 500,  1000 + q * 2000, 2500,
+                                    9500, 1000 + q * 2000, 2500, "U", "G");
+            if (cbs_depth > 0) r3d_set_cbs_depth(e, cbs_depth);
+            r3d_route_multi(e, "longest");
+            ok = 0; sig = 0;
+            for (int q = 0; q < 4; ++q) {
+                R3dResult r{};
+                r3d_get_result(e, t[q], &r);
+                if (r.success) { ++ok; sig += static_cast<long long>(r.length_mm) * (q + 1); }
+            }
+            r3d_destroy(e);
+        };
+        int ok0 = 0, okC = 0, okC2 = 0;
+        long long sig0 = 0, sigC = 0, sigC2 = 0;
+        build(0, ok0, sig0);
+        build(2, okC, sigC);
+        build(2, okC2, sigC2);
+        std::printf("cat4b CBS small-grid: baseline ok=%d, cbs2 ok=%d\n", ok0, okC);
+        check(okC >= ok0, "cat4b: CBS small-grid never reduces success (lossless)");
+        check(okC == okC2 && sigC == sigC2, "cat4b: CBS small-grid deterministic");
+    }
+
     // ── ⑤ C2 코너 최소반경: min_straight>0 가 성공 비감소 + 꺾임 비증가(무손실 후처리)·결정적 ──
     {
         auto build = [&](double mult, int& ok, int& turns, long long& sig) {

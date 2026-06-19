@@ -302,6 +302,10 @@ namespace Routing3D.Viewer.ViewModels
         // 경로 탐색 방식(라디오버튼 3-모드 — 값 변경 시 내부 옵션 자동 동기화).
         private RoutingMode _routingMode = RoutingMode.PatternApplied;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
+        // CBS(negotiated-congestion, C1) — 평면 rip-up(직접 blocker 뜯기)을 재귀 연쇄로 확장.
+        // blocker 가 재배치 못 하면 그 blocker 의 blocker 까지 bounded depth(≤3) 재귀 양보.
+        // 기본 OFF(cbs_depth=0=평면 rip-up 만·골든 불변). ON 시 depth=2 — 잔여 혼잡/막힘 실패 해소.
+        private bool _useCbs = false;
         private string _searchText = string.Empty;
         private bool _suppressFilterRebuild;   // BuildTaskRows 중 IsVisible 이벤트 폭주 방지.
         private int[]? _forcedRackZ;           // 강제 Z 랙 고도 필드 (기본 null)
@@ -817,6 +821,14 @@ namespace Routing3D.Viewer.ViewModels
         {
             get => _useDesignReplicate;
             set { if (Set(ref _useDesignReplicate, value)) OnChanged(nameof(PatternStatus)); }
+        }
+
+        /// <summary>CBS(협상 라우팅) — rip-up 후에도 실패 배관이 남으면 blocker-of-blocker 까지 재귀 양보(depth=2).
+        /// ON=cbs_depth 2, OFF=0(평면 rip-up 만·기본). 대·소형 격자 모두 적용.</summary>
+        public bool UseCbs
+        {
+            get => _useCbs;
+            set { Set(ref _useCbs, value); }
         }
 
         /// <summary>패턴 저장소 상태 표시(UI 라벨).</summary>
@@ -1574,6 +1586,9 @@ namespace Routing3D.Viewer.ViewModels
             // 구간만 면제). SetMinStraight(관경 배수·후처리 흡수)와 달리 탐색 하드 보장이라 계단현상이 근본
             // 차단된다. 0=OFF(골든 불변). env R3D_MIN_STRAIGHT_MM 으로 재정의(0=끔).
             _engine.SetMinStraightMm(100.0);
+            // C1 CBS(negotiated-congestion) — 평면 rip-up 후 잔여 실패 배관에 대해 blocker-of-blocker 까지
+            // 재귀 양보(depth 2 = 최대 2단계 연쇄). 소·대형 격자 모두 적용. 기본 OFF(체크박스로 옵트인).
+            _engine.SetCbsDepth(_useCbs ? 2 : 0);
             // 최단경로 모드 + 대형 격자 탐색 폭발 방지(탐색 상한 8M).
             // 스텁 없이 PoC→PoC 전체를 탐색하므로 기본 48M 이면 배관당 수분 소요. 8M 으로 낮춰 찾을 수 있는
             // 경로는 빨리 성공, 너무 복잡한 배관은 빨리 실패(UI 반응성). 계층(hier) escalation 은 기본(probe
