@@ -1,12 +1,11 @@
-// Routing3D ??�씠?곕툕 C ABI ?�ы쁽 (routing3d_capi) ??Phase 3
+// Routing3D live C ABI implementation (routing3d_capi) - Phase 3
 // =============================================================================
-// [?????��????�뒗 ??
-//   routing3d_capi.h ??C ABI ??C++ ?�붿�??붿쭊 ?꾩뿉 ??�쾶 ?�ы쁽??�떎. 紐⑤�?export ??�닔??
-//   ??�쇅??寃쎄??諛뽰?�濡???�???? ??�룄�?try/catch �?媛먯???곹깭 ?�붾뱶濡?蹂닿???�떎.
-//   ?붿쭊 ?곹깭(R3dEngine)??SceneDoc ??�굹�???�쁽??��? ??�슦?????�??留듭??利됱�??�ъ꽦??�떎.
-//   ??��? docs/csharp_helix_interop_design.md, ??�뜑: capi/routing3d_capi.h.
+// Provides an exception-safe C facade over the C++ Routing3D engine.
+// The opaque R3dEngine handle owns SceneDoc and runtime options; exported APIs
+// translate C/PInvoke calls into occupancy, A*, multi-route, octree, and scene IO
+// operations while returning R3dStatus instead of throwing across the ABI boundary.
 //
-// [??���?寃�?  (?꾨줈??�듃 ?�⑦??�?��)
+// Build check:
 //   cmake --build cpp/build --config Release --target routing3d_capi
 //   ctest --test-dir cpp/build -C Release -R capi --output-on-failure
 // =============================================================================
@@ -18,11 +17,15 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <functional>
+#include <iomanip>
+#include <limits>
 #include <map>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -40,31 +43,110 @@
 
 using namespace routing3d;
 
-// ?�덊?�紐??몃뱾????�젣 ?뺤쓽: ???�몄�???�굹(寃⑹?????��誘명�??μ븷臾??묒뾽/寃곌????蹂댁?�.
+namespace {
+
+std::string json_escape(const std::string& s) {
+    std::ostringstream os;
+    for (unsigned char ch : s) {
+        switch (ch) {
+        case '\\': os << "\\\\"; break;
+        case '"':  os << "\\\""; break;
+        case '\n': os << "\\n"; break;
+        case '\r': os << "\\r"; break;
+        case '\t': os << "\\t"; break;
+        default:
+            if (ch < 0x20) os << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch);
+            else os << ch;
+        }
+    }
+    return os.str();
+}
+
+std::string cell_json(const Cell& c) {
+    return "[" + std::to_string(c.i) + "," + std::to_string(c.j) + "," + std::to_string(c.k) + "]";
+}
+
+std::string cell_array_json(const std::vector<Cell>& cells) {
+    std::string s;
+    s.reserve(cells.size() * 18 + 2);
+    s.push_back('[');
+    for (size_t i = 0; i < cells.size(); ++i) {
+        if (i) s.push_back(',');
+        s += cell_json(cells[i]);
+    }
+    s.push_back(']');
+    return s;
+}
+
+std::string vec_json(const Vec3& v) {
+    std::ostringstream os;
+    os << std::setprecision(12) << "[" << v.x << "," << v.y << "," << v.z << "]";
+    return os.str();
+}
+
+struct TraceWriter {
+    R3dTraceOptions opt{};
+    std::string path;
+    std::ofstream out;
+    int current_task = -1;
+    int events_this_task = 0;
+    bool warned_task_limit = false;
+
+    bool enabled() const { return opt.enabled != 0 && out.good(); }
+    int sample_every() const { return opt.sample_every > 0 ? opt.sample_every : 1000; }
+    int max_events_per_task() const { return opt.max_events_per_task > 0 ? opt.max_events_per_task : 20000; }
+
+    bool open(const std::string& p) {
+        path = p;
+        out.close();
+        out.clear();
+        out.open(path, std::ios::out | std::ios::trunc);
+        return out.good();
+    }
+
+    void write_raw(const std::string& json) {
+        if (!enabled()) return;
+        if (current_task >= 0 && events_this_task >= max_events_per_task()) {
+            if (!warned_task_limit) {
+                out << "{\"type\":\"trace_limit\",\"task\":" << current_task
+                    << ",\"max_events\":" << max_events_per_task() << "}\n";
+                warned_task_limit = true;
+            }
+            return;
+        }
+        out << json << '\n';
+        if (current_task >= 0) ++events_this_task;
+    }
+
+    void task_scope(int task) {
+        if (task != current_task) {
+            current_task = task;
+            events_this_task = 0;
+            warned_task_limit = false;
+        }
+    }
+
+    void flush() {
+        if (out.good()) out.flush();
+    }
+};
+
+}  // namespace
+
 struct R3dEngine {
     SceneDoc doc;
-    bool collect_visited = false;  // 湲곕??OFF(A2) ???????λ??硫붾?�由?蹂듭�???��??蹂댄?? 諛⑸Ц留돠룸떒???좊땲媛
-                                   // ?꾩슂?????�� ?몄텧?�? r3d_set_collect_visited(1) �?opt-in.
-    // ??�뒿?????�� ??(ijk) ??w_corridor>0 ????route_multi 媛 ??�뱶�??????諛곌???�??�곸?�濡??좊룄(L2b).
-    // r3d_set_corridor_cells �???�젙/?�덇�?? ??���???�쑝�?湲곗????�옉(源붾??諛곌? ??踰덈뱾留곷쭔).
+    // OFF by default to avoid large memory growth; callers can opt in via r3d_set_collect_visited(1).
+    bool collect_visited = false;
+    // Optional learned corridor seed cells used when w_corridor > 0.
     std::vector<Cell> corridor_seed;
-    // 諛곌?-諛곌? ?�⑸�???�뵾(???�?): 源붾??諛곌????�??�??�붽???????�갹 諛섍�???). 0=寃쎈�???�?湲곗??.
-    // >0 ??�??mark_pipe 媛 寃쎈�?짹radius 6-??�썐??留됱�???�쓬 諛곌? 以묒??좎쓣 洹몃�???꾩슫??????�젣 ?�寃쎌?�濡?
-    // ???��??��???�㈃??寃�??�吏? ??�뒗????�컖/?�쇰???�⑸�???�냼). r3d_set_pipe_radius �???�젙. ?��??? 湲곕�??곗텧??
-    // ?몄텧???�곗�?BuildEngineForRows)媛 ??�뻾. env R3D_PIPE_RADIUS 濡쒕�??????媛????�뱶?�ъ뒪 A/B).
+    // Global pipe dilation radius in cells for multi-route collision avoidance.
     int pipe_radius = 0;
-    bool per_task_radius = false;  // B1 ??ON ??�??route_multi 媛 �?諛곌? diameter_mm �?諛섍�??�?�� ?곗텧.
-    // 諛곌?-諛곌? ??�꺽(mm) ????諛곌? ??�꽣??嫄곕????r1 + r2 + pipe_gap_mm 蹂댁?? 0=湲곗????�옉(??�㈃ 留욌???�룰????�덈?).
-    //   >0 ??�??硫붿???�⑦봽媛? 源붾??諛곌???routing 諛곌? 湲곗? ??諛섍�?ceil((r_a+r_b+gap)/cell))??�줈 留됰???per-pipe
-    //   ?????. r3d_set_pipe_gap. 洹쒓�? ??�㈃ ????理쒖??60mm ?�?. env R3D_PIPE_GAP.
+    bool per_task_radius = false;
+    // Additional centerline spacing between routed pipes in millimeters.
     double pipe_gap_mm = 0.0;
-    // C1 negotiated-congestion(CBS-lite, Phase C) ???곗뇙(???) rip-up 理쒕? 源딆?? 0=OFF(??�㈃ rip-up�?
-    //   湲곗????�옉쨌怨⑤�??�덈?). >0 ??�????�㈃ rip-up ????? ??�뙣 諛곌??? blocker 媛 ??같移?�???�㈃ �?blocker ??
-    //   blocker 源뚯? ??源딆?�留?�겮 ????곸쑝�??묐낫??�폒 ??�냼(?�댁?�??�룰�?뺤쟻). r3d_set_cbs_depth / env R3D_CBS.
+    // CBS-lite recursion depth. 0 disables negotiated congestion resolution.
     int cbs_depth = 0;
-    // C2 ?�붾�?理쒖?�諛?�꼍(Phase C) ????�낫 ????吏곸�?????(mult ???��? 誘몃�??�????�옉 ?�덇? ??寃쎈�???) ??��?�?��
-    //   ?묒쁿 ?�붾꼫瑜??�⑸�??�뒗 吏곴???곌껐�???�닔????�븻???�⑸룎寃??????��쨌爰?�엫 ??��쬆媛??????��, ????�젏 ?�좎??. 0=OFF
-    //   (湲곗????�옉쨌怨⑤�??�덈?). 沅뚯??2.0(??�낫 �?吏곸�???2?�愿?�?. r3d_set_min_straight / env R3D_MIN_STRAIGHT.
+    // Post-process minimum straight-run multiplier, relative to pipe diameter.
     double min_straight_mult = 0.0;
     // 코너 최소직선(절대 mm, 하드 제약). >0 이면 A* 가 '한 번 꺾인 뒤 이 길이만큼 직진하기 전엔 다시 꺾지
     //   못하도록' 강제한다(상태에 진행 셀 수 run 추가). min_straight_mult(관경 배수·후처리 흡수)와 달리
@@ -72,13 +154,12 @@ struct R3dEngine {
     //   ceil(min_straight_mm/cell)→params.min_straight_cells. 0=OFF(골든 불변). r3d_set_min_straight_mm.
     double min_straight_mm = 0.0;
     R3dRuntimeOptions runtime{};
+    R3dTraceOptions trace_options{};
+    TraceWriter trace;
 };
 
 namespace {
 
-// ??�꼍蹂??�뿉???묒쓽 long long ??�룄????�뒗??誘몄�??0??�븯/???��??�뙣�?def). 嫄곕?寃⑹??25mm ?? ?�?�� ?곹븳??
-// 32GB+ ??�쾭?�?�� ??�썙 ??�???諛곌? ?�ㅻ�?��?????믪씠????�룄 ??硫붾?�由????뺤옣 ?몃뱶 ??�떆�?g/came/closed)??
-// ??��????�?RAM ???�媛 ??�쓣 ???�� ????? ?�? 寃⑹???�⑤�????좎큹???�댁???-1)??�???곹뼢 ??�쓬.
 long long env_ll(const char* name, long long def) {
     if (const char* s = std::getenv(name)) {
         char* end = nullptr;
@@ -88,9 +169,6 @@ long long env_ll(const char* name, long long def) {
     return def;
 }
 
-// 嫄곕?寃⑹???�?�� ?곹븳(硫붾?�由??곗뼱??�씠 蹂댄??. 湲곕??48M(??12M, 32GB+ ??�쾭 湲곗? ?곹뼢 ??25mm ?�? 寃⑹???
-// 留됲????�옟 諛곌?????源딆???�?��???깃났??�넁; ??踰덉�???諛곌?�??�?��???�???�겕 硫붾?�由?????�룄?�꾩????�떆�?.
-// env R3D_MAX_EXP �??�붽? ????? (12M ?? 吏㏃? 嫄곕??#146 2,277mm�?1??]?몃뜲????�옟 ?�낅???????�???��?// ?꾨떖??�뜕 ??��??????25mm + pipe_radius ??�갹??�줈 留덉?�?諛곌? 吏꾩??��?? ?�곸븘吏?寃쎌??)
 long long large_grid_cap() { return env_ll("R3D_MAX_EXP", 48000000LL); }
 
 // 코너 최소직선(절대 mm) → A* 상태 제약용 셀 수로 변환해 doc.params 에 반영. 라우팅 직전에 호출한다
@@ -109,7 +187,224 @@ void apply_min_straight_cells(R3dEngine* e) {
 long long opt_or_default(long long value, long long dflt) { return value > 0 ? value : dflt; }
 int opt_or_default_i(int value, int dflt) { return value > 0 ? value : dflt; }
 
-// std::string ??malloc 踰꾪???�쒕???좊떦). r3d_free_string ??�줈 ??�젣.
+template <class Occ>
+long long safe_blocked_count(const Occ& occ) {
+    try { return occ.count_blocked(); }
+    catch (...) { return -1; }
+}
+
+void trace_header(TraceWriter* tr, const SceneDoc& doc, const std::string& priority) {
+    if (!tr || !tr->enabled()) return;
+    tr->current_task = -1;
+    tr->write_raw("{\"type\":\"trace_header\",\"version\":1,\"engine\":\"routing3d_capi\","
+                  "\"priority\":\"" + json_escape(priority) + "\","
+                  "\"cell_mm\":" + std::to_string(doc.cell_mm) + ","
+                  "\"origin\":" + vec_json(doc.origin) + ","
+                  "\"shape\":" + cell_json(doc.shape) + ","
+                  "\"task_count\":" + std::to_string(doc.tasks.size()) + ","
+                  "\"obstacle_count\":" + std::to_string(doc.obstacles.size()) + "}");
+}
+
+template <class Occ>
+void trace_occupancy_summary(TraceWriter* tr, const Occ& occ) {
+    if (!tr || !tr->enabled() || !tr->opt.include_occupancy) return;
+    tr->current_task = -1;
+    tr->write_raw("{\"type\":\"occupancy_summary\",\"blocked_count\":" +
+                  std::to_string(safe_blocked_count(occ)) + "}");
+}
+
+std::vector<Cell> sample_obstacle_cells(const SceneDoc& doc,
+                                        const std::vector<Obstacle>& boxes,
+                                        int max_cells) {
+    std::vector<CellRange> ranges;
+    ranges.reserve(boxes.size());
+    long long total = 0;
+
+    for (const auto& ob : boxes) {
+        CellRange r = grid_box_range(AABB(ob.min_xyz, ob.max_xyz), doc.origin, doc.cell_mm, doc.shape);
+        long long n = static_cast<long long>(r.hi.i - r.lo.i) *
+                      static_cast<long long>(r.hi.j - r.lo.j) *
+                      static_cast<long long>(r.hi.k - r.lo.k);
+        if (n <= 0) continue;
+        ranges.push_back(r);
+        total += n;
+    }
+
+    std::vector<Cell> cells;
+    if (total <= 0 || max_cells <= 0) return cells;
+    const long long take = std::min<long long>(total, max_cells);
+    cells.reserve(static_cast<size_t>(take));
+
+    long long ordinal = 0;
+    long long picked = 0;
+    long long next_pick = 0;
+    for (const auto& r : ranges) {
+        for (int k = r.lo.k; k < r.hi.k; ++k) {
+            for (int j = r.lo.j; j < r.hi.j; ++j) {
+                for (int i = r.lo.i; i < r.hi.i; ++i, ++ordinal) {
+                    if (picked >= take) return cells;
+                    if (ordinal < next_pick) continue;
+                    cells.push_back(Cell{i, j, k});
+                    ++picked;
+                    next_pick = (picked * total) / take;
+                }
+            }
+        }
+    }
+    return cells;
+}
+
+void trace_cell_sample(TraceWriter* tr, const std::string& type,
+                       const std::vector<Cell>& cells, long long total) {
+    if (!tr || !tr->enabled() || !tr->opt.include_occupancy) return;
+    tr->current_task = -1;
+    tr->write_raw("{\"type\":\"" + json_escape(type) + "\",\"total\":" + std::to_string(total) +
+                  ",\"sampled\":" + std::to_string(cells.size()) +
+                  ",\"cells\":" + cell_array_json(cells) + "}");
+}
+
+void trace_static_occupancy_samples(TraceWriter* tr, const SceneDoc& doc) {
+    if (!tr || !tr->enabled() || !tr->opt.include_occupancy) return;
+    int max_occ = 12000;
+    if (const char* s = std::getenv("R3D_TRACE_OCC_CELLS")) {
+        char* end = nullptr;
+        long v = std::strtol(s, &end, 10);
+        if (end != s && v > 0) max_occ = static_cast<int>(std::min<long>(v, 100000));
+    }
+    const int max_pass = std::max(1000, max_occ / 3);
+
+    auto count_cells = [&](const std::vector<Obstacle>& boxes) {
+        long long total = 0;
+        for (const auto& ob : boxes) {
+            CellRange r = grid_box_range(AABB(ob.min_xyz, ob.max_xyz), doc.origin, doc.cell_mm, doc.shape);
+            total += static_cast<long long>(r.hi.i - r.lo.i) *
+                     static_cast<long long>(r.hi.j - r.lo.j) *
+                     static_cast<long long>(r.hi.k - r.lo.k);
+        }
+        return total;
+    };
+
+    trace_cell_sample(tr, "occupancy_sample",
+                      sample_obstacle_cells(doc, doc.obstacles, max_occ),
+                      count_cells(doc.obstacles));
+    trace_cell_sample(tr, "passthrough_sample",
+                      sample_obstacle_cells(doc, doc.passthrough, max_pass),
+                      count_cells(doc.passthrough));
+}
+
+void trace_task_begin(TraceWriter* tr, int order_index, int task_index, const RouteTask& task,
+                      const Cell& start_cell, const Cell& goal_cell,
+                      const Cell& snapped_start, const Cell& snapped_goal) {
+    if (!tr || !tr->enabled()) return;
+    tr->task_scope(task_index);
+    tr->write_raw("{\"type\":\"task_begin\",\"order\":" + std::to_string(order_index) +
+                  ",\"task\":" + std::to_string(task_index) +
+                  ",\"source_world\":" + vec_json(task.start_mm) +
+                  ",\"target_world\":" + vec_json(task.end_mm) +
+                  ",\"source_cell\":" + cell_json(start_cell) +
+                  ",\"target_cell\":" + cell_json(goal_cell) +
+                  ",\"snapped_source\":" + cell_json(snapped_start) +
+                  ",\"snapped_target\":" + cell_json(snapped_goal) +
+                  ",\"utility\":\"" + json_escape(task.utility.value_or("")) +
+                  "\",\"group\":\"" + json_escape(task.utility_group.value_or("")) + "\"}");
+    if (!(start_cell == snapped_start))
+        tr->write_raw("{\"type\":\"snap\",\"task\":" + std::to_string(task_index) +
+                      ",\"kind\":\"start\",\"from\":" + cell_json(start_cell) +
+                      ",\"to\":" + cell_json(snapped_start) + "}");
+    if (!(goal_cell == snapped_goal))
+        tr->write_raw("{\"type\":\"snap\",\"task\":" + std::to_string(task_index) +
+                      ",\"kind\":\"goal\",\"from\":" + cell_json(goal_cell) +
+                      ",\"to\":" + cell_json(snapped_goal) + "}");
+}
+
+void trace_expand(TraceWriter* tr, int order_index, int task_index, long long expanded, double progress) {
+    if (!tr || !tr->enabled() || expanded <= 0) return;
+    const int sample = tr->sample_every();
+    if (expanded % sample != 0) return;
+    tr->task_scope(task_index);
+    std::ostringstream os;
+    os << "{\"type\":\"expand\",\"order\":" << order_index
+       << ",\"task\":" << task_index
+       << ",\"expanded_nodes\":" << expanded
+       << ",\"progress01\":" << std::setprecision(8) << progress << "}";
+    tr->write_raw(os.str());
+}
+
+const char* trace_reject_reason(const char* event) {
+    if (!event) return "unknown";
+    if (std::strcmp(event, "candidate_reject_out_of_bounds") == 0) return "out_of_bounds";
+    if (std::strcmp(event, "candidate_reject_blocked") == 0) return "blocked";
+    if (std::strcmp(event, "candidate_reject_corridor_gate") == 0) return "corridor_gate";
+    if (std::strcmp(event, "candidate_reject_min_straight") == 0) return "min_straight";
+    return event;
+}
+
+void trace_search_cell(TraceWriter* tr, int order_index, int task_index, const char* event,
+                       const Cell& from, const Cell& to, long long expanded,
+                       int dir, int run, int required) {
+    if (!tr || !tr->enabled() || expanded <= 0 || !event) return;
+    const int sample = tr->sample_every();
+    if (expanded > 5 && expanded % sample != 0) return;
+
+    tr->task_scope(task_index);
+    std::ostringstream os;
+    if (std::strcmp(event, "expand_cell") == 0) {
+        os << "{\"type\":\"expand_cell\",\"order\":" << order_index
+           << ",\"task\":" << task_index
+           << ",\"expanded_nodes\":" << expanded
+           << ",\"cell\":" << cell_json(to)
+           << ",\"dir\":" << dir
+           << ",\"run\":" << run
+           << ",\"required\":" << required << "}";
+        tr->write_raw(os.str());
+        return;
+    }
+
+    if (!tr->opt.include_rejects) return;
+    os << "{\"type\":\"candidate_reject\",\"order\":" << order_index
+       << ",\"task\":" << task_index
+       << ",\"expanded_nodes\":" << expanded
+       << ",\"reason\":\"" << trace_reject_reason(event) << "\""
+       << ",\"from\":" << cell_json(from)
+       << ",\"to\":" << cell_json(to)
+       << ",\"dir\":" << dir
+       << ",\"run\":" << run
+       << ",\"required\":" << required << "}";
+    tr->write_raw(os.str());
+}
+
+void trace_task_end(TraceWriter* tr, int order_index, int task_index, const AStarResult& res,
+                    bool ok, bool aborted) {
+    if (!tr || !tr->enabled()) return;
+    tr->task_scope(task_index);
+    std::ostringstream os;
+    os << "{\"type\":\"task_end\",\"order\":" << order_index
+       << ",\"task\":" << task_index
+       << ",\"success\":" << (ok ? "true" : "false")
+       << ",\"aborted\":" << (aborted ? "true" : "false")
+       << ",\"fail_reason\":" << static_cast<int>(res.fail)
+       << ",\"length_mm\":" << std::setprecision(12) << res.length_mm
+       << ",\"turns\":" << res.turns
+       << ",\"expanded_nodes\":" << res.expanded_nodes
+       << ",\"elapsed_ms\":" << res.elapsed_ms
+       << ",\"path_len\":" << (res.path.empty() ? 0 : static_cast<int>(res.path.size())) << "}";
+    tr->write_raw(os.str());
+}
+
+void trace_postprocess(TraceWriter* tr, int task_index, const std::string& stage,
+                       const std::vector<Cell>& before, const std::vector<Cell>& after,
+                       int min_run = 0) {
+    if (!tr || !tr->enabled() || !tr->opt.include_postprocess) return;
+    tr->task_scope(task_index);
+    tr->write_raw("{\"type\":\"postprocess\",\"task\":" + std::to_string(task_index) +
+                  ",\"stage\":\"" + json_escape(stage) + "\","
+                  "\"min_run_cells\":" + std::to_string(min_run) + ","
+                  "\"before_points\":" + std::to_string(before.size()) + ","
+                  "\"after_points\":" + std::to_string(after.size()) + ","
+                  "\"before_turns\":" + std::to_string(count_turns(before)) + ","
+                  "\"after_turns\":" + std::to_string(count_turns(after)) + "}");
+}
+
 char* dup_string(const std::string& s) {
     char* p = static_cast<char*>(std::malloc(s.size() + 1));
     if (!p) return nullptr;
@@ -117,14 +412,11 @@ char* dup_string(const std::string& s) {
     return p;
 }
 
-// const char* ??optional<string>. ?�?���?None(=\N), ?꾨땲�??�몄?????��Ц?�?�� ??�슜).
 std::optional<std::string> opt_str(const char* s) {
     if (!s) return std::nullopt;
     return std::string(s);
 }
 
-// AStarResult ??SceneResult(?붿쭊 寃곌????????�쐞). ?깃났 ??寃쎈�???�? visited 媛 ??���???
-// ??�쑝�???�퍡 蹂듭�?媛??�솕 '諛⑸Ц�? / scene.txt [visited] ?뱀??.
 SceneResult to_scene_result(const AStarResult& r) {
     SceneResult s;
     s.success = r.success;
@@ -133,13 +425,12 @@ SceneResult to_scene_result(const AStarResult& r) {
     s.turns = r.turns;
     s.expanded_nodes = r.expanded_nodes;
     s.elapsed_ms = r.elapsed_ms;
-    s.fail = static_cast<int>(r.fail);   // ??�뙣 ???�(A1) ?꾨떖.
+    s.fail = static_cast<int>(r.fail);
     if (r.success) s.path = r.path;
     if (!r.visited.empty()) s.visited = r.visited;
     return s;
 }
 
-// optional<SceneResult> ??R3dResult(POD). ??�쑝�?0??�줈.
 void fill_result(R3dResult& o, const std::optional<SceneResult>& r) {
     o = R3dResult{};
     if (!r) return;
@@ -151,18 +442,16 @@ void fill_result(R3dResult& o, const std::optional<SceneResult>& r) {
     o.elapsed_ms = r->elapsed_ms;
     o.path_len = r->path ? static_cast<int32_t>(r->path->size()) : 0;
     o.visited_len = r->visited ? static_cast<int32_t>(r->visited->size()) : 0;
-    o.fail_reason = static_cast<int32_t>(r->fail);   // ??�뙣 ???�(A1, RouteFail). ?깃났=0.
+    o.fail_reason = static_cast<int32_t>(r->fail);
 }
 
-// 嫄곕? 寃⑹??�?�� 蹂듭?????�씠(O(?μ븷臾???) ?�??????�쁽??�뒗 ImplicitOccupancy ??doc 濡쒕????�ъ꽦.
-// ?? ??�?? ?�닿???硫붾?�由???25mm/10mm ???�? 寃⑹?????????�???�쾭???��??洹쇰????�냼(S3).
 ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
     ImplicitOccupancy occ(doc.shape, doc.origin, doc.cell_mm);
     for (const Obstacle& o : doc.obstacles) {
         try {
             occ.add_box(AABB(o.min_xyz, o.max_xyz));
         } catch (const std::invalid_argument&) {
-            continue;  // ?�?�� 0(??�솕) 諛뺤???嫄�?�??�??occupancy_from_doc ????�씪).
+            continue;
         }
     }
     return occ;
@@ -183,7 +472,6 @@ VdbOccupancy vdb_from_doc(const SceneDoc& doc) {
     return occ;
 }
 #endif
-// 嫄곕?寃⑹???κ굅由?諛곌? 媛??�슜 coarse ?�??�?factor �???). ??�씪 origin쨌諛뺤뒪, ??�?factor �??�듦�?
 ImplicitOccupancy coarse_implicit_from_doc(const SceneDoc& doc, int factor) {
     Cell cs{(doc.shape.i + factor - 1) / factor, (doc.shape.j + factor - 1) / factor,
             (doc.shape.k + factor - 1) / factor};
@@ -198,19 +486,13 @@ ImplicitOccupancy coarse_implicit_from_doc(const SceneDoc& doc, int factor) {
     return occ;
 }
 
-// ?�꾩�?corridor ??�슦????coarse 媛??�뱶濡?fine ?�?��??tube(coarse 寃쎈�?짹radius ??�갹)�???�뱶 ??�븳??�떎.
-// 嫄곕?寃⑹???κ굅由?諛곌????�?��??�쓣 ??�?以꾩??? **??��?�紐?�뜽?? fine ????�씪**(weighted A* + ??�???�???+
-// ????�꼸????�??寃쎈�???�쭏 蹂댁?? 媛??��???�뙣/??�툕 ??寃쎈�???�쓬 ??false 諛섑???몄텧?�? ?�댁???fine ??�줈
-// ??��????깃났 ????? 0). work=源붾?�諛�? ??�?fine ?�??(?�⑸�??�뵾 ?�?).
 template <class Occ>
 bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, int radius,
                 Cell s, Cell g, const RouteParams& params, long long max_exp,
                 bool collect_visited, AStarResult& out) {
     auto to_coarse = [factor](const Cell& c) {
-        return Cell{c.i / factor, c.j / factor, c.k / factor};  // i>=0 ??諛붾????�닓??
+        return Cell{c.i / factor, c.j / factor, c.k / factor};
     };
-    // fine ?�낅???coarse ???? ?λ???뺥듃 洹쇱�??coarse(?�듭?) ??�긽?꾩뿉??留됲? ??�쓣 ????�떎 ???�?? coarse
-    // ??�???�깄??媛??�뱶媛? ??�옉/?꾩갑??�쾶 ??�떎. ??�깄??�줈 ??�릿 ?�낅??�?? ?꾨옒 ?곌껐 諛뺤?�濡???�툕????�?
     Cell cs0 = to_coarse(s), cg0 = to_coarse(g);
     Cell cs = snap_to_free_cell(coarse, cs0, 4);
     Cell cgl = snap_to_free_cell(coarse, cg0, 4);
@@ -227,7 +509,6 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     AStarResult cg = astar_weighted(coarse, cs, cgl, cp, 2000000LL, false);
     if (!cg.success || cg.path.empty()) return false;
 
-    // 2) ??�툕(coarse ?? ??吏묓빀) = coarse 寃쎈�?짹radius ??�갹 + ??????�젣 fine ?�낅??붿뒪??coarse) ?곌껐 諛뺤??
     // 적응형 corridor 확장 재시도(Tier-3 Stage 2): 실패 시 반경 r 을 ×2 로 키워 최대 3회 재시도 → 좁은
     //   튜브 미스로 전체탐색 fall-through(메모리 폭발·상한 실패) 대신 넓힌 튜브에서 재탐색(메모리 한계
     //   실패 직접 감소). 탐색은 항상 corridor 로 바운드되므로 최종 실패해도 메모리 안전.
@@ -241,7 +522,6 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
                     corr->insert(pack20(Cell{c.i + di, c.j + dj, c.k + dk}));
     };
     for (const Cell& c : cg.path) add_dilated(c);
-    // ?�낅???곌껐 諛뺤??to_coarse(?�낅???붿뒪??coarse, 짹radius) ??fine ?�낅??????諛섎�????�툕????�룄�?
     auto add_box = [&](const Cell& a, const Cell& b) {
         int i0 = std::min(a.i, b.i) - r, i1 = std::max(a.i, b.i) + r;
         int j0 = std::min(a.j, b.j) - r, j1 = std::max(a.j, b.j) + r;
@@ -253,7 +533,6 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     add_box(cs0, cs);
     add_box(cg0, cgl);
 
-    // 3) fine A* ??fine ????coarse ??????�툕????�쓣 ???�� ?뺤옣(??�뱶 ??�븳). ??��?�紐?�뜽 ??�씪(??�쭏 蹂댁??.
     auto in_corr = [corr, factor](const Cell& fc) {
         return corr->count(pack20(Cell{fc.i / factor, fc.j / factor, fc.k / factor})) > 0;
     };
@@ -267,15 +546,10 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     return false;   // 넓힌 튜브로도 실패 → 호출자가 fb_exp 전체탐색 폴백(드묾).
 }
 
-// 吏꾪�??�쒕�???????�???. phase=0(?�?�� 吏꾪�?/1(諛곌? ?꾨즺). 諛섑??0 ?�꾩?? 0?꾨떂=?�⑥??abort).
 //   ?몄옄: phase, order_index, task_index, success, length_mm, turns, expanded_nodes, elapsed_ms,
-//         done, total, progress01, path(?꾨즺�?깃났 ??寃쎈�???, ?꾨땲�?nullptr).
 using ProgressCb = std::function<int(int, int, int, bool, double, int, long long, double, int, int,
                                      double, const std::vector<Cell>*)>;
 
-// ---------------------------------------------------------------- 寃쎈�??꾩쿂?? ???��/??�????�굅
-// A?�???吏곴??吏곸�??�?�� ??�씪 ??�낫)�???�뒗 ????�쓣 axisOrder ??�꽌�???�꽦(??�젏 ??�?.
-// ????�Ⅸ ?�뺤? ?�?��??嫄�?�??�????��??0).
 inline std::vector<Cell> walk_order(Cell A, Cell B, const int (&axisOrder)[3]) {
     std::vector<Cell> v;
     v.push_back(A);
@@ -294,24 +568,31 @@ inline std::vector<Cell> walk_order(Cell A, Cell B, const int (&axisOrder)[3]) {
     return v;
 }
 
-// A ?? B ??吏곴??????�낫(?�뺤�???) �???�뒗 ?�⑸�??�뒗 ????�쓣 李얜????�뺤????꾨낫 ?꾩닔). 3??李⑥?????�뙣.
 template <class Occ>
 bool ortho_connect(const Occ& occ, Cell A, Cell B, std::vector<Cell>& out) {
     int axes = (A.i != B.i ? 1 : 0) + (A.j != B.j ? 1 : 0) + (A.k != B.k ? 1 : 0);
-    if (axes > 2) return false;                       // 2??�낫(3??????�텞 ???곸뿉????�쇅(蹂댁???.
+    if (axes > 3) return false;
     static const int orders[6][3] = {{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
+    bool found = false;
+    int bestTurns = std::numeric_limits<int>::max();
+    int bestSteps = std::numeric_limits<int>::max();
     for (const auto& ord : orders) {
         std::vector<Cell> v = walk_order(A, B, ord);
         bool clear = true;
         for (const Cell& c : v) if (occ.is_blocked(c)) { clear = false; break; }
-        if (clear) { out = std::move(v); return true; }
+        if (!clear) continue;
+        const int turns = count_turns(v);
+        const int steps = static_cast<int>(v.size()) - 1;
+        if (!found || turns < bestTurns || (turns == bestTurns && steps < bestSteps)) {
+            out = std::move(v);
+            bestTurns = turns;
+            bestSteps = steps;
+            found = true;
+        }
     }
-    return false;
+    return found;
 }
 
-// 寃쎈�?�?�� ??�?????�� ??�굅: ??�뼱�???寃쎈�?�?�� '??吏㏃? 吏곴???곌껐(?�⑸�??�쓬)'�???泥댄�??洹몃?????�텞.
-// occ(?μ븷臾???�? 源붾??諛곌?) ?�⑸룎留?寃????寃곌?????�??�쇰????좏슚. mark_pipe ?꾩뿉 ?곸슜???�??꾩냽
-// 諛곌?????�텞寃쎈줈瑜???�뵾(M1/M2 蹂댁??. 寃곗???媛????j ?곗꽑쨌怨좎???�뺤???. 湲몄?�媛? �????�� ??�??�댄븳猷??�� 李⑤??.
 template <class Occ>
 std::vector<Cell> unkink_path(const Occ& occ, const std::vector<Cell>& path) {
     const int n = static_cast<int>(path.size());
@@ -323,14 +604,13 @@ std::vector<Cell> unkink_path(const Occ& occ, const std::vector<Cell>& path) {
     while (a < n - 1) {
         int best = -1;
         std::vector<Cell> bestSeg;
-        for (int j = n - 1; j >= a + 2; --j) {   // 媛????j ?곗꽑(理쒕? ??�텞).
+        for (int j = n - 1; j >= a + 2; --j) {
             std::vector<Cell> seg;
             if (!ortho_connect(occ, path[static_cast<size_t>(a)], path[static_cast<size_t>(j)], seg))
                 continue;
             const int segSteps = static_cast<int>(seg.size()) - 1, origSteps = j - a;
-            if (segSteps > origSteps) continue;   // 湲몄뼱吏?�?湲곌�?
+            if (segSteps > origSteps) continue;
             if (segSteps == origSteps) {
-                // 媛숈? 湲몄?�硫??�얠??????곸쓣 ???�� ??�???�㈃ ?깅땲/吏洹몄?�洹??뺣━).
                 std::vector<Cell> slice(path.begin() + a, path.begin() + j + 1);
                 if (count_turns(seg) >= count_turns(slice)) continue;
             }
@@ -344,19 +624,14 @@ std::vector<Cell> unkink_path(const Occ& occ, const std::vector<Cell>& path) {
     return out;
 }
 
-// ?�붾�?理쒖?�諛?�꼍(C2, Phase C): ??�낫 ????吏곸�?????min_run_cells 誘몃�??�????�옉 ?�덇?(吏㏃? ???) ??�?吏㏃?
-// ?곗쓣 媛濡쒖�???묒쁿 ?�붾꼫瑜?'?�⑸�??�뒗 吏곴??????�낫) ?곌껐'(ortho_connect)�???�닔????�븻?? occ(?μ븷臾???�?
-// 源붾??諛곌?) ?�⑸룎寃??????�� + ?�얠????��쬆媛? + 湲몄????��쬆媛??????�� ??�??�댁?�??�룸Ъ?�ъ�???. ????�젏(PoC/??��???
-// ?�좎???�붾�??꾨낫?�?�� ??�쇅). 寃곗????�붾�???�쫫李⑥?�쨌??踰덉�???�굹, 蹂�????�붾�??????. min_run_cells<=1 ??�??// ?�?�� 洹몃?�?諛섑???�⑤�?湲곗????�옉 ?�덈?). PathRectifier(???�� ??�꺼, ??�룎???? ????寃쎈�??? ??��???�⑸�???�쟾.
 template <class Occ>
 std::vector<Cell> enforce_min_straight(const Occ& occ, const std::vector<Cell>& path, int min_run_cells) {
     if (min_run_cells <= 1 || path.size() < 5) return path;
     std::vector<Cell> cur = path;
     bool changed = true;
     int guard = 0;
-    while (changed && guard++ < 64) {   // guard=?�댄븳猷??�� 李⑤??�?諛섎??1�???�닔 ??理쒕? ?�붾�???�쭔??.
+    while (changed && guard++ < 64) {
         changed = false;
-        // ?�붾�??몃뜳??諛⑺�??꾪솚?? ??�쭛 ??[0, ?꾪솚?�?��?? n-1]. ????0,n-1)?? ?�좎???
         std::vector<int> corners;
         corners.push_back(0);
         for (size_t m = 1; m + 1 < cur.size(); ++m) {
@@ -365,39 +640,37 @@ std::vector<Cell> enforce_min_straight(const Occ& occ, const std::vector<Cell>& 
             if (!(d0 == d1)) corners.push_back(static_cast<int>(m));
         }
         corners.push_back(static_cast<int>(cur.size()) - 1);
-        // ?몄젒 ?�붾�????湲몄?�瑜?蹂닿?? 吏㏃? ??�? ?곗쓣 ?묒쁿 ?�붾�?ci-1, ci+1) 吏곴??곌껐�???�닔.
         for (size_t ci = 1; ci + 1 < corners.size(); ++ci) {
             const int runNext = corners[ci + 1] - corners[ci];      // ci~ci+1 ???? ??.
             const int runPrev = corners[ci] - corners[ci - 1];      // ci-1~ci ???? ??.
-            if (runNext >= min_run_cells && runPrev >= min_run_cells) continue;  // ?????�⑸??
+            if (runNext >= min_run_cells && runPrev >= min_run_cells) continue;
             const int a = corners[ci - 1], b = corners[ci + 1];
             std::vector<Cell> seg;
             if (!ortho_connect(occ, cur[static_cast<size_t>(a)], cur[static_cast<size_t>(b)], seg))
-                continue;                                            // ?�⑸�??�?�� 3?�뺤�?????�닔 ?�덇?.
+                continue;
             std::vector<Cell> slice(cur.begin() + a, cur.begin() + b + 1);
-            if (count_turns(seg) > count_turns(slice)) continue;     // ?�얠??利앷? 湲덉?.
+            if (count_turns(seg) > count_turns(slice)) continue;
             if (static_cast<int>(seg.size()) - 1 > b - a) continue;  // 湲몄??利앷? 湲덉?.
             std::vector<Cell> next(cur.begin(), cur.begin() + a);    // [0..a) + seg + (b..end].
             for (const Cell& c : seg) next.push_back(c);
             for (size_t t = static_cast<size_t>(b) + 1; t < cur.size(); ++t) next.push_back(cur[t]);
             cur = std::move(next);
             changed = true;
-            break;   // ?�붾�????????�닔�??몃뜳??? 諛붾??.
+            break;
         }
     }
     return cur;
 }
 
-// ??�쨷 諛곌? ??�감 ??�슦??�쓽 諛깆�???�닿? 蹂몄�?Occ = Dense/Implicit). order/snap/astar/mark_pipe ??�씪.
-// 寃곌?�瑜?'?�?�� ?묒뾽 ?몃뜳?? ?????ν�??몃뱾 API(get_result(task)) 留ㅽ�??蹂댁???�떎.
-// on_pipe 媛 ?좏슚??�㈃ 諛곌?留덈???몄텧(吏꾪�???�씠??�줈洹몄?? ??寃곌????�꽌?�?�� ?곹뼢 ??�쓬.
+// Shared multi-pipe routing pipeline for Dense, Implicit, and OpenVDB occupancy backends.
 template <class Occ>
 void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool collect_visited,
                       const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                       int pipe_radius = 0, bool per_task_radius = false,
                       int cbs_depth = 0, double min_straight_mult = 0.0,
                       double pipe_gap_mm = 0.0,
-                      const R3dRuntimeOptions* runtime = nullptr) {
+                      const R3dRuntimeOptions* runtime = nullptr,
+                      TraceWriter* trace = nullptr) {
     const long long large_threshold = runtime ? opt_or_default(runtime->large_grid_threshold, 5000000LL) : 5000000LL;
     const long long configured_max_exp = runtime ? runtime->max_expansions : 0;
     const long long configured_fallback_exp = runtime ? runtime->fallback_expansions : 0;
@@ -407,31 +680,27 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     const int configured_ripup_enabled = runtime ? runtime->ripup_enabled : -1;
     const long long configured_cbs_exp = runtime ? runtime->cbs_expansions : 0;
 
-    Occ work = occ.copy();  // ?�?�� ?�?? ?�덈?(M2).
-    // C1 CBS 源딆???곗뇙 rip-up) ???몄옄 ?곗꽑, env R3D_CBS(>=0) 媛 ??�쑝�?????? 0=OFF(??�㈃ rip-up留뙿룰낏???�덈?).
+    Occ work = occ.copy();
+    trace_header(trace, doc, priority);
+    trace_static_occupancy_samples(trace, doc);
+    trace_occupancy_summary(trace, work);
     int eff_cbs_depth = cbs_depth < 0 ? 0 : cbs_depth;
     if (const char* cs = std::getenv("R3D_CBS")) {
         char* end = nullptr; long v = std::strtol(cs, &end, 10);
         if (end != cs && v >= 0) eff_cbs_depth = static_cast<int>(v);
     }
-    if (eff_cbs_depth > 3) eff_cbs_depth = 3;   // ?�꾧�???�?李⑤???�꾧�???(MAXBLK+1)^(depth+1)).
-    // C2 ?�붾�?理쒖?�諛?�꼍 諛곗????�낫 �?吏곸�???mult?�愿?�? ???몄옄 ?곗꽑, env R3D_MIN_STRAIGHT(>=0) ????? 0=OFF.
+    if (eff_cbs_depth > 3) eff_cbs_depth = 3;
     double eff_min_straight = min_straight_mult < 0.0 ? 0.0 : min_straight_mult;
     if (const char* ms = std::getenv("R3D_MIN_STRAIGHT")) {
         char* end = nullptr; double v = std::strtod(ms, &end);
         if (end != ms && v >= 0.0) eff_min_straight = v;
     }
-    // 諛곌? ?�?? ??�갹 諛섍�????�?, 諛곌?-諛곌? ?�⑸�???�뵾). ?몄옄 ?곗꽑, env R3D_PIPE_RADIUS(>=0) 媛 ??�쑝�??????
-    // (??�뱶?�ъ뒪 --dbroute A/B ??. 0=寃쎈�???�?湲곗????�옉쨌怨⑤�??�덈?).
     int eff_pipe_radius = pipe_radius < 0 ? 0 : pipe_radius;
     if (const char* pr = std::getenv("R3D_PIPE_RADIUS")) {
         char* end = nullptr;
         long v = std::strtol(pr, &end, 10);
         if (end != pr && v >= 0) eff_pipe_radius = static_cast<int>(v);
     }
-    // per-task ?��?諛섍�?B1) ??ON ??�??�?諛곌???diameter_mm �?諛섍�???�?�� ?곗텧(?몄텧??�?��????�굅, 媛??諛곌?
-    //   ?�쇳?????�냼). OFF(湲곕?? ?�?�� ?��?誘몄�??�??湲濡쒕�?eff_pipe_radius ??��???湲곗????�옉쨌怨⑤�??�덈?.
-    //   env R3D_PER_TASK_RADIUS 濡쒕�???????�떎(??�뱶?�ъ뒪 A/B).
     bool eff_per_task = per_task_radius;
     if (const char* pt = std::getenv("R3D_PER_TASK_RADIUS"))
         eff_per_task = !(pt[0] == '0' || pt[0] == '\0');
@@ -446,20 +715,15 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                 return r;
             }
         }
-        return eff_pipe_radius;   // OFF/?��?誘몄�???湲濡쒕�?
+        return eff_pipe_radius;
     };
-    // ???? 諛곌?-諛곌? ??�꺽(??�꽣??嫄곕????r1 + r2 + gap, 湲곕??60mm) ????
-    // 湲곗??留덊�?radius_of ??ceil(d/cell)-1)?? ??�꽣?좎쓣 '???��?d)'留뚰�?��??꾩썙 ??諛곌? '??�㈃?????�숇???
-    // (gap=0). 洹쒓�?? ??諛곌? 諛섍�??+ ???�(60mm). gap>0 ??�??**硫붿???�⑦�?�?�� 源붾??諛곌???routing 諛곌? 湲곗?
-    // ??pairwise) 諛섍�?= ceil((r_a + r_b + gap)/cell) ??�줈 留됱�?* ??�쓬 諛곌? ??�꽣?좎쓣 ?뺥솗??r_a+r_b+gap 留뚰�?    // ?꾩슫??per-pipe ?????. gap=0(湲곕????�??湲곗??利앸??留덊�??�⑤�?湲곗????�옉 ?�덈?). ?몄옄 ?곗꽑쨌env R3D_PIPE_GAP.
     double eff_gap_mm = pipe_gap_mm < 0.0 ? 0.0 : pipe_gap_mm;
     if (const char* pg = std::getenv("R3D_PIPE_GAP")) {
         char* end = nullptr; double v = std::strtod(pg, &end);
         if (end != pg && v >= 0.0) eff_gap_mm = v;
     }
     const bool use_gap = eff_gap_mm > 0.0 && cell_for_r > 0.0;
-    const int PAIR_RADIUS_MAX = 24;   // ??諛섍�??곹븳(嫄곕? ?��?gap ??�?李⑤??.
-    // ?��?諛섍�?mm) ??per_task & ?��????�� d/2, ?꾨땲�?湲濡쒕�?諛섍�???)??mm �???�궛.
+    const int PAIR_RADIUS_MAX = 24;
     auto rmm_of = [&](int ti) -> double {
         if (eff_per_task && ti >= 0 && ti < static_cast<int>(doc.tasks.size())) {
             double d = doc.tasks[static_cast<size_t>(ti)].diameter_mm;
@@ -467,16 +731,12 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         }
         return eff_pipe_radius * cell_for_r;
     };
-    // ??pairwise) 留덊�?諛섍�???): 源붾??a ??routing b 湲곗???�줈 留됱????= ceil((r_a + r_b + gap)/cell).
     auto pair_radius = [&](int a, int b) -> int {
         double sep = rmm_of(a) + rmm_of(b) + eff_gap_mm;
         int r = static_cast<int>(std::ceil(sep / cell_for_r));
         if (r < 0) r = 0; if (r > PAIR_RADIUS_MAX) r = PAIR_RADIUS_MAX;
         return r;
     };
-    // per-task ?��?clearance(B2) ??per_task 媛 ON ??��?w_clear>0 ??�?? �?諛곌????��?諛섍꼍留?�겮 �??μ븷臾??�?��
-    //   以묒??좎쓣 ?꾩슦?꾨줉 clearance_radius ?꾧퀎瑜?max(湲곗?? 諛섍�???�줈 ??????�듭? 諛곌???踰쎌�???�㈃??諛뺤? ??�쾶).
-    //   諛섍�???湲곗??clearance_radius(媛??諛곌?)嫄곕�?OFF�?doc.params 洹몃?�???湲곗????�옉쨌怨⑤�??�덈?.
     auto params_for = [&](int task_idx) -> RouteParams {
         RouteParams tp = doc.params;
         if (eff_per_task && tp.w_clear > 0.0) {
@@ -496,14 +756,11 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     };
     auto dia = [&](int t) { return doc.tasks[static_cast<size_t>(t)].diameter_mm; };
     if (priority == "original") {
-        // ??�젰 ??�꽌 ?�?.
     } else if (priority == "shortest") {
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return dist(a) < dist(b); });
     } else if (priority == "longest") {
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return dist(a) > dist(b); });
     } else if (priority == "diameter") {
-        // ?�듭? 諛곌? ?�쇱?(??�쪧?? 嫄곕??�?�??�쇱?) ???�듭? 諛곌???理쒕??吏곸�? 寃쎈줈瑜??좎젏??��?媛??諛곌???
-        // �??�곸????�븯�???�떎. ?��?誘몄�?0)??�?????묒뾽 ??�쪧 ??longest ?? ??�씪(湲곗????�옉 ?�덈?).
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
             if (dia(a) != dia(b)) return dia(a) > dia(b);
             return dist(a) > dist(b);
@@ -513,28 +770,21 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             const std::string la = doc.tasks[static_cast<size_t>(a)].utility_label();
             const std::string lb = doc.tasks[static_cast<size_t>(b)].utility_label();
             if (la != lb) return la < lb;
-            if (dia(a) != dia(b)) return dia(a) > dia(b);   // ?좏떥 ?�띠????�뿉???�듭? 諛곌? ?�쇱?.
+            if (dia(a) != dia(b)) return dia(a) > dia(b);
             return dist(a) > dist(b);
         });
     } else {
         throw std::invalid_argument("unknown priority: " + priority);
     }
 
-    // ???�� ?몃젰(params.w_corridor>0)??�??源붾??諛곌? ?�곸?????��??�줈 ??�썙 ??�쓬 諛곌??????��紐⑥???
-    // ??湲곗????�퀎泥?�읆 ?�듭????�쑝�??�됱?��??�닿??湲몄?�媛? ??�뼱??�떎. 0??�??湲곗????�옉????�씪.
     doc.results.assign(static_cast<size_t>(n), std::nullopt);
     std::unordered_set<long long> corridor;
     const bool use_corridor = doc.params.w_corridor > 0.0;
     const int corridor_radius = doc.params.corridor_radius > 0 ? doc.params.corridor_radius : 1;
-    // ??�뒿?????�� ??�뱶(L2b) ??w_corridor>0 ?????�? 二쇱????(seed)?????��??誘몃???ｌ뼱, 諛곌???
-    // �??�곸??'?멸쾶'(w_corridor 硫댁?? 吏????꾨줉 ?좊룄(湲곗???��???��????뺤긽 ?곕씪媛�?. 0??�???�댁??
     if (use_corridor && seed) {
         for (const Cell& c : *seed)
             if (work.in_bounds(c)) corridor.insert(static_cast<long long>(work.lin(c)));
     }
-    // ????寃⑹????25mm�?.3????)?�?��??寃쎈줈媛? ??�뒗/留됲??諛곌????꾨떖 媛?ν�??????�? ?뺤옣??
-    // g/came 留듭????GB �???�???硫붾?�由??�좉�?0xC0000005). ?�?�� ?곹븳????洹몃??諛곌???議곌�??�낅�??�떎.
-    // ?�? 寃⑹???�⑤�??????곹븳 ??�쓬(-1) ??�줈 湲곗????�옉쨌寃곗젙??蹂댁??
     const long long max_exp = (occ.size() > large_threshold)
         ? opt_or_default(configured_max_exp, large_grid_cap()) : -1;
     long long eff_cbs_exp = configured_cbs_exp > 0 ? configured_cbs_exp
@@ -544,16 +794,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         long long v = std::strtoll(ce, &end, 10);
         if (end != ce && v > 0) eff_cbs_exp = v;
     }
-    // ?�?�� 吏꾪�??蹂닿??媛꾧�??뺤옣 ??. ??��????�硫??�쒕�???�???5留뚮�??諛곌?????�떗 ??.
     const long long progress_every = on_pipe ? 50000LL : 0;
-    // ?�꾩�?corridor 媛??嫄곕?寃⑹????�???諛곌?) ??coarse 媛??�뱶濡?fine ?�?��????�툕????�젙???�?��??�쓣 以꾩???
-    // (??�쭏�?깃났??蹂댁??. **escalation 寃뚯???*: ?�쇱? ????�궛(HIER_PROBE) 吏곸??A* ?????�� ???�??????諛곌?�?    // 媛쒕�???吏곸�??? ??��?�寃??깃났??�궎?? ??�궛???�덇???�뒗 '??�???諛곌?'�??�꾩�?corridor �?????꾪븳??
-    //   (嫄곕??湲곕�?寃뚯??몃뒗 �?吏곸꽑源?? hier �?蹂�?�???�???cell=50 ??�뀅ON 134ms??4s. probe 湲곕�????�떎.)
-    // ?�? 寃⑹???�⑤�???誘몄??????�⑤�?湲곗????�옉 ?꾩쟾 ?�덈?.
-    // 洹몃�????�� 紐⑤�?use_corridor)?�?��??hier ???�좊?????�쇨�???�먯??? 洹몃??��???�???諛곌?(??#146)??
-    // ??�씪 bounded weighted A* 留뚯?�濡???�옟 ?�낅???�???��??곹븳 ?꾨떖 ??�뙣??�떎. probe(????�궛 吏곸??A*)??
-    // ???�� 諛붿???�뒪??洹몃?�??곌�?????諛곌? 踰덈�??�?), ??�궛 ?�덇?????�???諛곌?�??�꾩�?corridor �?
-    // escalate(?곌껐 ?곗꽑, ??�봽??諛붿???�뒪 ??�씠 ??�툕 ??�젙) ??踰덈�?蹂댁??+ ??�???諛곌? ?�ъ젣 ?묐┰.
     const bool large_grid = occ.size() > large_threshold;
     const bool use_hier = large_grid;
     // 적응형 coarse factor(Tier-3 Stage 3b): 미설정이면 coarse 셀이 ~200mm 가 되도록 fine 셀 크기에 맞춰
@@ -570,128 +811,123 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     }
     const int HIER_FACTOR = opt_or_default_i(configured_hier_factor, adaptive_factor);
     const int HIER_RADIUS = opt_or_default_i(configured_hier_radius, 2);
-    const long long HIER_PROBE = opt_or_default(configured_hier_probe, 300000LL);     // 吏곸??A* ????�궛 ???�덇????�???諛곌?)�?hier �?escalate.
-    // probe(300k)쨌hier(??�툕 ??�젙) ??????�뙣????�???諛곌???'?�댁?????��? ??�궛.
-    //   湲곕??= max_exp(=12M, ?�댁?�??: ????��?? ??�젣�?寃쎈줈瑜??�ъ젣??�떎 ????��? cell=50 ALL ?�?�� ??��??
-    //   2M �??�?���??깃났 146??33(?깃났 諛곌? ?뺤옣??? 1.9M~11.9M 源뚯? ?곗냽 ?�꾪�? 吏꾩�???�뙣 12M ????�꽎??.
-    //   �?'??�깂????�궛 ??�컧'?? 諛섎�????�젣 寃쎈줈瑜??껊뒗????�룄/?�ㅻ�?��?? ?몃젅??��??�봽). 洹몃???湲곕??? ?�댁?�??
-    //   ??env R3D_FALLBACK_EXP=N(>0) �???�룄?곸쑝�???????�컙????�쓣 ????�떎(??�옟 諛곌? ?�ㅻ�?��?? ??? ??�?.
-    //     0/誘몄�??= max_exp(?�댁?�??湲곕??. 以꾩??????�? 'hier ??�뙣 ????��?�????�?寃⑹??corridor �??�?�� ?�덈?.
+    const long long HIER_PROBE = opt_or_default(configured_hier_probe, 300000LL);
     long long fallback_exp = configured_fallback_exp > 0 ? configured_fallback_exp : max_exp;
     if (const char* fe = std::getenv("R3D_FALLBACK_EXP")) {
         char* end = nullptr; long long v = std::strtoll(fe, &end, 10);
         if (end != fe && v > 0) fallback_exp = (max_exp > 0) ? std::min(v, max_exp) : v;
     }
-    std::optional<ImplicitOccupancy> coarse;   // �???�???諛곌??�?�� 1??吏????�꽦.
-    // (??�┰ 諛곌? 蹂묐?????�룄쨌湲곌컖: optimistic 蹂묐??A*+??�감 ?�⑸�?蹂듦?????�감?? 諛붿?????�씪??�쑝???뺥솗),
-    //  project6 c100/c25/c10 ?�? wall-clock ??��?0~???��???? 誘몄�?��?�옄 A* ??嫄곕? ??�떆留듭????�듃?�щ컢??�뒗
-    //  硫붾?�由????諛붿???�씪 ??�젅??�뱾????????寃�?빀??��? Phase A 媛 '留덊�???�뒗' ?????�?��??以묐????�뻾??
-    //  蹂묐????��???곸뇙. ???꾩엯 蹂�?�? ??�감 ?�?. ?�?��??痢≪??? CLAUDE.md '??�쓬 ?묒뾽 ?꾨낫'.)
+    std::optional<ImplicitOccupancy> coarse;
     int done = 0;
-    bool aborted = false;   // on_pipe 媛 0?꾨떂(?�⑥????諛섑???�㈃ set ???꾩옱 諛곌? ?�?�� 以묐??+ 諛곗???�⑦�??�낅�?
-    std::map<int, std::vector<Cell>> placed;   // ?깃났 諛곌? oi?믨꼍�?rip-up ???��?? ????�쫫李⑥??寃곗???.
+    bool aborted = false;
+    std::map<int, std::vector<Cell>> placed;
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
-        // ??�꺽 �?use_gap) 紐⑤�???源붾??諛곌???'routing 諛곌?(oi) 湲곗? ??諛섍�???�줈 ??�떆 留됱�???�꽣??嫄곕?�瑜?
-        //   ?뺥솗??r_a + r_b + gap ??�줈 蹂댁???�떎(per-pipe ?????. gap=0 ??�???꾩뿉??留뚮�?利앸??work ??洹몃?�???�??
         if (use_gap) {
             work = occ.copy();
             for (const auto& kv : placed) mark_pipe(work, kv.second, pair_radius(kv.first, oi));
         }
-        // ?�낅????�깄 諛섍�???湲곕??2. 諛곌? ??�갹(eff_pipe_radius>0)???곕㈃ ??諛곌????몄젒 ?�낅????源뚯? 留됱�?        // (?�듭????�룰???PoC) ?�낅????�삵? exp=0 利됱????�뙣媛 ??�떎 ????�깄 諛섍�????�갹?�꾨�????�썙 ?�낅???
-        // ?�????�???�텧??�쾶 ??�떎(媛??媛源뚯???�???? ?좏깮??�???꾩튂 ??�끝 理쒖??. radius=0 ??�??湲곗??2) ??�씪.
-        // use_gap ??�??源붾??諛곌?????諛섍�???????�줈 留됲? ??�뼱, ?�낅???�??뺤옣?곸뿭??踰쀬뼱??�룄�???�깄 諛섍�??
-        //   ???�?��諛섍�?ceil((2r+gap)/cell))留뚰�???�슫??洹쇱??PoC 媛 ?�삵? ??�뙣??? ??�쾶). gap=0 ??�??湲곗??2+radius).
         const int snap_r = use_gap ? 2 + pair_radius(oi, oi) : 2 + radius_of(oi);
-        Cell s = snap_to_free_cell(work, work.to_cell(t.start_mm), snap_r);
-        Cell g = snap_to_free_cell(work, work.to_cell(t.end_mm), snap_r);
-        const RouteParams tp = params_for(oi);   // per-task ?��?clearance(B2) 諛섏??OFF/媛?�?=doc.params ??�씪).
+        Cell raw_s = work.to_cell(t.start_mm);
+        Cell raw_g = work.to_cell(t.end_mm);
+        Cell s = snap_to_free_cell(work, raw_s, snap_r);
+        Cell g = snap_to_free_cell(work, raw_g, snap_r);
+        trace_task_begin(trace, oidx, oi, t, raw_s, raw_g, s, g);
+        const RouteParams tp = params_for(oi);
 
-        // ?�?�� �?吏꾪�??泥섎??곹깭 %) ?�쒕�???phase=0. ?꾩옱 諛곌???order/task ?몃뜳??�줈 ??�쓣 李얜???
-        // ?�쒕�???�⑥??0?꾨떂)??諛섑???�㈃ aborted ???몄슦??true 諛섑????astar 媛 ?�?�� ?�⑦봽瑜?利됱???�낅�?
         std::function<bool(long long, double)> intra;
         if (on_pipe) {
             intra = [&](long long expanded, double prog) -> bool {
+                trace_expand(trace, oidx, oi, expanded, prog);
                 if (on_pipe(0, oidx, oi, false, 0.0, 0, expanded, 0.0, done, n, prog, nullptr) != 0)
                     aborted = true;
                 return aborted;
             };
+        } else if (trace && trace->enabled()) {
+            intra = [&](long long expanded, double prog) -> bool {
+                trace_expand(trace, oidx, oi, expanded, prog);
+                return aborted;
+            };
+        }
+        AStarTraceFn astar_trace;
+        if (trace && trace->enabled() && trace->opt.level >= 1) {
+            astar_trace = [trace, oidx, oi](const char* event, const Cell& from, const Cell& to,
+                                            long long expanded, int dir, int run, int required) {
+                trace_search_cell(trace, oidx, oi, event, from, to, expanded, dir, run, required);
+            };
         }
         AStarResult res;
         bool routed = false;
-        // ??��??꾨옒 !routed) ??�궛 ??湲곕??? max_exp(?�?寃⑹??corridor �??�?��?? ?�댁???蹂댁??. hier 源뚯? ??�뙣??
-        // ??�???諛곌?�?bounded(fallback_exp)�???�뼱 ??�컙????�빟??�떎(?깃났??蹂댁?? ???곸닔 二쇱�?李몄??.
         long long fb_exp = max_exp;
         if (use_hier) {
-            // 1) ????�궛 吏곸??A* ??????諛곌?(媛쒕�???吏곸�????? ??�????��?�寃??깃났(hier ??�쾭??�뱶 ??�쓬).
-            //    ???�� 紐⑤뱶硫?probe ?????�� 諛붿???�뒪??�?????諛곌? 踰덈�???�???�떎(??�???諛곌?�??꾨옒�?escalate).
             const long long probe = (max_exp > 0) ? std::min(HIER_PROBE, max_exp) : HIER_PROBE;
             res = astar_weighted(work, s, g, tp, probe, collect_visited,
                                  use_corridor ? &corridor : nullptr,
-                                 on_pipe ? &intra : nullptr, progress_every, AllowAll{}, t.goal_dir);
+                                 intra ? &intra : nullptr, progress_every, AllowAll{}, t.goal_dir,
+                                 astar_trace ? &astar_trace : nullptr);
             if (res.success && !res.path.empty()) {
-                routed = true;                       // ????諛곌? ??吏곸??理쒖??寃쎈�?�?���?
+                routed = true;
             } else if (res.expanded_nodes >= probe) {
-                // 2) ????�궛 ?�덇????�???諛곌?) ???�꾩�?corridor(coarse 媛??��?????�툕 ??�젙)�??????
                 if (!coarse) coarse.emplace(coarse_implicit_from_doc(doc, HIER_FACTOR));
                 if (route_hier(work, *coarse, HIER_FACTOR, HIER_RADIUS, s, g, tp,
                                max_exp, collect_visited, res))
                     routed = true;
                 else
-                    fb_exp = fallback_exp;   // probe+hier 紐⑤�???�뙣 = ?????留됲??????��???�궛 ??�븳.
+                    fb_exp = fallback_exp;
             } else {
-                routed = true;   // probe ???�� ???�?�� ?�좉�?= 寃쎈�???�쓬(?묎렐?�덇?) ??�???�뙣 寃곌??�?���?
+                routed = true;
             }
         }
         if (!routed)
             res = astar_weighted(work, s, g, tp, fb_exp, collect_visited,
                                  use_corridor ? &corridor : nullptr,
-                                 on_pipe ? &intra : nullptr, progress_every, AllowAll{}, t.goal_dir);
+                                 intra ? &intra : nullptr, progress_every, AllowAll{}, t.goal_dir,
+                                 astar_trace ? &astar_trace : nullptr);
         bool ok = res.success && !res.path.empty();
-        // 紐⑺�?吏꾩??��???�빟(goal_dir)??�줈 ??�뙣??�㈃ ?�댁???�쑝�?1????��????곌껐 ?곗꽑(?깃났??蹂댁??. ??�쭅??
-        //   吏꾩??? �???��?寃쎈�????�?????�옟 ?�낅??. 吏꾩??��???�빟????�뜕(goal_dir<0) 諛곌??? 洹몃?�?
         if (!ok && t.goal_dir >= 0 && !aborted) {
             res = astar_weighted(work, s, g, tp, fb_exp, collect_visited,
                                  use_corridor ? &corridor : nullptr,
-                                 on_pipe ? &intra : nullptr, progress_every, AllowAll{}, -1);
+                                 intra ? &intra : nullptr, progress_every, AllowAll{}, -1,
+                                 astar_trace ? &astar_trace : nullptr);
             ok = res.success && !res.path.empty();
         }
         std::vector<Cell> path = res.path;
-        // ???��/??�????�굅(媛�??�?�� ?꾩슜, w_heur>1). ?�⑤뱺쨌??? A*(w=1)??誘몄?????寃곌??諛붿????�덈?.
-        // mark ?꾩뿉 ?곸슜???꾩냽 諛곌?????�텞寃쎈줈瑜???�뵾(M1/M2 蹂댁??. ???��/踰덈�?諛붿???�뒪媛 留뚮�??깅땲???뺣━.
         if (ok && doc.params.w_heur > 1.0 && path.size() >= 4) {
             std::vector<Cell> up = unkink_path(work, path);
-            if (up.size() < path.size()) {  // ??吏㏃븘�???�� ???�� �?���?湲몄?�쨌?�얠??媛먯??.
+            if (up.size() < path.size()) {
+                trace_postprocess(trace, oi, "unkink", path, up);
                 path = std::move(up);
                 res.path = path;
                 res.length_mm = (path.size() - 1) * doc.params.cell_mm;
                 res.turns = count_turns(path);
             }
         }
-        // (C2 ?�붾�?理쒖?�諛?�꼍?? 諛곗??以묎�???꾨땲??'紐⑤�?諛곌? ??�슦???? ??��??? 理쒖�???�뒪�??곸슜 ???꾨옒 李몄??
-        //  諛곗??以묎�??吏곸�?뷀�?��?諛붾????????�쓬 諛곌????�?????�먮?????�엳?????�얠?????��?????��? 135??41].)
         doc.results[static_cast<size_t>(oi)] = to_scene_result(res);
         if (ok) {
-            // 源붾??寃쎈�?+諛섍�????�??�??�붽?(??�쓬 諛곌? ??�뵾). per-task 諛섍�?B1, OFF�?湲濡쒕�???�줈 ?�寃쎈�???�?.
             mark_pipe(work, path, radius_of(oi));
+            if (trace && trace->enabled()) {
+                trace->task_scope(oi);
+                trace->write_raw("{\"type\":\"route_mark\",\"task\":" + std::to_string(oi) +
+                                 ",\"path_points\":" + std::to_string(path.size()) +
+                                 ",\"radius_cells\":" + std::to_string(radius_of(oi)) + "}");
+                trace->write_raw("{\"type\":\"route_path\",\"task\":" + std::to_string(oi) +
+                                 ",\"path_points\":" + std::to_string(path.size()) +
+                                 ",\"cells\":" + cell_array_json(path) + "}");
+            }
             if (use_corridor) add_corridor_cells(work, corridor, path, corridor_radius);
-            placed[oi] = path;   // rip-up ???��(?꾨옒)????oi?믨꼍�?寃곗???std::map ??�쉶).
+            placed[oi] = path;
         }
+        trace_task_end(trace, oidx, oi, res, ok, aborted);
         ++done;
-        if (on_pipe) {  // phase=1 ?꾨즺 ??吏??+ (?깃났 ?? 寃쎈�???. 諛섑????�⑥?�硫???�쓬 諛곌??�??以묐??
+        if (on_pipe) {
             if (on_pipe(1, oidx, oi, ok, res.length_mm, res.turns, res.expanded_nodes, res.elapsed_ms,
                         done, n, 1.0, ok ? &path : nullptr) != 0)
                 aborted = true;
         }
-        // ?�⑥???붿껌 ???꾨즺??諛곌? 寃곌??doc.results)??蹂댁???��???? 諛곌??? 泥섎???? ??��??�낅�?
         if (aborted) break;
     }
 
-    // ---- rip-up ???��(???�?) ----
-    // main ??�뒪 ????? ??�뙣 諛곌??? �?'?μ븷臾?only ??�긽 寃쎈�???媛濡쒕�??placed 諛곌?(blocker)????�?    // ??같移?�빐 ??�냼??�떎. **?�댁?�??*(�?���????깃났 ??��?+1)�?*寃곗???*(blocker=placed ????�쫫李⑥??. pipe_radius
-    // ????�씪 ?곸슜??�릺 ???�� 諛붿???�뒪??誘몄�??route_ripup ?? ??�씪 ???곌껐 ?곗꽑). build_work 媛 �???�룄 occ(?μ븷臾?
-    // only) ????�?�� ?�?�꾩�??�쓣 ??�떆 源붿�?M1(?? ?�듭?� 0)??蹂댁?? 嫄곕?寃⑹??+ 誘몄???+ ??�뙣>0 ?????��(?�? ?�⑤�?    // 寃⑹???main ??�줈 ?�⑸?????�⑤�?湲곗????�옉 ?�덈?). env R3D_RIPUP=off �???????�떎.
     bool ripup_on = configured_ripup_enabled >= 0 ? (configured_ripup_enabled != 0) : true;
     if (configured_ripup_enabled < 0)
         if (const char* rs = std::getenv("R3D_RIPUP")) ripup_on = !(rs[0] == 'o' && rs[1] == 'f');
@@ -710,19 +946,19 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         };
         auto route_on = [&](const Occ& w, int ti) -> AStarResult {
             const RouteTask& tt = doc.tasks[static_cast<size_t>(ti)];
-            const int snap_r = 2 + radius_of(ti);   // per-task 諛섍�?B1).
-            const RouteParams tpr = params_for(ti); // per-task ?��?clearance(B2).
+            const int snap_r = 2 + radius_of(ti);
+            const RouteParams tpr = params_for(ti);
             Cell ss = snap_to_free_cell(w, w.to_cell(tt.start_mm), snap_r);
             Cell gg = snap_to_free_cell(w, w.to_cell(tt.end_mm), snap_r);
             AStarResult r = astar_weighted(w, ss, gg, tpr, max_exp, false,
                                            nullptr, nullptr, 0, AllowAll{}, tt.goal_dir);
-            if ((!r.success || r.path.empty()) && tt.goal_dir >= 0)   // 吏꾩??��?留됲?????�댁?????��?
+            if ((!r.success || r.path.empty()) && tt.goal_dir >= 0)
                 r = astar_weighted(w, ss, gg, tpr, max_exp, false);
             return r;
         };
         auto build_work = [&](const std::map<int, std::vector<Cell>>& paths) -> Occ {
-            Occ w = occ.copy();   // occ = ?μ븷臾?only(?�덈? 湲곗?).
-            for (const auto& kv : paths) mark_pipe(w, kv.second, radius_of(kv.first));   // per-task 諛섍�?
+            Occ w = occ.copy();
+            for (const auto& kv : paths) mark_pipe(w, kv.second, radius_of(kv.first));
             return w;
         };
         for (int round = 0; round < RIPUP_ROUNDS; ++round) {
@@ -733,12 +969,12 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             if (failed.empty()) break;
             bool changed = false;
             for (int f : failed) {
-                AStarResult ideal = route_on(occ, f);   // ?μ븷臾?�쭔??�줈????�긽 寃쎈�?
-                if (!(ideal.success && !ideal.path.empty())) continue;  // ?μ븷臾?�쭔??�줈???�덇?(?묎렐?�덇?).
+                AStarResult ideal = route_on(occ, f);
+                if (!(ideal.success && !ideal.path.empty())) continue;
                 std::unordered_set<uint64_t> cs;
                 cs.reserve(ideal.path.size() * 2);
                 for (const Cell& c : ideal.path) cs.insert(pack(c));
-                std::vector<int> blockers;   // placed ????�쫫李⑥??std::map).
+                std::vector<int> blockers;
                 for (const auto& kv : placed) {
                     for (const Cell& c : kv.second)
                         if (cs.count(pack(c))) { blockers.push_back(kv.first); break; }
@@ -747,37 +983,37 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                 std::map<int, std::vector<Cell>> trial = placed;
                 for (int b : blockers) trial.erase(b);
                 Occ wt = build_work(trial);
-                AStarResult rf = route_on(wt, f);   // ??�???�듦�?�?�� ??�뙣 諛곌? ??같移?
+                AStarResult rf = route_on(wt, f);
                 if (!(rf.success && !rf.path.empty())) continue;
-                mark_pipe(wt, rf.path, radius_of(f));   // per-task 諛섍�?B1).
+                mark_pipe(wt, rf.path, radius_of(f));
                 trial[f] = rf.path;
                 std::vector<AStarResult> rbs(blockers.size());
                 bool all_ok = true;
                 for (size_t bi = 0; bi < blockers.size(); ++bi) {
                     AStarResult rb = route_on(wt, blockers[bi]);   // ??? blocker ????고똿.
                     if (rb.success && !rb.path.empty()) {
-                        mark_pipe(wt, rb.path, radius_of(blockers[bi]));   // per-task 諛섍�?B1).
+                        mark_pipe(wt, rb.path, radius_of(blockers[bi]));
                         trial[blockers[bi]] = rb.path;
                     } else {
                         all_ok = false;
                     }
                     rbs[bi] = std::move(rb);
                 }
-                if (!all_ok) continue;   // ?�댁?�???꾨같(blocker ??같移???�뙣) ??????�룄 ?�?��.
+                if (!all_ok) continue;
                 placed = std::move(trial);
                 doc.results[static_cast<size_t>(f)] = to_scene_result(rf);
                 for (size_t bi = 0; bi < blockers.size(); ++bi)
                     doc.results[static_cast<size_t>(blockers[bi])] = to_scene_result(rbs[bi]);
                 changed = true;
-                // ???��????�뙣 諛곌????�쒕�??�줈 ???��??phase=1, oidx=-1=rip-up ??�떇) ????�씠??3D/??媛깆??
                 if (on_pipe)
                     on_pipe(1, -1, f, true, rf.length_mm, rf.turns, rf.expanded_nodes, rf.elapsed_ms,
                             done, n, 1.0, &placed[f]);
             }
-            if (!changed) break;   // ?????�� ?�덇? ???�낅�?
+            if (!changed) break;
         }
     }
 
+    // CBS-lite: recursively move blockers when a failed route can be recovered by negotiation.
     if (eff_cbs_depth > 0 && !aborted && has_fail()) {
         const int CBS_MAXBLK = 4;
         auto pack = [](const Cell& c) -> uint64_t {
@@ -882,28 +1118,25 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             if (!changed) break;
         }
     }
-    // ---- C2 ?�붾�?理쒖?�諛?�꼍 理쒖�???�뒪(Phase C) ----
-    // 紐⑤�?諛곌? ??�슦??�톜ip-up쨌CBS 媛 ??�궃 ?? �??깃났 諛곌???吏㏃? ???(??�낫 �?吏곸�?< mult?�愿?�?????�닔??�떎.
-    // **??��???**: ??�슦??�뿉 ???�??(work)??嫄�?뱶由?? ??��? 諛곌?留덈??'?μ븷臾?+ ??�Ⅸ 諛곌?(�?諛섍�?'留뚯?�濡?留뚮�?    // 寃???�??(chk)??????吏곴????�닔 ????�슫??�듃??諛곌? ??�슦??�쓣 諛붽?�吏 ??�뒗??諛곗???곹샇?묒슜??�줈 ???�얠???
-    // ??�뜕 ?�몄????�냼). ?�⑸룎寃??????�� + ?�얠????��쬆媛? + 湲몄????��쬆媛??????�� �?���??�댁?�??�룸Ъ?�ъ�??? ????�젏 ?�좎??.
-    // 寃곗???placed ????�쫫李⑥??. 湲곕??eff_min_straight=0 ??誘몄????�⑤�??�덈?). ??��??O(?깃났???(opt-in ??�젙).
-    if (eff_min_straight > 0.0 && cell_for_r > 0.0 && !aborted && !placed.empty()) {
+    const int abs_min_run = doc.params.min_straight_cells > 1 ? doc.params.min_straight_cells : 0;
+    if ((eff_min_straight > 0.0 || abs_min_run > 1) && cell_for_r > 0.0 && !aborted && !placed.empty()) {
         for (auto& kv : placed) {
             const int pi = kv.first;
             std::vector<Cell>& path = kv.second;
             const double d = doc.tasks[static_cast<size_t>(pi)].diameter_mm;
-            const int min_run = (d > 0.0)
+            const int dia_min_run = (eff_min_straight > 0.0 && d > 0.0)
                 ? static_cast<int>(std::ceil(eff_min_straight * d / cell_for_r)) : 0;
+            const int min_run = std::max(abs_min_run, dia_min_run);
             if (min_run <= 1 || path.size() < 5) continue;
-            // 寃???�?? = ?μ븷臾?+ ??�Ⅸ 諛곌?(�?per-task 諛섍�?. ?�?�� ?�?��?? ??�쇅(?�?�� ?�⑸�??�댁?�誘?.
             Occ chk = occ.copy();
             for (const auto& other : placed)
                 if (other.first != pi) mark_pipe(chk, other.second, radius_of(other.first));
-            std::vector<Cell> sp = enforce_min_straight(chk, path, min_run);
+            std::vector<Cell> sp = unkink_path(chk, path);
+            sp = enforce_min_straight(chk, sp, min_run);
             if (sp.size() < path.size() ||
                 (sp.size() == path.size() && count_turns(sp) < count_turns(path))) {
-                // ??吏㏐�???�얠????�?��) 媛숈? 湲몄???�룄 ?�얠???�????�� �?���?
                 if (count_turns(sp) <= count_turns(path)) {
+                    trace_postprocess(trace, pi, "min_straight", path, sp, min_run);
                     AStarResult nr;
                     nr.success = true; nr.path = sp;
                     nr.length_mm = (sp.size() - 1) * doc.params.cell_mm;
@@ -917,31 +1150,34 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             }
         }
     }
+    if (trace && trace->enabled()) {
+        trace->current_task = -1;
+        trace->write_raw("{\"type\":\"trace_end\",\"task_count\":" + std::to_string(n) +
+                         ",\"aborted\":" + std::string(aborted ? "true" : "false") + "}");
+        trace->flush();
+    }
 }
 
-// 寃⑹????린濡?諛깆�???좏깮(sparse ??��?:
-//   ?�? 寃⑹????M ??, ?�⑤�??? ??DenseOccupancy: 湲곗????�옉쨌諛붿씠??寃곌???꾩쟾 ?�덈?.
-//   嫄곕? 寃⑹??>5M ??, 25mm/10mm) ??ImplicitOccupancy: 蹂듭?????�뒗 O(?μ븷臾? ????+ 64??��????+
-//   ??�뵒留⑤�???�???�?????130MB/2GB 諛곗뿴쨌520MB 嫄곕?�蹂???�톓nt ??�쾭???��??紐⑤�???�뵾.
 void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool collect_visited,
                           const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                           int pipe_radius = 0, bool per_task_radius = false,
                           int cbs_depth = 0, double min_straight_mult = 0.0,
                           double pipe_gap_mm = 0.0,
-                          const R3dRuntimeOptions* runtime = nullptr) {
+                          const R3dRuntimeOptions* runtime = nullptr,
+                          TraceWriter* trace = nullptr) {
 #ifdef ROUTING3D_USE_OPENVDB
     route_multi_impl(doc, vdb_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                     pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime);
+                     pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
 #else
     const long long cells =
         static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
     const long long large_threshold = runtime ? opt_or_default(runtime->large_grid_threshold, 5000000LL) : 5000000LL;
     if (cells > large_threshold) {
         route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
     } else {
         route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
     }
 #endif
 }
@@ -970,7 +1206,6 @@ extern "C" R3dStatus r3d_route_scene_text(const char* scene_text, const char* mo
     }
     try {
         const std::string m = mode ? mode : "multi";
-        // Level 1(?�몄??? API ???몃뱾 ??�씠 ?몄텧???�?visited ??�쭛 湲곕??on.
         if (m == "single") {
             doc.results.assign(doc.tasks.size(), std::nullopt);
 #ifdef ROUTING3D_USE_OPENVDB
@@ -1085,6 +1320,26 @@ extern "C" R3dStatus r3d_set_runtime_options(R3dEngine* e, const R3dRuntimeOptio
     return R3D_OK;
 }
 
+extern "C" R3dStatus r3d_set_trace_options(R3dEngine* e, const R3dTraceOptions* opt) {
+    if (!e || !opt) return R3D_ERR_ARG;
+    e->trace_options = *opt;
+    if (e->trace_options.sample_every <= 0) e->trace_options.sample_every = 1000;
+    if (e->trace_options.max_events_per_task <= 0) e->trace_options.max_events_per_task = 20000;
+    e->trace.opt = e->trace_options;
+    return R3D_OK;
+}
+
+extern "C" R3dStatus r3d_set_trace_file(R3dEngine* e, const char* path_utf8) {
+    if (!e || !path_utf8 || !*path_utf8) return R3D_ERR_ARG;
+    return e->trace.open(path_utf8) ? R3D_OK : R3D_ERR_RUNTIME;
+}
+
+extern "C" R3dStatus r3d_flush_trace(R3dEngine* e) {
+    if (!e) return R3D_ERR_ARG;
+    e->trace.flush();
+    return R3D_OK;
+}
+
 extern "C" R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, double minz,
                                       double maxx, double maxy, double maxz) {
     if (!e) return R3D_ERR_ARG;
@@ -1099,7 +1354,6 @@ extern "C" R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, do
     }
 }
 
-// ???��(pass-through) 媛앹�??�붽? ???�??�?媛??�솕?? 寃쎈�?�?�� ?�⑸�??????꾨떂(doc.passthrough).
 extern "C" R3dStatus r3d_add_passthrough(R3dEngine* e, double minx, double miny, double minz,
                                          double maxx, double maxy, double maxz) {
     if (!e) return R3D_ERR_ARG;
@@ -1148,9 +1402,6 @@ extern "C" R3dStatus r3d_set_task_diameter(R3dEngine* e, int32_t task, double di
     return R3D_OK;
 }
 
-// ?묒뾽??紐⑺�?吏꾩??��???�빟(goal_dir) ??�젙 ??A* 媛 end_mm ??'axis 諛⑺�?NEIGHBORS_6 ?몃뜳??0..5 =
-//   +x,-x,+y,-y,+z,-z)??�줈 吏꾩??????��' ?꾨떖 ?몄젙. ?뺥듃 ?�낅????��??�щ뱶???�뺤??二쇰????�쭅??吏꾩???묒냽?�
-//   ?�곕??붽린 ?�얠????�굅). ??�빟??�줈 留됲?�硫??붿쭊???�댁???1????��??곌껐 ?곗꽑). axis 媛 [0,5] 諛뽰?�硫?-1(?�댁???.
 extern "C" R3dStatus r3d_set_task_goal_dir(R3dEngine* e, int32_t task, int32_t axis) {
     if (!e) return R3D_ERR_ARG;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
@@ -1165,31 +1416,25 @@ extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, {}, seed,
                              e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
-                             e->pipe_gap_mm, &e->runtime);
+                             e->pipe_gap_mm, &e->runtime, &e->trace);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
     }
 }
 
-// per-task ?��?諛섍�?B1) ??�꽦????ON ??�??route_multi 媛 �?諛곌? diameter_mm �?留덊�?諛섍�???�?�� ?곗텧
-//   (?몄텧??湲濡쒕�?pipe_radius �?��????�굅쨌媛???諛곌? ?�쇳?????�냼). OFF(湲곕??=湲濡쒕�?pipe_radius(湲곗????�옉).
 extern "C" R3dStatus r3d_set_per_task_radius(R3dEngine* e, int32_t enabled) {
     if (!e) return R3D_ERR_ARG;
     e->per_task_radius = enabled != 0;
     return R3D_OK;
 }
 
-// C1 negotiated-congestion(CBS-lite) 源딆????�젙 ??0=OFF(??�㈃ rip-up留뙿룰린�???�옉쨌怨⑤�??�덈?). >0 ??�????�㈃
-//   rip-up ????? ??�뙣 諛곌????곗뇙(???) rip-up ??�줈 ??�냼(?�댁?�??�룰�?뺤쟻). [0,3] ??�??? env R3D_CBS ??媛??
 extern "C" R3dStatus r3d_set_cbs_depth(R3dEngine* e, int32_t depth) {
     if (!e) return R3D_ERR_ARG;
     e->cbs_depth = depth < 0 ? 0 : (depth > 3 ? 3 : depth);
     return R3D_OK;
 }
 
-// C2 ?�붾�?理쒖?�諛?�꼍 諛곗????�젙 ????�낫 �?吏곸�??? ??(mult ???��? 蹂댁????�옉??. 寃쎈�???) ??��?�?�� ?�⑸룎寃???
-//   ??�뿉 吏㏃? ???????�닔. 0=OFF(湲곗????�옉쨌怨⑤�??�덈?). 沅뚯??2.0. ???���?0. env R3D_MIN_STRAIGHT ??媛??
 extern "C" R3dStatus r3d_set_min_straight(R3dEngine* e, double mult) {
     if (!e) return R3D_ERR_ARG;
     e->min_straight_mult = mult > 0.0 ? mult : 0.0;
@@ -1204,7 +1449,6 @@ extern "C" R3dStatus r3d_set_min_straight_mm(R3dEngine* e, double mm) {
     return R3D_OK;
 }
 
-// 諛곌?-諛곌? ??�꺽(mm) ??�젙 ????諛곌? ??�꽣??嫄곕????r1 + r2 + gap 蹂댁????�㈃ ????理쒖??gap mm). 0=OFF(湲곗??//   ??�옉�??�㈃ 留욌???�룰????�덈?). 洹쒓�?60mm. route_multi 硫붿???�⑦봽媛? 源붾??諛곌?????諛섍�??�줈 留됰??? env R3D_PIPE_GAP.
 extern "C" R3dStatus r3d_set_pipe_gap(R3dEngine* e, double gap_mm) {
     if (!e) return R3D_ERR_ARG;
     e->pipe_gap_mm = gap_mm > 0.0 ? gap_mm : 0.0;
@@ -1215,12 +1459,11 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
                                               void* user) {
     if (!e) return R3D_ERR_ARG;
     try {
-        ProgressCb on_pipe;  // cb 媛 ?�?���???��????�쒕�???�뒗 route_multi ?? ??�씪).
+        ProgressCb on_pipe;
         if (cb) {
             on_pipe = [cb, user](int phase, int oi, int ti, bool ok, double len, int turns,
                                  long long exp, double ms, int done, int total, double prog,
                                  const std::vector<Cell>* path) -> int {
-                // 寃쎈�???(i,j,k) ???꾩떆 int 諛곗뿴濡???�꽌 ?�쒕�???꾨떖(????곕뒗 ?몄텧 ??�븞�??좏슚).
                 const int32_t* pptr = nullptr;
                 int32_t plen = 0;
                 std::vector<int32_t> buf;
@@ -1242,15 +1485,13 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe, seed,
                              e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
-                             e->pipe_gap_mm, &e->runtime);
+                             e->pipe_gap_mm, &e->runtime, &e->trace);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
     }
 }
 
-// ??�뒿?????�� ??(ijk ??�쨷??諛곗�? 湲몄??n)???붿쭊????�젙??�떎(L2b). w_corridor>0 ????route_multi 媛
-// ??????�쓣 ???�� ??�뱶�???�븘 諛곌???�??�곸?�濡??좊룄??�떎. n<=0 ?�?�� ijk==null ??�?????��????��???
 extern "C" R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32_t n) {
     if (!e) return R3D_ERR_ARG;
     try {
@@ -1272,17 +1513,12 @@ extern "C" R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled) {
     return R3D_OK;
 }
 
-// 諛곌? ?�?? ??�갹 諛섍�???) ??�젙(???�?, 諛곌?-諛곌? ?�⑸�???�뵾). route_multi(_progress) 媛 源붾??諛곌???
-// mark_pipe(radius)�?留됱�???�쓬 諛곌? 以묒??좎쓣 ?꾩슫?? ???���?0 ??�줈 ??�??? 0=湲곗????�옉(寃쎈�???�?.
 extern "C" R3dStatus r3d_set_pipe_radius(R3dEngine* e, int32_t radius_cells) {
     if (!e) return R3D_ERR_ARG;
     e->pipe_radius = radius_cells > 0 ? radius_cells : 0;
     return R3D_OK;
 }
 
-// rip-up & reroute(Step 3.8): ??�뜑 route_ripup ???몄텧??�릺, 寃곌?�瑜?'?�?�� ?묒뾽 ?몃뜳??�?
-// ??�룎??doc.results ??????get_result 留ㅽ�?蹂댁?? doc.tasks ?�덈?). ?곗꽑??�쐞 ??�뿴??
-// order_indices �?????route_ripup ??�? order_tasks ?? ??�씪 ??�젙 ?뺣젹 ???꾩튂 ??�튂).
 extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t max_rounds,
                                      int32_t max_ripup) {
     if (!e) return R3D_ERR_ARG;
@@ -1290,8 +1526,6 @@ extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t
         apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
         SceneDoc& doc = e->doc;
         const std::string prio = priority ? priority : "longest";
-        // ?�?? 諛깆�???�닿?(??�뵆?? ??寃곌???�붿?????�꽕?????���? ????寃⑹??>5M ??)??ImplicitOccupancy
-        //   (蹂듭?????�쓬쨌O(?μ븷臾?)�??꾪솚??Dense ?꾨같????컻쨌int ??�쾭???��??諛⑹???�떎(A3, route_multi 寃뚯?????�씪).
         auto run = [&](auto&& occ) {
             std::vector<int> order = order_indices(occ, doc.tasks, prio);
             auto mr = route_ripup(occ, doc.tasks, doc.params, prio, 0, 2, -1,
@@ -1314,8 +1548,6 @@ extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t
     }
 }
 
-// ?????λ???corridor ??�슦?? ?μ븷臾?�쓣 fine/coarse Sparse ?�??�?留뚮뱾�??묒뾽�?route_corridor.
-// Sparse + astar_hashed ??occ.size() 諛곗�????? ??�쑝誘�??�덈???寃⑹?????�옉(硫붾?�由??�?? ??).
 extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius) {
     if (!e) return R3D_ERR_ARG;
     if (factor < 1 || radius < 0) return R3D_ERR_ARG;
@@ -1323,7 +1555,6 @@ extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t ra
         apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
         SceneDoc& doc = e->doc;
 
-        // fine/coarse ?????�??�??μ븷臾?�쭔). coarse ?? = fine ?? ??factor.
         SparseOccupancy fine(doc.shape, doc.origin, doc.cell_mm);
         Cell cshape{(doc.shape.i + factor - 1) / factor, (doc.shape.j + factor - 1) / factor,
                     (doc.shape.k + factor - 1) / factor};
@@ -1334,7 +1565,6 @@ extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t ra
                 fine.add_box(box);
                 coarse.add_box(box);
             } catch (...) {
-                // ??�솕 諛뺤???�댁??
             }
         }
 
@@ -1352,8 +1582,6 @@ extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t ra
     }
 }
 
-// ??�감 ?�꾩�?corridor: r3d_route_corridor ?? 媛숈? Sparse + astar_hashed ??��? priority ??�꽌�?
-// ??諛곌?????�슦??�븯???깃났 寃쎈줈瑜?fine ?�????mark_pipe �??�붽?????�쓬 諛곌?????�븯�???�떎(?�⑸�?0).
 extern "C" R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int32_t radius,
                                               const char* priority, int32_t pipe_radius) {
     if (!e) return R3D_ERR_ARG;
@@ -1372,7 +1600,6 @@ extern "C" R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int3
                 fine.add_box(box);
                 coarse.add_box(box);
             } catch (...) {
-                // ??�솕 諛뺤???�댁??
             }
         }
 
@@ -1387,7 +1614,6 @@ extern "C" R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int3
             Cell g = snap_to_free_cell(fine, fine.to_cell(t.end_mm), 2);
             CorridorRoute cr = route_corridor(fine, coarse, s, g, factor, radius, -1);
             if (cr.fine.success) {
-                // ??�쓬 諛곌?????�븯?꾨줉 fine ?�????寃쎈�?+諛섍�????�붽?. coarse ??媛??��??誘명�??
                 mark_pipe(fine, cr.fine.path, pr);
             }
             doc.results[static_cast<size_t>(idx)] = to_scene_result(cr.fine);
@@ -1404,9 +1630,6 @@ extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) 
     try {
         apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
         const RouteTask& t = e->doc.tasks[static_cast<size_t>(task)];
-        // 諛깆�???좏깮(route_multi ?? ??�씪 ?뺤콉): ?�? 寃⑹????M, ?�⑤�???DenseOccupancy �?湲곗????�옉�?        //   諛붿???寃곌???꾩쟾 ?�덈?. 嫄곕? 寃⑹??>5M, 25mm/10mm)??蹂듭?????�뒗 ImplicitOccupancy(O(?μ븷臾?) +
-        //   ?�?�� ?곹븳(12M, 硫붾?�由???쬆쨌?곗뼱??�씠 諛⑹?)??�줈 ?꾪솚 ??C# ?�붾�?蹂듭???꾩쿂?�ъ쓽 ??�씪 ??�━ A* 媛
-        //   1.3???? 寃⑹??�?��??�??몄텧 130M 蹂듭?????�씠 ??��?�寃???�옉(洹몃�???��/湲곗???�퀎異붿쥌 ?꾩쿂????�꽦??.
         const long long cells =
             static_cast<long long>(e->doc.shape.i) * e->doc.shape.j * e->doc.shape.k;
         SceneResult sr;
@@ -1446,7 +1669,7 @@ extern "C" R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult*
     if (task >= static_cast<int32_t>(e->doc.results.size()) ||
         !e->doc.results[static_cast<size_t>(task)]) {
         *out = R3dResult{};
-        return R3D_ERR_RUNTIME;  // ?꾩쭅 ??�슦??????
+        return R3D_ERR_RUNTIME;
     }
     fill_result(*out, e->doc.results[static_cast<size_t>(task)]);
     return R3D_OK;
@@ -1467,7 +1690,6 @@ extern "C" int32_t r3d_copy_path(const R3dEngine* e, int32_t task, int32_t* buf,
     return n;
 }
 
-// 諛⑸Ц(?뺤옣) ?? 蹂듭�???媛??�솕 '諛⑸Ц�? ?? copy_path ?? ??�씪 ?뺤떇.
 extern "C" int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells) {
     if (!e || !buf || buf_cells <= 0) return 0;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.results.size())) return 0;
@@ -1483,15 +1705,11 @@ extern "C" int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* b
     return n;
 }
 
-// ?�??�??�붾�????) ?몃뜳??蹂듭�???媛??�솕 '?�??�? ?? ?꾩옱 doc ??obstacles �?利됱�?voxelize.
-// buf=NULL, buf_cells=0 ??�?????? ??�쭔 諛섑?????�利?議고??. ?�??蹂듭�???泥섏??buf_cells �?
 extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t buf_cells) {
     if (!e) return 0;
     try {
         const Cell& shape = e->doc.shape;
         bool size_only = (buf == nullptr || buf_cells <= 0);
-        // ?�?? 諛깆�???�닿? ??�틪 ??????寃⑹??>5M ??)??ImplicitOccupancy(?꾨같??誘명�??�?is_blocked 吏덉???
-        //   Dense ?꾨같????25mm ~1.3??????B) 硫붾?�由???�??諛⑹?(A3). ??�삎?? Dense(湲곗????�옉 ??�씪).
         auto scan = [&](auto&& occ) -> int32_t {
             int32_t written = 0;
             for (int i = 0; i < shape.i && (size_only || written < buf_cells); ++i)
@@ -1506,7 +1724,7 @@ extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t bu
                         }
                         ++written;
                     }
-            return written;  // size_only=true �??꾩껜 移댁??? false �???�젣 蹂듭�???? ??
+            return written;
         };
         const long long cells = (long long)shape.i * shape.j * shape.k;
 #ifdef ROUTING3D_USE_OPENVDB
@@ -1547,6 +1765,7 @@ extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t bu
 // 대형 격자 시각화용 — blocked cell 을 최대 max_cells 개 균일 샘플링해 buf 에 복사.
 // 수억 셀 격자에서 r3d_copy_blocked 전체 요청 대신 UI 미리보기용 대표 셀만 받는다.
 // 반환=실제 복사 셀 수(<=max_cells). max_cells<=0 또는 buf=NULL 이면 0 반환.
+// Copy a deterministic preview sample of blocked cells without materializing the full set.
 extern "C" int32_t r3d_copy_blocked_sampled(const R3dEngine* e, int32_t max_cells, int32_t* buf) {
     if (!e || max_cells <= 0 || !buf) return 0;
     try {
@@ -1608,7 +1827,6 @@ extern "C" int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_
     try {
         DenseOccupancy occ = occupancy_from_passthrough(e->doc);
         const Cell& shape = e->doc.shape;
-        // ???�利?議고??紐⑤�? buf 誘몄???
         bool size_only = (buf == nullptr || buf_cells <= 0);
         int32_t written = 0;
         for (int i = 0; i < shape.i && (size_only || written < buf_cells); ++i)
@@ -1623,7 +1841,7 @@ extern "C" int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_
                     }
                     ++written;
                 }
-        return written;  // size_only=true �??꾩껜 移댁??? false �???�젣 蹂듭�???? ??
+        return written;
     } catch (...) {
         return 0;
     }
@@ -1696,6 +1914,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
 }
 
 // ============================================================================ 옥트리 리프 열거 (3D 가시화)
+// Enumerate octree leaves. buf == nullptr and maxCount == 0 performs a size query.
 extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
                                              R3dOctreeLeaf* buf, int32_t maxCount,
                                              int32_t* out_count) {
@@ -1709,26 +1928,44 @@ extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
         occ.build(e->doc);
 
         int total = 0;
-        int written = 0;
         const double cell = e->doc.cell_mm;
         const Vec3&  ori  = e->doc.origin;
 
         for (const auto& node : occ.nodes) {
             if (!node.is_leaf()) continue;
-            if (buf && written < maxCount) {
-                buf[written].x0_mm  = (float)(ori.x + node.x0 * cell);
-                buf[written].y0_mm  = (float)(ori.y + node.y0 * cell);
-                buf[written].z0_mm  = (float)(ori.z + node.z0 * cell);
-                buf[written].size_mm = (float)(node.side * cell);
-                buf[written].state  = (int32_t)node.state;
-                ++written;
-            }
             ++total;
         }
         *out_count = total;
+        if (!buf || maxCount == 0 || total == 0) return R3D_OK;
+
+        const int target = std::min<int>(maxCount, total);
+        int written = 0;
+        int leaf_index = 0;
+
+        auto write_leaf = [&](const auto& node) {
+            buf[written].x0_mm  = (float)(ori.x + node.x0 * cell);
+            buf[written].y0_mm  = (float)(ori.y + node.y0 * cell);
+            buf[written].z0_mm  = (float)(ori.z + node.z0 * cell);
+            buf[written].size_mm = (float)(node.side * cell);
+            buf[written].state  = (int32_t)node.state;
+            ++written;
+        };
+
+        for (const auto& node : occ.nodes) {
+            if (!node.is_leaf()) continue;
+
+            if (target == total) {
+                write_leaf(node);
+            } else {
+                const int wanted = (int)(((int64_t)written * total) / target);
+                if (leaf_index == wanted) write_leaf(node);
+            }
+
+            ++leaf_index;
+            if (written >= target) break;
+        }
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
     }
 }
-

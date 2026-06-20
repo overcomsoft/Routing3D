@@ -34,8 +34,9 @@ namespace Routing3D.Viewer.Interop
     public sealed class Engine : IDisposable
     {
         private readonly R3dEngineHandle _h = R3dEngineHandle.Create();
+        private bool _disposed;
 
-        public bool IsValid => !_h.IsInvalid;
+        public bool IsValid => !_disposed && !_h.IsInvalid;
         public static string Version => Native.VersionString();
 
         // ---- 장면 구성(Level 2) ----
@@ -123,6 +124,34 @@ namespace Routing3D.Viewer.Interop
             var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp, hier_probe = hierProbe };
             Check(Native.r3d_set_runtime_options(H, in opt), "set_runtime_options");
         }
+
+        public void SetTrace(string path, int level = 1, int sampleEvery = 1000,
+                             bool includeOccupancy = true, bool includeRejects = false,
+                             bool includePostprocess = true, int maxEventsPerTask = 20000)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("trace path is empty", nameof(path));
+            Check(Native.r3d_set_trace_file(H, Native.Utf8(path)), "set_trace_file");
+            var opt = new Native.R3dTraceOptions
+            {
+                enabled = 1,
+                level = level,
+                sample_every = sampleEvery,
+                include_occupancy = includeOccupancy ? 1 : 0,
+                include_rejects = includeRejects ? 1 : 0,
+                include_postprocess = includePostprocess ? 1 : 0,
+                max_events_per_task = maxEventsPerTask,
+            };
+            Check(Native.r3d_set_trace_options(H, in opt), "set_trace_options");
+        }
+
+        public void DisableTrace()
+        {
+            var opt = new Native.R3dTraceOptions { enabled = 0 };
+            Check(Native.r3d_set_trace_options(H, in opt), "set_trace_options");
+        }
+
+        public void FlushTrace()
+            => Check(Native.r3d_flush_trace(H), "flush_trace");
 
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
@@ -244,7 +273,7 @@ namespace Routing3D.Viewer.Interop
         /// <summary>'점유맵' 가시화 용 — 현재 doc 의 voxelize 된 블록 셀 전체를 한 번에 반환.</summary>
         public PathCell[] CopyBlocked()
         {
-            int total = Native.r3d_copy_blocked(H, null!, 0);  // 사이즈 조회.
+            int total = Native.r3d_copy_blocked(H, null, 0);  // 사이즈 조회.
             if (total <= 0) return Array.Empty<PathCell>();
             var buf = new int[total * 3];
             int n = Native.r3d_copy_blocked(H, buf, total);
@@ -267,7 +296,7 @@ namespace Routing3D.Viewer.Interop
         /// <summary>'통과 점유맵' 가시화 — doc.passthrough 의 voxelize 된 셀 전체 반환.</summary>
         public PathCell[] CopyPassthrough()
         {
-            int total = Native.r3d_copy_passthrough(H, null!, 0);
+            int total = Native.r3d_copy_passthrough(H, null, 0);
             if (total <= 0) return Array.Empty<PathCell>();
             var buf = new int[total * 3];
             int n = Native.r3d_copy_passthrough(H, buf, total);
@@ -304,13 +333,25 @@ namespace Routing3D.Viewer.Interop
             return result;
         }
 
-        private IntPtr H => _h.DangerousGetHandle();
+        private IntPtr H
+        {
+            get
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _h.DangerousGetHandle();
+            }
+        }
 
         private static void Check(int status, string op)
         {
             if (status != 0) throw new InvalidOperationException($"r3d_{op} 실패 (status {status})");
         }
 
-        public void Dispose() => _h.Dispose();
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _h.Dispose();
+        }
     }
 }

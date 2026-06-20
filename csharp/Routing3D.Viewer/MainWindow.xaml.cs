@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using HelixToolkit.Wpf;
 using Routing3D.Viewer.ViewModels;
+using System.IO;
 
 namespace Routing3D.Viewer
 {
@@ -16,6 +17,7 @@ namespace Routing3D.Viewer
         private readonly List<Visual3D> _spaceLabelVisuals = new();   // 공간 영역 텍스트 라벨(BillboardText).
         private Views.ObjectInfoWindow? _objInfoWin;                  // 객체 속성 모드리스 다이얼로그(클릭마다 갱신).
         private Views.RouteReportWindow? _routeReportWin;            // 자동설계 결과 리포트 모드리스 창.
+        private Views.TraceReplayWindow? _traceReplayWin;             // 탐색 trace 리플레이 창.
 
         public MainWindow(string? initialScene = null)
         {
@@ -277,6 +279,26 @@ namespace Routing3D.Viewer
             else
             {
                 _routeReportWin.Activate();
+            }
+        }
+
+        private void OnOpenTraceReplay(object sender, RoutedEventArgs e)
+        {
+            string? path = !string.IsNullOrWhiteSpace(_vm.LastSearchTraceFile) && File.Exists(_vm.LastSearchTraceFile)
+                ? _vm.LastSearchTraceFile
+                : null;
+
+            if (_traceReplayWin == null)
+            {
+                _traceReplayWin = new Views.TraceReplayWindow(path) { Owner = this };
+                _traceReplayWin.Closed += (_, __) => _traceReplayWin = null;
+                _traceReplayWin.Left = Left + 60;
+                _traceReplayWin.Top = Top + 60;
+                _traceReplayWin.Show();
+            }
+            else
+            {
+                _traceReplayWin.Activate();
             }
         }
 

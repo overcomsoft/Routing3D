@@ -498,8 +498,8 @@ namespace Routing3D.Viewer.Diagnostics
             {
                 // 우선순위 — 기본 "diameter"(굵은 배관 먼저, 굵은 배관이 최단 경로 선점 → 가는 배관이 우회·충돌 안 함).
                 //   env R3D_PRIORITY 로 A/B 비교(longest|shortest|utility|original|diameter).
-                string prio = System.Environment.GetEnvironmentVariable("R3D_PRIORITY");
-                if (string.IsNullOrEmpty(prio)) prio = "diameter";
+                string prio = System.Environment.GetEnvironmentVariable("R3D_PRIORITY") ?? "diameter";
+                if (prio.Length == 0) prio = "diameter";
                 if (mode == "multi")
                     eng.RouteMultiProgress(prio, p => { if (p.Phase == 1) { cbCount++; if (!p.Success) { cbFail++; failExp.Add(p.ExpandedNodes); } } });
                 else if (mode == "cm") eng.RouteCorridorMulti(factor, radius, prio, 0);

@@ -84,9 +84,24 @@ namespace Routing3D.Viewer.Interop
             public long cbs_expansions;         // 0=engine/env default; CBS-lite per-route cap.
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct R3dTraceOptions
+        {
+            public int enabled;
+            public int level;
+            public int sample_every;
+            public int include_occupancy;
+            public int include_rejects;
+            public int include_postprocess;
+            public int max_events_per_task;
+        }
+
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_grid(IntPtr e, in R3dGrid g);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_params(IntPtr e, in R3dParams p);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_runtime_options(IntPtr e, in R3dRuntimeOptions opt);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_trace_options(IntPtr e, in R3dTraceOptions opt);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_trace_file(IntPtr e, byte[] pathUtf8);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_flush_trace(IntPtr e);
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_add_obstacle(IntPtr e, double minx, double miny, double minz,
                                                  double maxx, double maxy, double maxz);
@@ -129,9 +144,9 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_get_result(IntPtr e, int task, out R3dResult outRes);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_path(IntPtr e, int task, [Out] int[] buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_visited(IntPtr e, int task, [Out] int[] buf, int bufCells);
-        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked(IntPtr e, [Out] int[]? buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_blocked_sampled(IntPtr e, int maxCells, [Out] int[] buf);
-        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_passthrough(IntPtr e, [Out] int[] buf, int bufCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_copy_passthrough(IntPtr e, [Out] int[]? buf, int bufCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_collect_visited(IntPtr e, int enabled);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_radius(IntPtr e, int radiusCells);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_per_task_radius(IntPtr e, int enabled);

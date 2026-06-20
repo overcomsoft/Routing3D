@@ -1,13 +1,4 @@
-// C ABI ?�모???�스??(routing3d_capi) ??Phase 3
-// =============================================================================
-// [???�일???�는 ??
-//   DLL(routing3d_capi)??경유???�진???�출?�고, ?�들 ABI �?골든03(5배�? ?�차)??
-//   ?�현(5/5 ?�공·�?28050mm)?�는지, 문자??ABI(scene.txt ?�복)가 ?�작?�는지 검증한??
-//   ctest ?�름: capi.
-//
-// [빌드/?�행]  cmake --build cpp/build --config Release --target test_capi
-//             ctest --test-dir cpp/build -C Release -R capi --output-on-failure
-// =============================================================================
+// C ABI smoke tests for routing3d_capi.
 #include "routing3d_capi.h"
 
 #include <cmath>
@@ -28,7 +19,6 @@ static void check(bool cond, const char* msg) {
 int main() {
     std::printf("r3d_version: %s\n", r3d_version());
 
-    // ---------------------------------------------------------------- Level 2: ?�들 ABI
     R3dEngine* e = r3d_create();
     check(e != nullptr, "r3d_create");
     if (!e) return 1;
@@ -36,13 +26,11 @@ int main() {
     R3dGrid grid{50.0, 0.0, 0.0, 0.0, 120, 120, 60};
     check(r3d_set_grid(e, &grid) == R3D_OK, "r3d_set_grid");
 
-    R3dParams params{50.0, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};  // cell,turn,clear,corridor,heur(1=?��?),heur_near(0=?�적),clr_r,clr_conn
+    R3dParams params{50.0, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};
     check(r3d_set_params(e, &params) == R3D_OK, "r3d_set_params");
 
-    // 바닥 ?�래�?
     check(r3d_add_obstacle(e, 0, 0, 0, 6000, 6000, 250) == R3D_OK, "r3d_add_obstacle");
 
-    // 같�? ?�로 5�?배�?(골든03).
     const char* utils[5][2] = {{"UPW_S", "UPW"}, {"NFW", "Waste Liquid"}, {"PA", "Gas"},
                                {"NW", "Water"}, {"ACID", "Exhaust"}};
     for (auto& u : utils) {
@@ -100,16 +88,13 @@ int main() {
     r3d_free_string(routed);
     r3d_destroy(e);
 
-    // ---------------------------------------------------------------- corridor(?�??Sparse)
-    // 2000x2000x8 격자(=Dense weighted A* ??closed 배열 2000*2000*8*7??.2e11 불�?)�?
-    // Sparse + corridor �??�우?? �?공간 직선 ??길이 = 맨해??× cell.
     {
         R3dEngine* be = r3d_create();
         check(be != nullptr, "corridor create");
         const double sc = 50.0;
         R3dGrid bg{sc, 0, 0, 0, 2000, 2000, 8};
         check(r3d_set_grid(be, &bg) == R3D_OK, "corridor set_grid");
-        R3dParams bp{sc, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};  // w_corridor=0=off, w_heur=1=?��?, heur_near=0=?�적
+        R3dParams bp{sc, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};
         check(r3d_set_params(be, &bp) == R3D_OK, "corridor set_params");
 
         const int si = 10, sj = 10, sk = 4, gi = 1990, gj = 1990, gk = 4;
@@ -129,9 +114,6 @@ int main() {
         r3d_destroy(be);
     }
 
-    // ---------------------------------------------------------------- 진행 콜백 + ?�력??취소
-    // route_multi_progress ??콜백 ABI(int 반환=취소)�?검증한?? (1) ?�상(??�� 0 반환)?�면 골든03
-    // 5/5 ?�현 + phase 1 콜백 5?? (2) 콜백??1(취소)??반환?�면 즉시 중단?�어 ?�료 배�? ?��? 5 미만.
     {
         struct Ctx { int phase1 = 0; int phase0 = 0; bool cancel = false; };
         auto cb = [](void* user, int32_t phase, int32_t, int32_t, int32_t, double, int32_t,
@@ -139,12 +121,11 @@ int main() {
             Ctx* c = static_cast<Ctx*>(user);
             if (phase == 0) ++c->phase0;
             if (phase == 1) ++c->phase1;
-            return c->cancel ? 1 : 0;   // cancel=true �?취소(0?�님) 반환.
+            return c->cancel ? 1 : 0;
         };
         R3dGrid pg{50.0, 0.0, 0.0, 0.0, 120, 120, 60};
         R3dParams pp{50.0, 500.0, 10.0, 0.0, 1.0, 0.0, 2, 6};
 
-        // ?�상: 취소 ?�음 ??5배�? ?��? ?�료.
         R3dEngine* pe = r3d_create();
         check(pe != nullptr, "progress create");
         r3d_set_grid(pe, &pg);
@@ -161,7 +142,6 @@ int main() {
         check(pok == 5, "progress no-cancel routes 5/5");
         r3d_destroy(pe);
 
-        // 취소: �?콜백부??취소 반환 ??배치가 5배�???모두 ?�료?�기 ?�에 중단.
         R3dEngine* ce = r3d_create();
         r3d_set_grid(ce, &pg);
         r3d_set_params(ce, &pp);

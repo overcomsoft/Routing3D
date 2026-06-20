@@ -1,5 +1,5 @@
-// ???…ì¶œ??êµ¬í˜„ ??scene_io.hpp ì°¸ê³ . ê·œê²© docs/spec/scene_format_spec.md (v1).
-// Python ?ˆí¼?°ìŠ¤ routing3d_py/scene_io.py ?€ ë°”ì´???¨ìœ„ë¡??™ì¼??ì¶œë ¥??ëª©í‘œë¡??œë‹¤.
+// Scene input/output implementation.
+// Handles Routing3D scene JSON/text compatibility, parsing, and serialization.
 #include "routing3d/scene_io.hpp"
 
 #include <charconv>
@@ -17,26 +17,22 @@ namespace routing3d {
 
 namespace {
 
-// None(????ë¹?ë¬¸ì?´ê³¼ êµ¬ë¶„?˜ëŠ” ? í°(PostgreSQL COPY ê´€ë¡€). C++ ë¬¸ì?´ë¡œ??ë°±ìŠ¬?˜ì‹œ+N.
 const std::string NULL_TOKEN = "\\N";
 
-// ? íƒ ë¬¸ì?????„ë“œ ë¬¸ì?? nullopt ??\N, ê°??ˆìœ¼ë©?ê·¸ë?ë¡?ë¹?ë¬¸ì?´ë„ ê·¸ë?ë¡?.
 std::string opt_out(const std::optional<std::string>& s) {
     return s.has_value() ? *s : NULL_TOKEN;
 }
 
-// ?„ë“œ ë¬¸ì????? íƒ ë¬¸ì?? \N ??nullopt, ê·?????ê·¸ë?ë¡?
 std::optional<std::string> opt_in(const std::string& tok) {
     if (tok == NULL_TOKEN) return std::nullopt;
     return tok;
 }
 
-// ë¡œìº˜ ë¬´ê? double ?Œì‹±(?Œìˆ˜??'.'). repr ì¶œë ¥(ê³ ì •/ì§€??ëª¨ë‘)??ë°›ëŠ”??
 double parse_double(const std::string& s) {
     double v = 0.0;
     auto r = std::from_chars(s.data(), s.data() + s.size(), v);
     if (r.ec != std::errc())
-        throw std::runtime_error("scene.txt: float ?Œì‹± ?¤íŒ¨: '" + s + "'");
+        throw std::runtime_error("scene.txt: float ?ì‹± ?íŒ¨: '" + s + "'");
     return v;
 }
 
@@ -48,7 +44,6 @@ long long parse_ll(const std::string& s) {
 
 int parse_int(const std::string& s) { return static_cast<int>(parse_ll(s)); }
 
-// ?ìŠ¤?¸ë? ì¤??¨ìœ„ë¡?ë¶„ë¦¬(ê°œí–‰ '\n' ê¸°ì?, ê°?ì¤„ì˜ ??'\r' ?œê±°).
 std::vector<std::string> split_lines(const std::string& text) {
     std::vector<std::string> out;
     std::string cur;
@@ -68,7 +63,6 @@ std::vector<std::string> split_lines(const std::string& text) {
     return out;
 }
 
-// TAB ?¨ì¼ ë¶„ë¦¬(ê³µë°± ë¶„ë¦¬ ê¸ˆì? ???´ë¦„??ê³µë°± ?¬í•¨). ë¹??„ë“œ ë³´ì¡´.
 std::vector<std::string> split_tabs(const std::string& line) {
     std::vector<std::string> out;
     std::string cur;
@@ -84,7 +78,6 @@ std::vector<std::string> split_tabs(const std::string& line) {
     return out;
 }
 
-// ê³µë°±ë§??ˆëŠ” ì¤„ì¸ì§€(ë¹?ì¤??¤í‚µ??.
 bool is_blank(const std::string& s) {
     for (char ch : s)
         if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\v' && ch != '\f') return false;
@@ -227,10 +220,6 @@ Cell jcell(const JsonValue& v) { return Cell{jint(v.a.at(0)), jint(v.a.at(1)), j
 }  // namespace
 
 // =============================================================================
-// ?¤ìˆ˜ ?œê¸°: Python repr(float) ?€ ?™ì¼??ìµœë‹¨ ?•ë³µ ?œê¸° (ê³„ì•½ F4)
-//   1) std::to_chars(scientific) ë¡?ìµœë‹¨ ? íš¨?«ì + ì§€?˜ë? ?»ê³ (RyÅ« = dtoa mode0 ?™ì¼),
-//   2) Python ê·œì¹™(decpt<=-4 ?ëŠ” >16 ?´ë©´ ì§€?˜í‘œê¸??¼ë¡œ ?¬í¬ë§·í•œ??
-//   decpt = ?Œìˆ˜???¼ìª½ ?ë¦¿??= (ê³¼í•™?œê¸° ì§€??E) + 1.
 // =============================================================================
 std::string format_repr_double(double x) {
     if (std::isnan(x)) return "nan";
@@ -245,23 +234,22 @@ std::string format_repr_double(double x) {
     if (sci[i] == '-') { neg = true; ++i; }
 
     std::string digits;
-    digits.push_back(sci[i++]);                 // ì²?? íš¨?«ì.
+    digits.push_back(sci[i++]);
     if (i < sci.size() && sci[i] == '.') {
         ++i;
         while (i < sci.size() && sci[i] != 'e') digits.push_back(sci[i++]);
     }
-    ++i;                                          // 'e' ?¤í‚µ.
+    ++i;
     std::string exp_str = sci.substr(i);          // ?? "+03", "-05".
-    if (!exp_str.empty() && exp_str[0] == '+')    // from_chars(int)??'+'ë¥?ê±°ë? ???œê±°.
+    if (!exp_str.empty() && exp_str[0] == '+')
         exp_str.erase(0, 1);
-    const int E = parse_int(exp_str);             // ê³¼í•™?œê¸° ì§€??
+    const int E = parse_int(exp_str);
 
     const int ndigits = static_cast<int>(digits.size());
     const int decpt = E + 1;
 
     std::string body;
     if (decpt <= -4 || decpt > 16) {
-        // ì§€?˜í‘œê¸? d[.ddd]eÂ±XX (ì§€??ìµœì†Œ 2?ë¦¬, ë¶€????ƒ).
         body = digits.substr(0, 1);
         if (ndigits > 1) body += "." + digits.substr(1);
         const int e = E;
@@ -287,7 +275,6 @@ std::string format_repr_double(double x) {
 }
 
 // =============================================================================
-// ?°ê¸° (SceneDoc ??scene.txt ë¬¸ì??. Python dumps_scene ê³??™ì¼ ë°”ì´??
 // =============================================================================
 std::string dumps_scene_legacy(const SceneDoc& doc) {
     std::ostringstream out;
@@ -359,7 +346,6 @@ std::string dumps_scene_legacy(const SceneDoc& doc) {
     }
     out << "\n";
 
-    // ---- [results] (? íƒ; None ?„ë‹Œ ê²°ê³¼ ?˜ë§Œ??
     size_t n_res = 0;
     for (const auto& r : doc.results)
         if (r.has_value()) ++n_res;
@@ -455,20 +441,19 @@ std::string dumps_scene(const SceneDoc& doc) {
     return out.str();
 }
 void write_scene(const std::string& path, const SceneDoc& doc) {
-    std::ofstream f(path, std::ios::binary);  // binary ??\n ê·¸ë?ë¡??ˆë„??CRLF ë³€??ë°©ì?).
+    std::ofstream f(path, std::ios::binary);
     if (!f) throw std::runtime_error("scene json write failed: " + path);
     const std::string text = dumps_scene(doc);
     f.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 
 // =============================================================================
-// ?½ê¸° (scene.txt ë¬¸ì????SceneDoc). ?¨ìˆœ ?íƒœê¸°ê³„ ?Œì„œ(ê·œê²© Â§7).
 // =============================================================================
 SceneDoc loads_scene_legacy(const std::string& text) {
     SceneDoc doc;
     bool has_cell = false;
 
-    std::map<std::string, std::vector<std::string>> params_kv;  // params ?¹ì…˜ ?¤â†’ê°’ë“¤.
+    std::map<std::string, std::vector<std::string>> params_kv;
     std::map<int, std::map<std::string, std::string>> result_kv;
     std::map<int, std::vector<Cell>> path_by_task;
     std::map<int, std::vector<Cell>> visited_by_task;
@@ -480,7 +465,6 @@ SceneDoc loads_scene_legacy(const std::string& text) {
         if (is_blank(line) || line[0] == '#') continue;
 
         if (line[0] == '@') {
-            // ?¤ë” ê²€ì¦? @version ë§??•ì¸(ë¶ˆì¼ì¹???ê±°ë?).
             if (line.rfind("@version", 0) == 0) {
                 std::istringstream is(line);
                 std::string tag;
@@ -505,8 +489,8 @@ SceneDoc loads_scene_legacy(const std::string& text) {
             }
             if (section == "result" || section == "path" || section == "visited") {
                 cur_task = parse_int(attrs["task"]);
-                if (section == "result") result_kv[cur_task];           // ì¡´ì¬ ?œì‹œ(ë¹?ë§?.
-                else if (section == "path") path_by_task[cur_task];     // ì¡´ì¬ ?œì‹œ(ë¹?ëª©ë¡).
+                if (section == "result") result_kv[cur_task];
+                else if (section == "path") path_by_task[cur_task];
                 else visited_by_task[cur_task];
             }
             continue;
@@ -579,7 +563,6 @@ SceneDoc loads_scene_legacy(const std::string& text) {
         }
     }
 
-    // results ë³µì› (tasks ?€ ?‰í–‰).
     doc.results.assign(doc.tasks.size(), std::nullopt);
     for (const auto& [idx, kv] : result_kv) {
         if (idx < 0 || idx >= static_cast<int>(doc.results.size())) continue;
@@ -599,7 +582,7 @@ SceneDoc loads_scene_legacy(const std::string& text) {
         doc.results[static_cast<size_t>(idx)] = std::move(r);
     }
 
-    if (!has_cell) throw std::runtime_error("scene.txt ??[grid] cell_mm ???†ìŠµ?ˆë‹¤.");
+    if (!has_cell) throw std::runtime_error("scene.txt ??[grid] cell_mm ???ìŠµ?ë‹¤.");
     return doc;
 }
 
@@ -678,7 +661,6 @@ SceneDoc read_scene(const std::string& path) {
 }
 
 // =============================================================================
-// ?ìœ ë§?ë³µì›: grid ë©”í? + obstacles ??Dense ?ìœ ë§?(?´í™” ë°•ìŠ¤ ?¤í‚µ).
 // =============================================================================
 DenseOccupancy occupancy_from_doc(const SceneDoc& doc) {
     DenseOccupancy occ(doc.shape, doc.origin, doc.cell_mm);
@@ -686,20 +668,19 @@ DenseOccupancy occupancy_from_doc(const SceneDoc& doc) {
         try {
             occ.add_box(AABB(o.min_xyz, o.max_xyz));
         } catch (const std::invalid_argument&) {
-            continue;  // ?ê»˜ 0(?´í™”) ë°•ìŠ¤??ê±´ë„ˆ?´ë‹¤.
+            continue;
         }
     }
     return occ;
 }
 
-// ?µê³¼ ê°ì²´(doc.passthrough)ë§Œìœ¼ë¡?Dense ?ìœ ë§??ì„± ??ê°€?œí™” ?„ìš©.
 DenseOccupancy occupancy_from_passthrough(const SceneDoc& doc) {
     DenseOccupancy occ(doc.shape, doc.origin, doc.cell_mm);
     for (const Obstacle& o : doc.passthrough) {
         try {
             occ.add_box(AABB(o.min_xyz, o.max_xyz));
         } catch (const std::invalid_argument&) {
-            continue;  // ?ê»˜ 0(?´í™”) ë°•ìŠ¤??ê±´ë„ˆ?´ë‹¤.
+            continue;
         }
     }
     return occ;

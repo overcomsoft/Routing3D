@@ -257,6 +257,8 @@ namespace Routing3D.Viewer.ViewModels
         private bool _showOccupancyVoxels = false;  // 점유맵(복셀화된 장애물 셀).
         private bool _occupancyFullRes = false;     // 점유맵 해상도: true=원본(전체 셀), false=다운샘플(상한).
         private bool _showVisitedMap = false;       // 방문맵(A* 확장 셀, 유틸리티 색).
+        private bool _enableSearchTrace = false;    // C++ 엔진 탐색 trace JSONL 로그 생성.
+        private string _lastSearchTraceFile = string.Empty;
         private bool _showOctreeVoxels = false;     // 옥트리 가변셀 분해도(FREE=녹색·BLOCKED=적색).
         private bool _showPassthroughVoxels = false; // 통과 점유맵(바닥/천장/격자보) 별도 토글.
         // 성능 측정 — 3D 뷰 오버레이용
@@ -289,7 +291,6 @@ namespace Routing3D.Viewer.ViewModels
         // 같은 유틸 새 배관을 그 트렁크 고도(rack_levels)에 뭉치게 한다. 미적재/키 미스면 자동 폴백(무해).
         // 기본 ON(항상 적용) — 학습 패턴이 없으면 폴백이라 무해하고, 있으면 사람 설계처럼 공용 랙에 다발링.
         private BundleStore? _bundles;
-        private bool _bundlesTried;
         private bool _useBundlePattern = true;
         // 스텁 라우팅 — 매칭 기존배관의 출발/종단 스텁(수직+엘보)을 '고정 설계 구간'으로 깔고, A* 는 스텁 끝~끝
         // (랙 위 자유공간)만 탐색한다. 표시 경로 = [출발 스텁] + [A* 중간] + [종단 스텁]. 매칭 배관 없으면 PoC
@@ -343,6 +344,7 @@ namespace Routing3D.Viewer.ViewModels
 
         public SceneViewModel(string? initialScene = null)
         {
+            _forcedRackZ = ParseForcedRackZFromEnv();
             OpenCommand = new RelayCommand(Open);
             DemoCommand = new RelayCommand(LoadDemo);
             RunRouteCommand = new RelayCommand(() => _ = RunRouteAsync(), () => _scene != null);
@@ -390,9 +392,9 @@ namespace Routing3D.Viewer.ViewModels
                 () => _scene != null && Tasks.Any(t => t.Success));
             // 라우팅 진행 중에만 동작하는 협력적 취소(✖). 콜백이 _cancelRequested 를 보면 엔진이 멈춘다.
             CancelRoutingCommand = new RelayCommand(RequestCancelRouting, () => _isRouting && !_cancelRequested);
-            // '결과 리포트' — 직전 배치 리포트를 분석결과에 다시 띄우고 .md 로 저장(다른 이름으로).
+            // '결과 리포트' — 직전 배치 리포트를 분석결과에 다시 띄우고 리포트 창을 연다.
             RouteResultReportCommand = new RelayCommand(
-                () => { AnalysisReport = string.IsNullOrEmpty(RouteResultReport) ? AnalysisReport : RouteResultReport; SaveRouteReportAs(); },
+                () => { AnalysisReport = string.IsNullOrEmpty(RouteResultReport) ? AnalysisReport : RouteResultReport; ShowRouteReportRequested?.Invoke(); },
                 () => !_isRouting && !string.IsNullOrEmpty(RouteResultReport));
             // GLB 내보내기 — 성공한 자동경로 배관 메시를 glTF 2.0 Binary(.glb)로 저장.
             ExportGlbCommand = new RelayCommand(ExportGlb,
@@ -429,6 +431,19 @@ namespace Routing3D.Viewer.ViewModels
             catch (Exception ex) { Status = "엔진 초기화 오류: " + ex.Message; }
         }
 
+        private static int[]? ParseForcedRackZFromEnv()
+        {
+            var raw = Environment.GetEnvironmentVariable("R3D_FORCED_RACK_Z");
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+
+            var values = raw.Split(new[] { ',', ';', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(token => int.TryParse(token, out var z) ? (int?)z : null)
+                .Where(z => z.HasValue)
+                .Select(z => z!.Value)
+                .Distinct()
+                .ToArray();
+            return values.Length == 0 ? null : values;
+        }
         /// <summary>생성자에서 DB 자동 로드를 보류했는지(=scene 인자 없이 실행). 창이 뜬 뒤 코드비하인드가 확인.</summary>
         public bool NeedsStartupLoad { get; private set; }
 
@@ -716,6 +731,13 @@ namespace Routing3D.Viewer.ViewModels
         public bool ShowGridFrame { get => _showGridFrame; set { if (Set(ref _showGridFrame, value)) RebuildIfReady(); } }
         public bool ShowOccupancyVoxels { get => _showOccupancyVoxels; set { if (Set(ref _showOccupancyVoxels, value)) RebuildIfReady(); } }
         public bool ShowVisitedMap { get => _showVisitedMap; set { if (Set(ref _showVisitedMap, value)) RebuildIfReady(); } }
+        public bool EnableSearchTrace
+        {
+            get => _enableSearchTrace;
+            set { if (Set(ref _enableSearchTrace, value)) OnChanged(nameof(SearchTraceStatus)); }
+        }
+        public string LastSearchTraceFile { get => _lastSearchTraceFile; private set { if (Set(ref _lastSearchTraceFile, value)) OnChanged(nameof(SearchTraceStatus)); } }
+        public string SearchTraceStatus => string.IsNullOrEmpty(_lastSearchTraceFile) ? "탐색로그" : $"탐색로그: {Path.GetFileName(_lastSearchTraceFile)}";
         public bool ShowOctreeVoxels { get => _showOctreeVoxels; set { if (Set(ref _showOctreeVoxels, value)) RebuildIfReady(); } }
         public bool ShowPassthroughVoxels { get => _showPassthroughVoxels; set { if (Set(ref _showPassthroughVoxels, value)) RebuildIfReady(); } }
         public int  RenderObjectCount { get => _renderObjectCount; private set => Set(ref _renderObjectCount, value); }
@@ -1001,8 +1023,13 @@ namespace Routing3D.Viewer.ViewModels
         public PathStep? SelectedStep
         {
             get => _selectedStep;
-            // 단계를 고르면 카메라는 그대로 두고(현재 화면 유지) 해당 구간만 강조 표시한다.
-            set { if (Set(ref _selectedStep, value) && !_suppressStepNav) HighlightStep(value); }
+            // 단계를 고르면 해당 구간을 강조하고 카메라를 구간 시작 위치로 이동한다.
+            set
+            {
+                if (!Set(ref _selectedStep, value) || _suppressStepNav) return;
+                HighlightStep(value);
+                if (value != null) NavigateToRequested?.Invoke(value.Position);
+            }
         }
 
         /// <summary>단계 클릭 시 해당 월드좌표로 카메라 이동 요청(코드비하인드가 처리).</summary>
@@ -1272,7 +1299,6 @@ namespace Routing3D.Viewer.ViewModels
                 }
                 // 그룹배관 번들 템플릿(route_bundle_template)을 프로젝트별로 로드 — 신규설계 활용(L4).
                 // 프로젝트마다 source_file 이 다르므로 매 로드 시 갱신(트렁크 고도는 그 프로젝트 좌표계).
-                _bundlesTried = true;
                 _bundles = await Task.Run(() => BundleStore.TryLoad(_dbConfig));
                 OnChanged(nameof(BundleStatus));
                 // 기존설계 학습 특징 프로필 (route_feature_group_profile) 일괄 로드
@@ -1581,11 +1607,11 @@ namespace Routing3D.Viewer.ViewModels
             // 짧은 단관을 충돌검사 하에 흡수(꺾임 비증가·양 끝점 고정). '비교란' 직선화 — 중간 직선화는
             // 다운스트림 점유 교란으로 꺾임이 오히려 늘었기 때문에 최종 일괄 패스로만 적용.
             _engine.SetMinStraight(2.0);
-            // 코너 최소직선(하드 제약, 절대 100mm) — A* 가 '한 번 꺾인 뒤 100mm 직진 전엔 다시 꺾지 못하도록'
-            // 탐색 단계에서 강제한다(엘보 간 단관 < 100mm 계단 꺾임 방지, 관경 무관·전 배관, 목표 직전 접속
+            // 코너 최소직선(하드 제약, 절대 300mm) — A* 가 '한 번 꺾인 뒤 300mm 직진 전엔 다시 꺾지 못하도록'
+            // 탐색 단계에서 강제한다(엘보 간 짧은 단관/계단 꺾임 방지, 관경 무관·전 배관, 목표 직전 접속
             // 구간만 면제). SetMinStraight(관경 배수·후처리 흡수)와 달리 탐색 하드 보장이라 계단현상이 근본
             // 차단된다. 0=OFF(골든 불변). env R3D_MIN_STRAIGHT_MM 으로 재정의(0=끔).
-            _engine.SetMinStraightMm(100.0);
+            _engine.SetMinStraightMm(MinStraightMmForRouting());
             // C1 CBS(negotiated-congestion) — 평면 rip-up 후 잔여 실패 배관에 대해 blocker-of-blocker 까지
             // 재귀 양보(depth 2 = 최대 2단계 연쇄). 소·대형 격자 모두 적용. 기본 OFF(체크박스로 옵트인).
             _engine.SetCbsDepth(_useCbs ? 2 : 0);
@@ -1598,7 +1624,7 @@ namespace Routing3D.Viewer.ViewModels
             // ⚠ 최단경로의 본질적 한계: cell=100 실측 결과 스텁 모드(67,800mm·144ms) 대비 4.7×길이·198×시간
             //   (318,000mm·28.5s). 짧고 빠른 결과는 '특징점 반영'/'기존설계 추종' 모드가 정답(§ RunRouteAsync 경고).
             if (_routingMode == RoutingMode.Shortest && (long)g.Nx * g.Ny * g.Nz > 5_000_000)
-                _engine.SetMaxExpansions(8_000_000);
+                _engine.SetMaxExpansions(ShortestMaxExpansions());
             foreach (var o in scene.Obstacles)
                 if (o.IsPassThrough)   // 통과 객체: 점유맵엔 넣되 A* 충돌엔 제외.
                     _engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
@@ -2283,9 +2309,9 @@ namespace Routing3D.Viewer.ViewModels
         //   · 이미 우리 알고리즘으로 설계된(라우팅 성공) 다른 배관의 경로(currentRows 의 자기 자신은 제외)
         // 시작/끝 PoC 가 이들 표면(특히 메인 장비)에 닿아 막히면 엔진의 snap_to_free_cell(반경 2) 이
         // 인접 빈 셀로 옮겨 시작점을 확보한다.
-        private void AddFacilityObstacles(Engine engine, HashSet<int> currentRows)
+        private void AddFacilityObstacles(Engine engine, HashSet<int> currentRows, bool forceFacilities = false)
         {
-            if (!_includeFacilities || _scene == null) return;
+            if ((!_includeFacilities && !forceFacilities) || _scene == null) return;
             var s = _scene;
             double cell = s.Grid.CellMm;
             double minT = cell;   // 두께 0 축을 최소 셀 1개로 팽창(가는 덕트/판도 셀을 막도록).
@@ -2317,6 +2343,29 @@ namespace Routing3D.Viewer.ViewModels
         }
 
         // 월드 mm 폴리라인을 직선 구간별 AABB(반경 r 팽창)로 장애물에 추가. 셀 복셀화 없이 세그먼트당 박스 1개(메모리 효율).
+        private Engine BuildOctreePreviewEngine(GridMeta g)
+        {
+            var engine = new Engine();
+            engine.SetGrid(g.CellMm, g.Ox, g.Oy, g.Oz, g.Nx, g.Ny, g.Nz);
+            engine.SetParams(g.CellMm, 500, 10, 2, 6);
+
+            var s = _scene;
+            if (s == null) return engine;
+
+            foreach (var o in s.Obstacles)
+            {
+                if (o.IsPassThrough)
+                    engine.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+                else
+                    engine.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            }
+
+            // Octree preview is diagnostic: include all static facility geometry shown in the viewer,
+            // but skip already routed pipe paths so the display represents the DB collision space.
+            AddFacilityObstacles(engine, new HashSet<int>(Enumerable.Range(0, Tasks.Count)), forceFacilities: true);
+            return engine;
+        }
+
         private static void AddPolylineObstacle(Engine engine, System.Collections.Generic.IReadOnlyList<Pt3> poly, double r)
         {
             for (int i = 1; i < poly.Count; i++)
@@ -2370,6 +2419,11 @@ namespace Routing3D.Viewer.ViewModels
                 r.LengthMm = 0;
                 r.Path = System.Array.Empty<PathCell>();
                 r.Visited = System.Array.Empty<PathCell>();
+                r.ExpandedNodes = 0;
+                r.ElapsedMs = 0;
+                r.LastFail = Interop.RouteFail.None;
+                r.RouteOrder = -1;
+                r.NotifyResultChanged();
             }
         }
 
@@ -2401,8 +2455,15 @@ namespace Routing3D.Viewer.ViewModels
                     var r = _engine!.GetResult(e);
                     row.Success = r.Success; row.LengthMm = r.LengthMm;
                     row.Path = r.Path; row.Visited = r.Visited;
+                    row.ExpandedNodes = r.ExpandedNodes;
+                    row.LastFail = r.Success ? Interop.RouteFail.None : r.Fail;
+                    row.NotifyResultChanged();
                 }
-                catch { row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); }
+                catch
+                {
+                    row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>();
+                    row.ExpandedNodes = 0; row.LastFail = Interop.RouteFail.None; row.NotifyResultChanged();
+                }
             }
         }
 
@@ -2585,8 +2646,15 @@ namespace Routing3D.Viewer.ViewModels
                     var r = _engine!.GetResult(i);
                     row.Success = r.Success; row.LengthMm = r.LengthMm;
                     row.Path = r.Path; row.Visited = r.Visited;
+                    row.ExpandedNodes = r.ExpandedNodes;
+                    row.LastFail = r.Success ? Interop.RouteFail.None : r.Fail;
+                    row.NotifyResultChanged();
                 }
-                catch { row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>(); }
+                catch
+                {
+                    row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>();
+                    row.ExpandedNodes = 0; row.LastFail = Interop.RouteFail.None; row.NotifyResultChanged();
+                }
             }
         }
 
@@ -2620,6 +2688,7 @@ namespace Routing3D.Viewer.ViewModels
 
                 bool cor = corridor;   // 그룹배관 라우팅 모드(스텁+공용 트렁크 회랑+강한 w_corridor).
                 var added = BuildEngineForRows(rowPositions, groupMode: cor);
+                ConfigureSearchTraceIfEnabled(label, added.Count);
                 var batchSw = System.Diagnostics.Stopwatch.StartNew();   // 전체 배치 라우팅 시간 측정 시작.
                 Status = $"경로 탐색 중… {label} (작업 {added.Count})";
                 var engine = _engine!;
@@ -2687,6 +2756,7 @@ namespace Routing3D.Viewer.ViewModels
                             int phase = p.Phase; bool ok = p.Success;
                             int done = p.Done, total = p.Total, oi = p.OrderIndex;
                             double prog01 = p.Progress01;
+                            long expandedNodes = p.ExpandedNodes;
                             double pipeElapsedMs = p.ElapsedMs;   // 이 배관 한 개에 걸린 시간(엔진 내부 계측).
                             double totalElapsedMs = sw.Elapsed.TotalMilliseconds;
                             // 모든 UI/컬렉션 갱신은 UI 스레드로(콜백은 백그라운드 라우팅 스레드).
@@ -2701,12 +2771,17 @@ namespace Routing3D.Viewer.ViewModels
                                         row.SearchProgress = prog01;
                                         string totalStr = totalElapsedMs < 1000
                                             ? $"{totalElapsedMs:0}ms" : $"{totalElapsedMs / 1000.0:0.0}s";
-                                        RouteProgressText = $"탐색 중 {done}/{total} · 현재 #{row.Index} {prog01 * 100:0}% · 성공 {liveOk} 실패 {liveFail} · 경과 {totalStr}";
+                                        RouteProgressText = $"탐색 중 {done}/{total} · 현재 #{row.Index} {prog01 * 100:0}% · 확장 {expandedNodes:N0} · 성공 {liveOk} 실패 {liveFail} · 경과 {totalStr}";
                                     }
                                     else   // phase 1 = 배관 완료.
                                     {
                                         row.RunState = RouteRunState.Idle;
                                         row.RouteOrder = oi;
+                                        row.Success = ok;
+                                        row.LengthMm = p.LengthMm;
+                                        row.Path = p.Path;
+                                        row.ExpandedNodes = expandedNodes;
+                                        row.LastFail = InferProgressFail(ok, expandedNodes);
                                         row.ElapsedMs = pipeElapsedMs;   // 배관 개별 소요 시간 저장.
                                         row.NotifyResultChanged();
                                         if (ok) liveOk++; else liveFail++;
@@ -2763,6 +2838,92 @@ namespace Routing3D.Viewer.ViewModels
                 RefreshRouteProgress();   // 진행바를 최종 결과(완료/성공/실패)로 확정.
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
+        }
+
+        // 진행 콜백에는 정확한 fail_reason 이 없으므로 즉시 표시용으로만 보수 추정한다.
+        // 배치 종료 후 CacheResults 가 엔진의 LastFail 로 다시 덮어써 저장/리포트와 일치시킨다.
+        private static Interop.RouteFail InferProgressFail(bool success, long expandedNodes)
+        {
+            if (success) return Interop.RouteFail.None;
+            if (expandedNodes >= ShortestMaxExpansions() * 0.98) return Interop.RouteFail.ExpansionLimit;
+            return expandedNodes <= 0 ? Interop.RouteFail.StartBlocked : Interop.RouteFail.NoPath;
+        }
+
+        private static long ShortestMaxExpansions()
+        {
+            var raw = System.Environment.GetEnvironmentVariable("R3D_SHORTEST_MAX_EXP");
+            return long.TryParse(raw, out var value) && value > 0 ? value : 8_000_000L;
+        }
+
+        private static double MinStraightMmForRouting()
+        {
+            var raw = System.Environment.GetEnvironmentVariable("R3D_MIN_STRAIGHT_MM");
+            return double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                       System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= 0.0
+                ? value
+                : 300.0;
+        }
+
+        private void ConfigureSearchTraceIfEnabled(string label, int taskCount)
+        {
+            if (_engine == null) return;
+            if (!EnableSearchTrace)
+            {
+                _engine.DisableTrace();
+                return;
+            }
+
+            string dir = Path.Combine(AppContext.BaseDirectory, "logs");
+            Directory.CreateDirectory(dir);
+            string project = SelectedProject?.GroupName ?? SelectedProject?.Display ?? "scene";
+            string safeProject = SafeFilePart(project);
+            string safeLabel = SafeFilePart(label);
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string path = Path.Combine(dir, $"routing_trace_{stamp}_{safeProject}_{safeLabel}_{taskCount}tasks.r3dtrace.jsonl");
+            int sampleEvery = TraceSampleEvery();
+            int maxEvents = TraceMaxEventsPerTask();
+            _engine.SetTrace(path, level: 1, sampleEvery: sampleEvery,
+                             includeOccupancy: true, includeRejects: true,
+                             includePostprocess: true, maxEventsPerTask: maxEvents);
+            LastSearchTraceFile = path;
+            Status = $"탐색 로그 기록: {path}";
+        }
+
+        private static int TraceSampleEvery()
+        {
+            var raw = Environment.GetEnvironmentVariable("R3D_TRACE_SAMPLE_EVERY");
+            return int.TryParse(raw, out var value) && value > 0 ? value : 1000;
+        }
+
+        private static int TraceMaxEventsPerTask()
+        {
+            var raw = Environment.GetEnvironmentVariable("R3D_TRACE_MAX_EVENTS");
+            return int.TryParse(raw, out var value) && value > 0 ? value : 20000;
+        }
+
+        private static string SafeFilePart(string? text)
+        {
+            var s = string.IsNullOrWhiteSpace(text) ? "route" : text.Trim();
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(s.Length);
+            bool lastUnderscore = false;
+            foreach (char ch in s)
+            {
+                bool keep = char.IsLetterOrDigit(ch) || ch == '-' || ch == '_';
+                if (keep && !invalid.Contains(ch))
+                {
+                    sb.Append(ch);
+                    lastUnderscore = false;
+                }
+                else if (!lastUnderscore)
+                {
+                    sb.Append('_');
+                    lastUnderscore = true;
+                }
+            }
+            s = sb.ToString().Trim('_');
+            if (string.IsNullOrWhiteSpace(s)) s = "route";
+            return s.Length > 40 ? s[..40] : s;
         }
 
         // ---- 단계별 탐색(선택 배관 A* 진행 애니메이션) ----
@@ -3221,14 +3382,19 @@ namespace Routing3D.Viewer.ViewModels
                         int gid = _bundles!.GroupIdOf(pipe.RoutePathGuid);
                         if (gid >= 0)
                         {
-                            if (!perGroup.TryGetValue(gid, out mb)) { mb = new MeshBuilder(false, false); perGroup[gid] = mb; }
+                            if (!perGroup.TryGetValue(gid, out var groupMesh)) { groupMesh = new MeshBuilder(false, false); perGroup[gid] = groupMesh; }
+                            mb = groupMesh;
                         }
                         else { mb = nonMemberMb; nonMemberCnt++; }
                     }
-                    else if (!perUtilEx.TryGetValue(label, out mb!))
+                    else
                     {
-                        mb = new MeshBuilder(false, false);
-                        perUtilEx[label] = mb;
+                        if (!perUtilEx.TryGetValue(label, out var utilMesh))
+                        {
+                            utilMesh = new MeshBuilder(false, false);
+                            perUtilEx[label] = utilMesh;
+                        }
+                        mb = utilMesh;
                     }
                     mb.AddTube(pts, dia, 10, false);
                     drawn++;
@@ -4197,7 +4363,8 @@ namespace Routing3D.Viewer.ViewModels
         // 반환값: 실제 렌더한 총 리프 수.
         private int AddOctreeVoxels(Model3DGroup group, GridMeta g)
         {
-            var leaves = _engine!.EnumOctreeLeaves(500_000);
+            using var octreeEngine = BuildOctreePreviewEngine(g);
+            var leaves = octreeEngine.EnumOctreeLeaves(500_000);
             if (leaves.Length == 0) return 0;
 
             // 루트 한 변(셀) = 2^ceil(log2(max(Nx,Ny,Nz))),  루트 크기(mm) = 루트한변 × cell_mm
@@ -4704,6 +4871,8 @@ namespace Routing3D.Viewer.ViewModels
                     LengthMm      = row.LengthMm,
                     TurnCount     = row.TurnCount,
                     ElapsedMs     = (int)row.ElapsedMs,
+                    StartStubPointCount = row.StartStub?.Count ?? 0,
+                    EndStubPointCount   = row.EndStub?.Count ?? 0,
                     Polyline      = poly,
                 });
             }

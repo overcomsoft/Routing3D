@@ -36,6 +36,10 @@
             <Setter Property="Foreground"  Value="White"/>
             <Setter Property="BorderBrush" Value="#5a6a8a"/>
         </Style>
+        <Style TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#111827"/>
+            <Setter Property="Background" Value="White"/>
+        </Style>
         <!-- 다크 ListBox + 항목 호버/선택색 -->
         <Style TargetType="ListBox">
             <Setter Property="Background"      Value="#2b3548"/>
@@ -67,37 +71,50 @@
                           SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
                           DisplayMemberPath="Display"
                           ToolTip="space_project_map 의 프로젝트.&#x0a;선택 시 장애물만 로드해 전체화면 표시(라우팅은 '🌐 corridor (대형)' 또는 우측 '선택 배관 재라우팅'으로)."/>
-                <Button  Content="↻ 다시 로드" Command="{Binding LoadProjectsCommand}"
+                <Button  Content="↻ 로드" Command="{Binding LoadProjectsCommand}"
                          ToolTip="DB 접속 정보 변경 후 프로젝트 목록을 다시 가져온다"/>
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
-                <Button Content="🌐 기존설계 유사 (그룹배관)"  Command="{Binding RerouteCorridorCommand}"
+                <Button Content="🌐 기존설계"  Command="{Binding RerouteCorridorCommand}"
                         ToolTip="전체 배관을 기존설계처럼 '그룹'으로 라우팅: 끝단=기존 스텁(수직+엘보) · 자유공간=그룹배관 패턴(공용 트렁크 회랑)+매칭 기존배관 추종 · 유틸리티 순서로 self-bundling → 같은 유틸 배관이 공용 랙에 평행 다발. 셀이 50mm 보다 크면 자동으로 50mm 재적재(레인 분리 필요)."
-                        Background="#3a4e7a" MinWidth="110"/>
-                <Button Content="🪜 다단 랙 (z-분리)"  Command="{Binding RouteTieredCommand}"
+                        Background="#3a4e7a" MinWidth="90"/>
+                <Button Content="🪜 다단 랙"  Command="{Binding RouteTieredCommand}"
                         ToolTip="현재 범위(모두/그룹/유틸)를 유틸리티 그룹마다 '다른 높이(랙 단)'에 배치해 순차 라우팅한다. 사람 설계처럼 그룹을 수직으로 분리(z-레벨)해 한 평면 혼잡·계단·우회를 줄인다. 단 사이 간격은 관경 반경+2셀. 앞 단을 다음 단의 장애물로 누적해 충돌 0. 그룹 자연고도(기존설계 지배 랙)순으로 단을 쌓는다."
-                        Background="#4a6a3a" MinWidth="110"/>
+                        Background="#4a6a3a" MinWidth="80"/>
                 <Button Content="↺ 전체보기"          Command="{Binding FitViewCommand}"
                         ToolTip="3D 뷰를 모든 객체가 들어오도록 자동 줌(ZoomExtents)"/>
-                <Button Content="📋 이미지 복사" Click="OnCopyMainImage" Margin="4,0,0,0"
-                        ToolTip="현재 메인 3D 뷰를 클립보드에 이미지로 복사(2배 해상도) → 채팅·문서에 바로 붙여넣기(Ctrl+V)"/>
-                <Button Content="🖼 저장" Click="OnSaveMainImage" Margin="2,0,0,0"
-                        ToolTip="현재 메인 3D 뷰를 PNG/JPG 이미지 파일로 저장(2배 해상도)"/>
-                <Button Content="📊 자동설계 리포트" Command="{Binding AutoDesignReportCommand}" Margin="4,0,0,0"
-                        Background="#3a4e7a" MinWidth="110"
-                        ToolTip="선택 프로젝트/셀로 (장비,유틸그룹) 케이스별 기존/최단/Stub+그룹 자동설계를 수행하고 길이·꺾임·그룹핑 Factor + 3D 스냅샷을 CSV/TXT/HTML 로 출력(출력 폴더 선택). 케이스가 많으면 수 분 소요·생성 중 화면이 잠깐 멈출 수 있음."/>
-                <Button Content="📄 결과 리포트" Command="{Binding RouteResultReportCommand}" Margin="4,0,0,0"
-                        Background="#3a4e7a" MinWidth="90"
-                        ToolTip="직전 자동설계 결과를 별도 창으로 띄우고 .md 문서로 저장: 어떤 순서로 라우팅했는지(굵은 배관 먼저)·꺾임 지점을 어떻게 선정했는지(라이저/장애물 회피/랙/정렬)·최종 연결 성공/실패와 실패 원인. 먼저 자동설계를 실행해야 활성화됩니다."/>
-                <Button Content="📦 GLB 저장" Command="{Binding ExportGlbCommand}" Margin="4,0,0,0"
-                        Background="#3a4e7a" MinWidth="80"
-                        ToolTip="성공한 자동경로 배관을 glTF 2.0 Binary(.glb)로 내보냅니다. 유틸리티별 색상 재질 포함. Blender·Unity·온라인 뷰어(gltf.report)에서 바로 열 수 있습니다. 먼저 자동설계를 실행해야 활성화됩니다."/>
-                <Separator Width="1" Background="#404a64" Margin="4,2"/>
-                <Button Content="💾 결과 저장" Command="{Binding SaveRouteResultsCommand}" Margin="4,0,0,0"
-                        Background="#3a5a3a" MinWidth="85"
-                        ToolTip="현재 자동설계 결과(성공/실패 경로·폴리라인)를 PostgreSQL DB(TB_AUTOROUTING_SESSION / TB_AUTOROUTING_PATH)에 저장합니다. 먼저 자동설계를 실행해야 활성화됩니다."/>
-                <Button Content="📂 결과 불러오기" Command="{Binding LoadRouteResultsCommand}" Margin="2,0,0,0"
-                        Background="#3a4a5a" MinWidth="100"
-                        ToolTip="DB에 저장된 자동설계 결과를 불러와 3D 뷰어에 표시합니다. 세션 선택 창에서 원하는 날짜/장비 결과를 고르세요."/>
+
+                <Menu Background="#252b3d" Foreground="White" VerticalAlignment="Center" Margin="4,0,0,0">
+                    <MenuItem Header="내보내기" Foreground="White" Background="#252b3d">
+                        <MenuItem Header="이미지 복사" Click="OnCopyMainImage"
+                                  ToolTip="현재 메인 3D 뷰를 클립보드에 이미지로 복사"/>
+                        <MenuItem Header="이미지 저장" Click="OnSaveMainImage"
+                                  ToolTip="현재 메인 3D 뷰를 PNG/JPG 이미지 파일로 저장"/>
+                        <MenuItem Header="GLB 저장" Command="{Binding ExportGlbCommand}"
+                                  ToolTip="성공한 자동경로 배관을 glTF 2.0 Binary(.glb)로 내보냅니다."/>
+                    </MenuItem>
+                    <MenuItem Header="리포트" Foreground="White" Background="#252b3d">
+                        <MenuItem Header="자동설계 리포트" Command="{Binding AutoDesignReportCommand}"
+                                  ToolTip="케이스별 자동설계를 수행하고 CSV/TXT/HTML 리포트를 출력합니다."/>
+                        <MenuItem Header="결과 리포트" Command="{Binding RouteResultReportCommand}"
+                                  ToolTip="직전 자동설계 결과를 별도 창과 .md 문서로 출력합니다."/>
+                    </MenuItem>
+                    <MenuItem Header="결과" Foreground="White" Background="#252b3d">
+                        <MenuItem Header="DB 결과 저장" Command="{Binding SaveRouteResultsCommand}"
+                                  ToolTip="현재 자동설계 결과를 PostgreSQL DB에 저장합니다."/>
+                        <MenuItem Header="DB 결과 불러오기" Command="{Binding LoadRouteResultsCommand}"
+                                  ToolTip="DB에 저장된 자동설계 결과를 불러와 3D 뷰어에 표시합니다."/>
+                    </MenuItem>
+                    <MenuItem Header="진단" Foreground="White" Background="#252b3d">
+                        <MenuItem Header="격자맵" IsCheckable="True" IsChecked="{Binding ShowGridFrame}"/>
+                        <MenuItem Header="점유맵" IsCheckable="True" IsChecked="{Binding ShowOccupancyVoxels}"/>
+                        <MenuItem Header="{Binding OccupancyResolutionLabel}" Command="{Binding ToggleOccupancyResCommand}"/>
+                        <MenuItem Header="통과맵" IsCheckable="True" IsChecked="{Binding ShowPassthroughVoxels}"/>
+                        <MenuItem Header="방문맵" IsCheckable="True" IsChecked="{Binding ShowVisitedMap}"/>
+                        <MenuItem Header="{Binding SearchTraceStatus}" IsCheckable="True" IsChecked="{Binding EnableSearchTrace}"/>
+                        <MenuItem Header="탐색 로그 보기" Click="OnOpenTraceReplay"/>
+                        <MenuItem Header="옥트리" IsCheckable="True" IsChecked="{Binding ShowOctreeVoxels}"/>
+                    </MenuItem>
+                </Menu>
 
                 <!-- 라우팅 품질 옵션 -->
                 <Separator Width="1" Background="#404a64" Margin="6,2"/>
@@ -106,30 +123,6 @@
                 <CheckBox Content="🤝 협상 라우팅(CBS)" IsChecked="{Binding UseCbs}"
                           Foreground="#FFB347" VerticalAlignment="Center" Margin="0,0,8,0"
                           ToolTip="negotiated-congestion CBS-lite — rip-up 후 잔여 실패 배관에 대해 blocker 의 blocker 까지 2단계 재귀 양보해 경로를 협상한다.&#x0a;혼잡/막힘으로 남은 실패(expanded&gt;0)에 효과적. 소·대형 격자 모두 적용. OFF 시 평면 rip-up 만(기본·골든 불변)."/>
-
-                <!-- 진단 레이어(디버그용 복셀) — 하단 바에서 상단으로 이동 -->
-                <Separator Width="1" Background="#404a64" Margin="6,2"/>
-                <TextBlock Text="진단:" FontWeight="Bold" Foreground="#bfc6d6"
-                           VerticalAlignment="Center" Margin="2,0,6,0"/>
-                <CheckBox Content="격자맵" IsChecked="{Binding ShowGridFrame}" Foreground="#7ADFB0"
-                          VerticalAlignment="Center" Margin="0,0,10,0"
-                          ToolTip="복셀 전체맵 — 작업 공간의 격자 BBOX 12변을 가는 실린더로 표시"/>
-                <CheckBox Content="점유맵" IsChecked="{Binding ShowOccupancyVoxels}" Foreground="#82AAC8"
-                          VerticalAlignment="Center" Margin="0,0,4,0"
-                          ToolTip="엔진이 voxelize 한 블록 셀을 옅은 청회색 큐브로 표시"/>
-                <Button Content="{Binding OccupancyResolutionLabel}"
-                        Command="{Binding ToggleOccupancyResCommand}"
-                        Margin="0,0,10,0" Padding="8,1" MinWidth="0" VerticalAlignment="Center"
-                        ToolTip="점유맵 해상도 전환: 원본(전체 셀, 정확하지만 느릴 수 있음) ↔ 다운샘플(상한 15만, 빠름)"/>
-                <CheckBox Content="통과맵" IsChecked="{Binding ShowPassthroughVoxels}" Foreground="#5AC8A0"
-                          VerticalAlignment="Center" Margin="0,0,10,0"
-                          ToolTip="통과 객체(바닥/천장/격자보)가 점유는 하되 경로탐색은 통과하는 셀을 청록 큐브로 표시"/>
-                <CheckBox Content="방문맵" IsChecked="{Binding ShowVisitedMap}" Foreground="#EBCD3C"
-                          VerticalAlignment="Center" Margin="0,0,4,0"
-                          ToolTip="각 배관 라우팅 중 A* 가 확장한 셀을 유틸리티 색의 반투명 큐브로. 유틸당 12k 셀 다운샘플"/>
-                <CheckBox Content="🌳 옥트리" IsChecked="{Binding ShowOctreeVoxels}" Foreground="#90EE90"
-                          VerticalAlignment="Center" Margin="0,0,4,0"
-                          ToolTip="가변셀 옥트리 분해도 — 자유공간 리프(민트 녹색·반투명·크기 가변)와 장애물 리프(적색)를 박스로 표시.&#x0a;리프가 클수록 A* 가 한 번에 점프하는 거리가 크다(개방 공간 확인). 장애물 근처는 작은 리프(세분화)."/>
             </StackPanel>
         </Border>
 
@@ -407,6 +400,13 @@
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
+                                    <DataGridTextColumn Header="실패사유" Binding="{Binding FailReasonText}" Width="Auto">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="#ffb0b0"/>
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
                                     <DataGridTextColumn Header="유틸" Binding="{Binding Utility}" Width="Auto"/>
                                     <DataGridTextColumn Header="시작PoC" Binding="{Binding PocName}" Width="Auto"/>
                                     <DataGridTextColumn Header="종단PoC" Binding="{Binding EndName}" Width="Auto"/>
@@ -421,6 +421,14 @@
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="시간" Binding="{Binding ElapsedText}" Width="Auto">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="TextAlignment" Value="Right"/>
+                                                <Setter Property="Foreground" Value="#a8b4c8"/>
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="확장" Binding="{Binding ExpandedText}" Width="Auto">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="TextAlignment" Value="Right"/>

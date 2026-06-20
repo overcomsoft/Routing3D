@@ -141,6 +141,9 @@ struct AllowAll {
     bool operator()(const Cell&) const noexcept { return true; }
 };
 
+using AStarTraceFn = std::function<void(const char* event, const Cell& from, const Cell& to,
+                                        long long expanded, int dir, int run, int required)>;
+
 // count_turns — 경로의 방향 전환(꺾임) 횟수를 센다. 백엔드 무관, 헤더 인라인.
 // path의 연속 세 점(p[i-1], p[i], p[i+1])에서 방향 오프셋이 바뀌면 꺾임 1회.
 // path.size() < 3이면 꺾임 없음(직선 또는 제자리). O(n) 시간.
@@ -414,7 +417,8 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
                            const std::unordered_set<long long>* corridor = nullptr,
                            const std::function<bool(long long, double)>* on_progress = nullptr,
                            long long progress_every = 0, InCorridor in_corridor = {},
-                           int goal_dir = -1) {
+                           int goal_dir = -1,
+                           const AStarTraceFn* on_trace = nullptr) {
     // ===== [0단계] 초기화 =====
     auto t0 = detail::Clock::now();
     AStarResult R;
@@ -454,6 +458,10 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     // 10mm 거대격자(20억 셀): lin~2×10^9 → lin*7~1.4×10^10 → long long 범위 내(최대 9.2×10^18).
     auto state_of = [&](long long lin, int dir, int run) -> long long {
         return (lin * 7 + (dir + 1)) * RS + (enforce_run ? run : 0);
+    };
+    auto trace = [&](const char* event, const Cell& from, const Cell& to,
+                     long long exp, int dir, int run, int required) {
+        if (on_trace) (*on_trace)(event, from, to, exp, dir, run, required);
     };
 
     // ===== [4단계] 탐색 자료구조 초기화 =====
@@ -530,6 +538,7 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
         cs->closed = true;
         const double g_st = cs->g;  // grow 전에 g값을 스택으로 복사(이후 emplace가 grow하면 cs 무효화).
         ++expanded;
+        trace("expand_cell", cur.cell, cur.cell, expanded, cur.dir, cur.run, min_run);
 
         // --- [7d] 방문 셀 수집 (시각화용, opt-in) ---
         // collect_visited=true일 때만 실행. 동일 셀을 여러 방향으로 expand해도 한 번만 기록.
@@ -601,11 +610,21 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             Cell nb{cur.cell.i + d.i, cur.cell.j + d.j, cur.cell.k + d.k};
 
             // 격자 범위 밖 또는 장애물 셀은 즉시 skip.
-            if (!occ.in_bounds(nb) || occ.is_blocked(nb)) continue;
+            if (!occ.in_bounds(nb)) {
+                trace("candidate_reject_out_of_bounds", cur.cell, nb, expanded, nidx, cur.run, 0);
+                continue;
+            }
+            if (occ.is_blocked(nb)) {
+                trace("candidate_reject_blocked", cur.cell, nb, expanded, nidx, cur.run, 0);
+                continue;
+            }
 
             // 하드 corridor 제한(계층 라우팅 fine A*에서만 유효).
             // 기본 AllowAll이면 항상 true → 컴파일러가 분기 제거(성능·결과 불변).
-            if (!in_corridor(nb)) continue;
+            if (!in_corridor(nb)) {
+                trace("candidate_reject_corridor_gate", cur.cell, nb, expanded, nidx, cur.run, 0);
+                continue;
+            }
 
             // --- [코너 최소직선 하드 제약] ---
             // 꺾임(방향 전환)은 현재 직진 run이 min_run 이상일 때만 허용.
@@ -616,7 +635,10 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
             int nrun = 0;
             if (enforce_run) {
                 const bool is_turn = (cur.dir >= 0 && nidx != cur.dir);
-                if (is_turn && cur.run < min_run) continue;  // 직진 부족 → 꺾기 금지.
+                if (is_turn && cur.run < min_run) {
+                    trace("candidate_reject_min_straight", cur.cell, nb, expanded, nidx, cur.run, min_run);
+                    continue;
+                }  // 직진 부족 → 꺾기 금지.
                 // run 갱신: 꺾임 시 1로 초기화, 직진 시 min_run까지 증가 후 클램프.
                 nrun = (cur.dir < 0) ? 1
                      : (nidx == cur.dir ? (cur.run < min_run ? cur.run + 1 : min_run) : 1);

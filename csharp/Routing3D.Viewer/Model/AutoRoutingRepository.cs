@@ -8,6 +8,7 @@
 using Npgsql;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -58,6 +59,8 @@ namespace Routing3D.Viewer.Model
         public double  LengthMm      { get; set; }
         public int     TurnCount     { get; set; }
         public int     ElapsedMs     { get; set; }
+        public int     StartStubPointCount { get; set; }
+        public int     EndStubPointCount   { get; set; }
         /// <summary>렌더 폴리라인 좌표 (world mm). null = 실패/미라우팅.</summary>
         public List<Point3D>? Polyline { get; set; }
     }
@@ -72,6 +75,8 @@ namespace Routing3D.Viewer.Model
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
+CREATE EXTENSION IF NOT EXISTS postgis;
+
 CREATE TABLE IF NOT EXISTS ""TB_AUTOROUTING_SESSION"" (
     ""SESSION_ID""        UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     ""PROJECT_GROUP_ID""  VARCHAR(100) NOT NULL,
@@ -107,6 +112,14 @@ CREATE TABLE IF NOT EXISTS ""TB_AUTOROUTING_PATH"" (
     ""ELAPSED_MS""        INTEGER,
     ""POLYLINE""          JSONB
 );
+ALTER TABLE ""TB_AUTOROUTING_PATH""
+    ADD COLUMN IF NOT EXISTS ""PATH_LINESTRINGZ"" geometry(LineStringZ,0);
+ALTER TABLE ""TB_AUTOROUTING_PATH""
+    ADD COLUMN IF NOT EXISTS ""START_STUB_POINT_COUNT"" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE ""TB_AUTOROUTING_PATH""
+    ADD COLUMN IF NOT EXISTS ""END_STUB_POINT_COUNT"" INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS ""IDX_AROUTING_PATH_LINESTRINGZ""
+    ON ""TB_AUTOROUTING_PATH"" USING GIST(""PATH_LINESTRINGZ"");
 CREATE INDEX IF NOT EXISTS ""IDX_AROUTING_PATH_SESSION""
     ON ""TB_AUTOROUTING_PATH""(""SESSION_ID"");
 CREATE INDEX IF NOT EXISTS ""IDX_AROUTING_PATH_GUID""
@@ -176,12 +189,15 @@ INSERT INTO ""TB_AUTOROUTING_PATH""
     (""PATH_ID"",""SESSION_ID"",""ROUTE_ORDER"",""ROUTE_PATH_GUID"",
      ""UTILITY_GROUP"",""UTILITY"",""SOURCE_NAME"",""TARGET_NAME"",
      ""DIAMETER_MM"",""SUCCESS"",""FAIL_REASON"",
-     ""LENGTH_MM"",""TURN_COUNT"",""ELAPSED_MS"",""POLYLINE"")
+     ""LENGTH_MM"",""TURN_COUNT"",""ELAPSED_MS"",""START_STUB_POINT_COUNT"",""END_STUB_POINT_COUNT"",
+     ""POLYLINE"",""PATH_LINESTRINGZ"")
 VALUES
     (@pid,@sid,@ord,@guid,
      @ugrp,@util,@src,@tgt,
      @dia,@succ,@fail,
-     @len,@turns,@ela,@poly::jsonb)";
+     @len,@turns,@ela,@sstub,@estub,
+     @poly::jsonb,
+     CASE WHEN @wkt IS NULL THEN NULL ELSE ST_GeomFromText(@wkt, 0) END)";
                 AddParam(cmd, "pid",   Guid.NewGuid());
                 AddParam(cmd, "sid",   session.SessionId);
                 AddParam(cmd, "ord",   path.RouteOrder);
@@ -196,8 +212,12 @@ VALUES
                 AddParam(cmd, "len",   path.LengthMm);
                 AddParam(cmd, "turns", path.TurnCount);
                 AddParam(cmd, "ela",   path.ElapsedMs);
+                AddParam(cmd, "sstub", path.StartStubPointCount);
+                AddParam(cmd, "estub", path.EndStubPointCount);
                 string? polyJson = SerializePolyline(path.Polyline);
+                string? lineWkt = ToLineStringZWkt(path.Polyline);
                 AddParam(cmd, "poly",  (object?)polyJson ?? DBNull.Value);
+                AddParam(cmd, "wkt",   (object?)lineWkt ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync();
             }
 
@@ -262,6 +282,7 @@ LIMIT 50";
         /// <summary>세션에 속한 배관 목록 전체를 ROUTE_ORDER 순으로 반환.</summary>
         public static async Task<List<AutoRoutingPathRow>> LoadPathsAsync(DbConfig cfg, Guid sessionId)
         {
+            await EnsureTablesAsync(cfg);
             await using var conn = new NpgsqlConnection(cfg.ConnectionString);
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -269,7 +290,9 @@ LIMIT 50";
 SELECT ""PATH_ID"",""SESSION_ID"",""ROUTE_ORDER"",""ROUTE_PATH_GUID"",
        ""UTILITY_GROUP"",""UTILITY"",""SOURCE_NAME"",""TARGET_NAME"",
        ""DIAMETER_MM"",""SUCCESS"",""FAIL_REASON"",
-       ""LENGTH_MM"",""TURN_COUNT"",""ELAPSED_MS"",""POLYLINE""
+       ""LENGTH_MM"",""TURN_COUNT"",""ELAPSED_MS"",""POLYLINE"",
+       ""START_STUB_POINT_COUNT"",""END_STUB_POINT_COUNT"",
+       ST_AsText(""PATH_LINESTRINGZ"") AS ""PATH_LINESTRINGZ_WKT""
 FROM ""TB_AUTOROUTING_PATH""
 WHERE ""SESSION_ID"" = @sid
 ORDER BY ""ROUTE_ORDER"", ""PATH_ID""";
@@ -321,9 +344,45 @@ ORDER BY ""ROUTE_ORDER"", ""PATH_ID""";
             LengthMm      = r.IsDBNull(11) ? 0    : r.GetDouble(11),
             TurnCount     = r.IsDBNull(12) ? 0    : r.GetInt32(12),
             ElapsedMs     = r.IsDBNull(13) ? 0    : r.GetInt32(13),
-            Polyline      = r.IsDBNull(14) ? null : DeserializePolyline(r.GetString(14)),
+                        StartStubPointCount = r.IsDBNull(15) ? 0 : r.GetInt32(15),
+            EndStubPointCount   = r.IsDBNull(16) ? 0 : r.GetInt32(16),
+            Polyline      = ReadPolyline(r),
         };
 
+        private static List<Point3D>? ReadPolyline(NpgsqlDataReader r)
+        {
+            if (!r.IsDBNull(17)) return DeserializeLineStringZWkt(r.GetString(17));
+            return r.IsDBNull(14) ? null : DeserializePolyline(r.GetString(14));
+        }
+
+        private static string? ToLineStringZWkt(List<Point3D>? pts)
+        {
+            if (pts == null || pts.Count < 2) return null;
+            var parts = pts.Select(p => string.Create(CultureInfo.InvariantCulture, $"{p.X:R} {p.Y:R} {p.Z:R}"));
+            return "LINESTRING Z(" + string.Join(",", parts) + ")";
+        }
+
+        private static List<Point3D>? DeserializeLineStringZWkt(string wkt)
+        {
+            const string prefix = "LINESTRING Z";
+            var s = wkt.Trim();
+            if (!s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+            int open = s.IndexOf('(');
+            int close = s.LastIndexOf(')');
+            if (open < 0 || close <= open) return null;
+
+            var pts = new List<Point3D>();
+            foreach (var part in s.Substring(open + 1, close - open - 1).Split(','))
+            {
+                var xyz = part.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (xyz.Length < 3) continue;
+                if (double.TryParse(xyz[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x) &&
+                    double.TryParse(xyz[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y) &&
+                    double.TryParse(xyz[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var z))
+                    pts.Add(new Point3D(x, y, z));
+            }
+            return pts.Count >= 2 ? pts : null;
+        }
         private static string? SerializePolyline(List<Point3D>? pts)
         {
             if (pts == null || pts.Count == 0) return null;

@@ -11,22 +11,24 @@
     <AssemblyName>Routing3D.Engine</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
+    <Routing3DVcpkgRoot Condition="'$(Routing3DVcpkgRoot)' == '' And '$(VCPKG_ROOT)' != ''">$(VCPKG_ROOT)</Routing3DVcpkgRoot>
+    <Routing3DVcpkgRoot Condition="'$(Routing3DVcpkgRoot)' == '' And Exists('D:\vcpkg')">D:\vcpkg</Routing3DVcpkgRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll')">
+    <None Include="..\..\cpp\build\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build\Release\routing3d_capi.dll')">
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="D:\vcpkg\installed\x64-windows\bin\*.dll" Condition="Exists('D:\vcpkg\installed\x64-windows\bin')">
+    <None Include="$(Routing3DVcpkgRoot)\installed\x64-windows\bin\*.dll" Condition="'$(Routing3DVcpkgRoot)' != '' And Exists('$(Routing3DVcpkgRoot)\installed\x64-windows\bin')">
       <Link>%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\..\cpp\build_legacy_check\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_legacy_check\Release\routing3d_capi.dll')">
+    <None Include="..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll')">
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\..\cpp\build\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And !Exists('..\..\cpp\build_legacy_check\Release\routing3d_capi.dll') And Exists('..\..\cpp\build\Release\routing3d_capi.dll')">
+    <None Include="..\..\cpp\build_legacy_check\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build\Release\routing3d_capi.dll') And !Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_legacy_check\Release\routing3d_capi.dll')">
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

@@ -16,23 +16,25 @@
     <PlatformTarget>x64</PlatformTarget>
     <RootNamespace>Routing3D.Viewer</RootNamespace>
     <AssemblyName>Routing3D.Viewer</AssemblyName>
+    <Routing3DVcpkgRoot Condition="'$(Routing3DVcpkgRoot)' == '' And '$(VCPKG_ROOT)' != ''">$(VCPKG_ROOT)</Routing3DVcpkgRoot>
+    <Routing3DVcpkgRoot Condition="'$(Routing3DVcpkgRoot)' == '' And Exists('D:\vcpkg')">D:\vcpkg</Routing3DVcpkgRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll')">
-      <Link>routing3d_capi.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="D:\vcpkg\installed\x64-windows\bin\*.dll" Condition="Exists('D:\vcpkg\installed\x64-windows\bin')">
-      <Link>%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>    <!-- C++ 엔진 C ABI DLL 을 실행 폴더로 복사(코어만 → 외부 의존성 없는 단일 DLL). -->
     <None Include="..\..\cpp\build\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build\Release\routing3d_capi.dll')">
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="$(Routing3DVcpkgRoot)\installed\x64-windows\bin\*.dll" Condition="'$(Routing3DVcpkgRoot)' != '' And Exists('$(Routing3DVcpkgRoot)\installed\x64-windows\bin')">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>    <!-- C++ 엔진 C ABI DLL 을 실행 폴더로 복사(코어만 → 외부 의존성 없는 단일 DLL). -->
+    <None Include="..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll')">
+      <Link>routing3d_capi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <!-- 이 PC(VS Community)는 cpp/build_comm 에 빌드한다(Professional용 cpp/build 부재 시). -->
-    <None Include="..\..\cpp\build_comm\Release\routing3d_capi.dll" Condition="Exists('..\..\cpp\build_comm\Release\routing3d_capi.dll')">
+    <None Include="..\..\cpp\build_comm\Release\routing3d_capi.dll" Condition="!Exists('..\..\cpp\build_openvdb_release\Release\routing3d_capi.dll') And !Exists('..\..\cpp\build\Release\routing3d_capi.dll') And Exists('..\..\cpp\build_comm\Release\routing3d_capi.dll')">
       <Link>routing3d_capi.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

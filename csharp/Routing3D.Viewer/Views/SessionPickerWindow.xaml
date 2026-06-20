@@ -1,8 +1,9 @@
 <Window x:Class="Routing3D.Viewer.Views.SessionPickerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:h="http://helix-toolkit.org/wpf"
         Title="저장된 자동설계 결과 불러오기"
-        Width="860" Height="680" MinWidth="660" MinHeight="440"
+        Width="1180" Height="720" MinWidth="860" MinHeight="520"
         WindowStartupLocation="CenterOwner"
         Background="#1e2230" Foreground="#c8d0e0"
         FontFamily="Segoe UI" FontSize="13">
@@ -94,15 +95,20 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.35*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="0.9*" MinWidth="300"/>
+            </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4">
+            <StackPanel Grid.Row="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,4">
                 <TextBlock Text="세부 정보" Foreground="#8aa3c8" FontSize="12" VerticalAlignment="Center"/>
                 <TextBlock x:Name="DetailStatusText" Text="" Foreground="#6a7898"
                            FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
 
-            <DataGrid Grid.Row="1" x:Name="DetailGrid" Style="{StaticResource DarkGrid}"
-                      FontSize="12">
+            <DataGrid Grid.Row="1" Grid.Column="0" x:Name="DetailGrid" Style="{StaticResource DarkGrid}"
+                      FontSize="12" SelectionChanged="OnDetailSelectionChanged">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="순서"     Binding="{Binding RouteOrder}"      Width="42"/>
                     <DataGridTextColumn Header="유틸그룹" Binding="{Binding UtilityGroup}"    Width="80"/>
@@ -114,9 +120,9 @@
                     <DataGridTextColumn Header="실패사유" Binding="{Binding FailReason}"      Width="80"/>
                     <DataGridTextColumn Header="길이(m)"  Binding="{Binding LengthDisplay}"   Width="68"/>
                     <DataGridTextColumn Header="꺾임"     Binding="{Binding TurnCount}"       Width="42"/>
-                    <DataGridTextColumn Header="탐색(ms)" Binding="{Binding ElapsedMs}"       Width="*"/>
+                    <DataGridTextColumn Header="탐색(ms)" Binding="{Binding ElapsedMs}"       Width="70"/>
+                    <DataGridTextColumn Header="PostGIS" Binding="{Binding GeometryStatus}"  Width="70"/>
                 </DataGrid.Columns>
-                <!-- 상태 컬럼 셀 스타일 — 성공/실패 색상 -->
                 <DataGrid.CellStyle>
                     <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
                         <Style.Triggers>
@@ -137,8 +143,27 @@
                     </Style>
                 </DataGrid.RowStyle>
             </DataGrid>
-        </Grid>
 
+            <GridSplitter Grid.Row="1" Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                          Background="#404a64" Cursor="SizeWE"/>
+
+            <Border Grid.Row="1" Grid.Column="2" BorderBrush="#404a64" BorderThickness="1" Background="#111827">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="#20283a" Padding="8,5" BorderBrush="#404a64" BorderThickness="0,0,0,1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="LineStringZ 3D 미리보기" Foreground="#8aa3c8" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="PreviewStatusText" Text="" Foreground="#6a7898" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <h:HelixViewport3D x:Name="PreviewView" Background="#0f1320"
+                                       ShowViewCube="False" ShowCoordinateSystem="True"
+                                       IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
+                        <h:DefaultLights/>
+                        <ModelVisual3D x:Name="PreviewModelVisual"/>
+                    </h:HelixViewport3D>
+                </DockPanel>
+            </Border>
+        </Grid>
         <!-- 버튼 행 -->
         <Grid Grid.Row="4" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>

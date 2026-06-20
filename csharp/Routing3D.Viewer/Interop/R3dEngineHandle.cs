@@ -16,6 +16,7 @@ namespace Routing3D.Viewer.Interop
         {
             var h = new R3dEngineHandle();
             h.SetHandle(Native.r3d_create());
+            if (h.IsInvalid) throw new InvalidOperationException("r3d_create 실패: 네이티브 엔진 핸들을 생성하지 못했습니다.");
             return h;
         }
 

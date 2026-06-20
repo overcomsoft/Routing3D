@@ -1,0 +1,183 @@
+<Window x:Class="Routing3D.Viewer.Views.TraceReplayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:h="http://helix-toolkit.org/wpf"
+        Title="Routing3D Search Trace Replay"
+        Width="1360" Height="820"
+        MinWidth="980" MinHeight="620"
+        Background="#1e2230"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Background" Value="#3a4862"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#5a6a8a"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#e8eaf0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#151a26"/>
+            <Setter Property="Foreground" Value="#dfe6f3"/>
+            <Setter Property="BorderBrush" Value="#404a64"/>
+            <Setter Property="Padding" Value="6,3"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#151a26"/>
+            <Setter Property="Foreground" Value="#111827"/>
+            <Setter Property="BorderBrush" Value="#404a64"/>
+            <Setter Property="MinWidth" Value="130"/>
+            <Setter Property="Margin" Value="4,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252b3d" BorderBrush="#404a64" BorderThickness="0,0,0,1" Padding="6">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0">
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                        <Button Content="Open" Click="OnOpen"/>
+                        <Button x:Name="PlayButton" Content="Play" Click="OnPlayPause"/>
+                        <Button Content="First" Click="OnFirst"/>
+                        <Button Content="Prev" Click="OnPrev"/>
+                        <Button Content="Next" Click="OnNext"/>
+                        <Button Content="Last" Click="OnLast"/>
+                        <Button Content="Fit" Click="OnFit"/>
+                        <Button Content="Copy Image" Click="OnCopyImage"/>
+                        <Button Content="Save Image" Click="OnSaveImage"/>
+                        <Button Content="Save Video" Click="OnSaveVideo"/>
+                    </StackPanel>
+                    <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                               TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+
+                <WrapPanel Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Task"/>
+                    <TextBox x:Name="TaskFilterBox" Width="70" Margin="5,0,12,0"
+                             TextChanged="OnFilterChanged"/>
+                    <TextBlock Text="Type"/>
+                    <ComboBox x:Name="TypeFilterCombo" SelectionChanged="OnFilterChanged"/>
+                    <TextBlock Text="Find" Margin="12,0,0,0"/>
+                    <TextBox x:Name="SearchBox" Width="220" Margin="5,0,12,0"
+                             TextChanged="OnFilterChanged"/>
+                    <Button Content="Clear Filters" Click="OnClearFilters"/>
+                    <CheckBox x:Name="ShowVoxelMapBox"
+                              Content="Voxel Map"
+                              IsChecked="True"
+                              Margin="12,0,0,0"
+                              Foreground="#e8eaf0"
+                              Checked="OnLayerChanged"
+                              Unchecked="OnLayerChanged"/>
+                    <CheckBox x:Name="ShowOccupancyMapBox"
+                              Content="Occupancy Map"
+                              IsChecked="True"
+                              Margin="10,0,0,0"
+                              Foreground="#e8eaf0"
+                              Checked="OnLayerChanged"
+                              Unchecked="OnLayerChanged"/>
+                    <CheckBox x:Name="ShowPassthroughMapBox"
+                              Content="Pass-through"
+                              IsChecked="True"
+                              Margin="10,0,0,0"
+                              Foreground="#e8eaf0"
+                              Checked="OnLayerChanged"
+                              Unchecked="OnLayerChanged"/>
+                    <TextBlock Text="Speed(ms)" Margin="14,0,0,0"/>
+                    <Slider x:Name="PlaybackSpeedSlider"
+                            Width="150" Minimum="50" Maximum="2000" Value="350"
+                            TickFrequency="50" IsSnapToTickEnabled="True"
+                            ValueChanged="OnSpeedChanged"/>
+                    <TextBlock x:Name="SpeedText" Text="350" Margin="6,0,0,0"/>
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="560"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="190"/>
+                </Grid.RowDefinitions>
+                <DataGrid x:Name="EventGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          ItemsSource="{Binding Events}"
+                          SelectedItem="{Binding SelectedEvent, Mode=TwoWay}"
+                          Background="#252b3d"
+                          RowBackground="#252b3d"
+                          AlternatingRowBackground="#2b3548"
+                          Foreground="#e8eaf0"
+                          BorderBrush="#404a64"
+                          HorizontalGridLinesBrush="#333b50"
+                          FontFamily="Consolas"
+                          FontSize="11"
+                          SelectionChanged="OnEventSelectionChanged">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#2b3548"/>
+                            <Setter Property="Foreground" Value="#bfc6d6"/>
+                            <Setter Property="Padding" Value="5,3"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Seq}" Width="52"/>
+                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="128"/>
+                        <DataGridTextColumn Header="Task" Binding="{Binding TaskText}" Width="58"/>
+                        <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBox x:Name="DetailText"
+                         Grid.Row="1"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         Background="#151a26"
+                         Foreground="#dfe6f3"
+                         BorderBrush="#404a64"
+                         FontFamily="Consolas"
+                         FontSize="11"
+                         Padding="8"/>
+            </Grid>
+
+            <Grid Grid.Column="1">
+                <h:HelixViewport3D x:Name="TraceView"
+                                   Background="#0f1420"
+                                   ShowCoordinateSystem="True"
+                                   ZoomExtentsWhenLoaded="True">
+                    <h:SunLight/>
+                    <ModelVisual3D x:Name="TraceModelVisual"/>
+                </h:HelixViewport3D>
+                <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="8" Padding="8"
+                        Background="#AA151A26" BorderBrush="#404a64" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="Legend" FontWeight="Bold" Foreground="#cdd6f4"/>
+                        <TextBlock Text="Source cell" Foreground="LimeGreen"/>
+                        <TextBlock Text="Target cell" Foreground="Red"/>
+                        <TextBlock Text="Snapped source" Foreground="DeepSkyBlue"/>
+                        <TextBlock Text="Snapped target" Foreground="Yellow"/>
+                        <TextBlock Text="Expanded voxel" Foreground="Gold"/>
+                        <TextBlock Text="Rejected / collision candidate" Foreground="OrangeRed"/>
+                        <TextBlock Text="Occupancy sample" Foreground="#8a909d"/>
+                        <TextBlock Text="Pass-through sample" Foreground="#3cdce6"/>
+                        <TextBlock Text="Final route map" Foreground="#28ff78"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

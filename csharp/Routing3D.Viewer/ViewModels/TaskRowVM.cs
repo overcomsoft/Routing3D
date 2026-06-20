@@ -103,6 +103,28 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>마지막 라우팅의 엔진 실패 사유(A1) — 성공 시 None. ExplainFailure 가 정확 분류에 쓴다.</summary>
         public Interop.RouteFail LastFail { get; set; } = Interop.RouteFail.None;
 
+        /// <summary>결과 그리드용 실패 사유. 미시도/성공 행은 빈칸으로 두고 실패 행만 원인을 보여준다.</summary>
+        public string FailReasonText
+        {
+            get
+            {
+                if (Success || !Attempted) return "";
+                return LastFail switch
+                {
+                    Interop.RouteFail.StartBlocked => "출발막힘",
+                    Interop.RouteFail.GoalBlocked => "종단막힘",
+                    Interop.RouteFail.CorridorMiss => "회랑이탈",
+                    Interop.RouteFail.ExpansionLimit => "탐색상한",
+                    Interop.RouteFail.GoalDirBlocked => "진입축막힘",
+                    Interop.RouteFail.NoPath => "경로없음",
+                    _ => ExpandedNodes > 0 ? "경로없음" : "미상"
+                };
+            }
+        }
+
+        /// <summary>결과 그리드용 확장 노드 수. 최단경로가 오래 걸린 원인을 바로 확인하기 위한 진단값.</summary>
+        public string ExpandedText => Attempted && ExpandedNodes > 0 ? $"{ExpandedNodes:N0}" : "";
+
         /// <summary>이번 자동설계 배치에서 이 배관이 라우팅된 순서(0부터, 우선순위 정렬 결과 = 굵은 배관 먼저).
         /// 진행 콜백(phase==1)의 OrderIndex 로 채운다. −1=이 배치에 미포함 또는 콜백 없는 모드. 결과 리포트의
         /// '설계 순서'에 쓴다.</summary>
@@ -130,7 +152,8 @@ namespace Routing3D.Viewer.ViewModels
         /// <summary>라우팅을 시도했는가 — 경로가 있거나(성공) 방문/확장 기록이 있으면(실패) 시도됨.
         /// 시도 안 한 행과 '시도했으나 실패'를 구분해 상태/색·진행집계를 정확히 표시한다.</summary>
         public bool Attempted => (Path != null && Path.Length >= 2)
-                                 || (Visited != null && Visited.Length > 0) || ExpandedNodes > 0;
+                                 || (Visited != null && Visited.Length > 0) || ExpandedNodes > 0
+                                 || LastFail != Interop.RouteFail.None || ElapsedMs > 0;
 
         /// <summary>결과 필드(Path/Visited/ExpandedNodes/Success)를 일괄 갱신한 뒤 호출 — 상태/색/길이 파생
         /// 속성을 강제로 다시 알린다. Success 값이 그대로(실패→실패)면 세터가 알림을 생략하므로, 실패 행이
@@ -140,6 +163,7 @@ namespace Routing3D.Viewer.ViewModels
             OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay));
             OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush));
             OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount)); OnChanged(nameof(ElapsedText));
+            OnChanged(nameof(FailReasonText)); OnChanged(nameof(ExpandedText));
         }
 
         /// <summary>처리 상태 텍스트 — 결과 그리드 '상태' 컬럼. 진행 중엔 대기/탐색 %, 완료 후 성공/실패/미라우팅.</summary>

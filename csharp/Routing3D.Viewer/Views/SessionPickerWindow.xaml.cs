@@ -1,10 +1,14 @@
 // 자동설계 결과 세션 선택 창 — 세션 목록 + 세부 배관 그리드 + 삭제
+using HelixToolkit.Wpf;
 using Routing3D.Viewer.Model;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace Routing3D.Viewer.Views
 {
@@ -38,6 +42,8 @@ namespace Routing3D.Viewer.Views
         public string LengthDisplay   { get; init; } = "";
         public int    TurnCount       { get; init; }
         public int    ElapsedMs       { get; init; }
+        public string GeometryStatus  { get; init; } = "-";
+        public AutoRoutingPathRow Row { get; init; } = new();
 
         public static PathDetailItem From(AutoRoutingPathRow p) => new()
         {
@@ -52,6 +58,8 @@ namespace Routing3D.Viewer.Views
             LengthDisplay   = p.Success ? $"{p.LengthMm / 1000.0:N2}" : "",
             TurnCount       = p.TurnCount,
             ElapsedMs       = p.ElapsedMs,
+            GeometryStatus  = p.Polyline != null && p.Polyline.Count >= 2 ? "LineStringZ" : "-",
+            Row             = p,
         };
     }
 
@@ -91,6 +99,8 @@ namespace Routing3D.Viewer.Views
                 var rows = new List<PathDetailItem>(paths.Count);
                 foreach (var p in paths) rows.Add(PathDetailItem.From(p));
                 DetailGrid.ItemsSource = rows;
+                DetailGrid.SelectedIndex = rows.FindIndex(r => r.Row.Polyline != null && r.Row.Polyline.Count >= 2);
+                if (DetailGrid.SelectedIndex < 0) ClearPreview("LineStringZ 없음");
 
                 int success = 0;
                 foreach (var p in paths) if (p.Success) success++;
@@ -103,6 +113,74 @@ namespace Routing3D.Viewer.Views
             }
         }
 
+        private void OnDetailSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (DetailGrid.SelectedItem is PathDetailItem item) ShowPathPreview(item);
+        }
+
+        private void ShowPathPreview(PathDetailItem item)
+        {
+            var pts = item.Row.Polyline;
+            if (pts == null || pts.Count < 2)
+            {
+                ClearPreview("LineStringZ 없음");
+                return;
+            }
+
+            var group = new Model3DGroup();
+            double diameter = item.Row.DiameterMm > 0 ? item.Row.DiameterMm : 80.0;
+            double tubeDia = Math.Max(diameter, 40.0);
+            double markerR = Math.Max(tubeDia * 1.4, 70.0);
+
+            int startCount = Math.Clamp(item.Row.StartStubPointCount, 0, pts.Count);
+            int endCount = Math.Clamp(item.Row.EndStubPointCount, 0, pts.Count - startCount);
+
+            AddTubeSegment(group, pts, 0, startCount - 1, tubeDia * 1.12, Color.FromRgb(0xf5, 0x9e, 0x0b), 245);
+
+            int mainStart = startCount >= 2 ? startCount - 1 : 0;
+            int mainEnd = endCount >= 2 ? pts.Count - endCount : pts.Count - 1;
+            AddTubeSegment(group, pts, mainStart, mainEnd, tubeDia, Color.FromRgb(0x38, 0xbd, 0xf8), 230);
+
+            int endStart = pts.Count - endCount;
+            AddTubeSegment(group, pts, endStart, pts.Count - 1, tubeDia * 1.12, Color.FromRgb(0xa8, 0x55, 0xf7), 245);
+
+            var start = new MeshBuilder(false, false);
+            start.AddSphere(pts[0], markerR);
+            group.Children.Add(Geometry(start, Color.FromRgb(0x22, 0xc5, 0x5e), 245));
+
+            var end = new MeshBuilder(false, false);
+            end.AddSphere(pts[^1], markerR);
+            group.Children.Add(Geometry(end, Color.FromRgb(0xef, 0x44, 0x44), 245));
+
+            PreviewModelVisual.Content = group;
+            PreviewStatusText.Text = $"{pts.Count}점 · 시작Stub {startCount} · 종료Stub {endCount} · {item.LengthDisplay} m";
+            Dispatcher.BeginInvoke(new Action(() => { try { PreviewView.ZoomExtents(); } catch { } }),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private static void AddTubeSegment(Model3DGroup group, List<Point3D> pts, int startIndex, int endIndex,
+                                           double diameter, Color color, byte alpha)
+        {
+            if (startIndex < 0 || endIndex >= pts.Count || endIndex - startIndex < 1) return;
+            var seg = pts.Skip(startIndex).Take(endIndex - startIndex + 1).ToList();
+            if (seg.Count < 2) return;
+            var mb = new MeshBuilder(false, false);
+            mb.AddTube(seg, diameter, 12, false);
+            group.Children.Add(Geometry(mb, color, alpha));
+        }
+        private void ClearPreview(string text)
+        {
+            PreviewModelVisual.Content = null;
+            PreviewStatusText.Text = text;
+        }
+
+        private static GeometryModel3D Geometry(MeshBuilder mb, Color color, byte alpha)
+        {
+            var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+            brush.Freeze();
+            var material = MaterialHelper.CreateMaterial(brush);
+            return new GeometryModel3D(mb.ToMesh(), material) { BackMaterial = material };
+        }
         // ── 삭제 ─────────────────────────────────────────────────────────────
         private async void OnDelete(object sender, RoutedEventArgs e)
         {

@@ -1,22 +1,23 @@
-// Routing3D ?쇱씠釉뚮윭由?C ABI ?ㅻ뜑 (routing3d_capi) ??Phase 3 (C#/HelixToolkit ?명꽣濡?
+// Routing3D 라이브러리 C ABI 헤더 (routing3d_capi) — Phase 3 (C#/HelixToolkit 인터롭)
 // =============================================================================
-// [???뚯씪???섎뒗 ??
-//   C++ ?쇱슦???붿쭊(occupancy/astar/cost/multi_route/scene_io)??C ABI(extern "C")濡?//   ?몄텧??C#(P/Invoke)쨌?뚯씠??ctypes) ???대뼡 ?몄뒪?몃뱺 ?꾨줈?몄뒪濡??몄텧?섍쾶 ?쒕떎.
-//   ?ㅺ퀎: docs/csharp_helix_interop_design.md.
+// [이 파일이 하는 일]
+//   C++ 라우팅 엔진(occupancy/astar/cost/multi_route/scene_io)을 C ABI(extern "C")로
+//   노출해 C#(P/Invoke)·파이썬(ctypes) 등 어떤 호스트든 프로세스로 호출하게 한다.
+//   설계: docs/csharp_helix_interop_design.md.
 //
-// [ABI ?덉쟾 洹쒖튃]
-//   1) C++ ?덉쇅??寃쎄퀎 諛뽰쑝濡??섍?吏 ?딅뒗????紐⑤뱺 諛섑솚? R3dStatus(?먮뒗 ?뺤닔/0)濡?蹂닿퀬.
-//   2) STL/C++ 媛앹껜瑜??몄텧?섏? ?딅뒗????遺덊닾紐??몃뱾(R3dEngine*) + POD 援ъ“泥?+ 怨좎젙 諛곗뿴.
-//   3) ?몄텧 洹쒖빟 cdecl. 援ъ“泥대뒗 blittable(怨좎젙 ?덉씠?꾩썐).
-//   4) 肄쒕윭 ?좊떦 臾몄옄?댁? r3d_free_string ?쇰줈 ?댁젣. 寃쎈줈 諛곗뿴? 肄쒕윭 ?좊떦(2?④퀎).
-//   5) 臾몄옄?댁? UTF-8(寃쎈줈 ?대쫫) ???몄뒪?몃뒗 UTF-8 濡?留덉꺃留곹븳??
+// [ABI 안전 규칙]
+//   1) C++ 예외는 경계 밖으로 나가지 않는다 — 모든 반환은 R3dStatus(또는 정수/0)로 보고.
+//   2) STL/C++ 객체를 노출하지 않는다 — 불투명 핸들(R3dEngine*) + POD 구조체 + 고정 배열.
+//   3) 호출 규약 cdecl. 구조체는 blittable(고정 레이아웃).
+//   4) 콜러 할당 문자열은 r3d_free_string 으로 해제. 경로 배열은 콜러 할당(2단계).
+//   5) 문자열은 UTF-8(경로 이름) — 호스트는 UTF-8 로 마샬링한다.
 //
-// [鍮뚮뱶]  (?꾨줈?앺듃 猷⑦듃?먯꽌; 肄붿뼱? 留곹겕 ???몃? ?섏〈???녿뒗 ?⑥씪 DLL)
+// [빌드]  (프로젝트 루트에서; 코어와 링크 — 외부 의존성 없는 단일 DLL)
 //   cmake -S cpp -B cpp/build -G "Visual Studio 17 2022" -A x64
 //   cmake --build cpp/build --config Release --target routing3d_capi
-//   # 異쒕젰臾? cpp/build/Release/routing3d_capi.dll (+ .lib import)
+//   # 출력물: cpp/build/Release/routing3d_capi.dll (+ .lib import)
 //
-// [寃利?
+// [검증]
 //   ctest --test-dir cpp/build -C Release -R capi --output-on-failure
 // =============================================================================
 #ifndef ROUTING3D_CAPI_H
@@ -38,57 +39,57 @@
 extern "C" {
 #endif
 
-// 諛섑솚 ?곹깭 肄붾뱶.
+// 반환 상태 코드.
 typedef enum {
     R3D_OK = 0,
-    R3D_ERR_ARG = 1,      // ?섎せ???몄옄(null ?ъ씤?걔룹쓬?샕? 踰붿쐞)
-    R3D_ERR_PARSE = 2,    // scene ?띿뒪???뚯떛 ?ㅽ뙣
-    R3D_ERR_RUNTIME = 3,  // ?ㅽ뻾 以??덉쇅
-    R3D_ERR_RANGE = 4     // ?몃뜳??醫뚰몴 踰붿쐞 ?ㅻ쪟 (pack20 ?쒓퀎 珥덇낵 ??
+    R3D_ERR_ARG = 1,      // 잘못된 인자(null 포인터·음수·0 범위)
+    R3D_ERR_PARSE = 2,    // scene 텍스트 파싱 실패
+    R3D_ERR_RUNTIME = 3,  // 실행 중 예외
+    R3D_ERR_RANGE = 4     // 인덱스/좌표 범위 오류 (pack20 한계 초과 등)
 } R3dStatus;
 
-// ?뺤쟻 踰꾩쟾 臾몄옄???댁젣 遺덊븘??.
+// 정적 버전 문자열(해제 불필요).
 R3D_API const char* r3d_version(void);
-// 肄쒕윭 ?좊떦 臾몄옄???댁젣(r3d_route_scene_text / r3d_dump_scene_text 異쒕젰).
+// 콜러 할당 문자열 해제(r3d_route_scene_text / r3d_dump_scene_text 출력).
 R3D_API void r3d_free_string(char* s);
 
-// ---------------------------------------------------------------- Level 1: 臾몄옄??ABI
-// ?낅젰 scene ?띿뒪??UTF-8) 瑜??쇱슦?낇븯怨?寃곌낵 scene ?띿뒪??UTF-8) 諛섑솚. out_scene_text ???댁젣 ?꾩슂.
-//   mode     : "multi"(?쒖감, 異⑸룎?놁쓬) | "single"(?묒뾽蹂??낅┰).
-//   priority : "longest"|"shortest"|"utility"|"original" (mode=multi ?꾩슜). 湲곕낯="longest".
+// ---------------------------------------------------------------- Level 1: 문자열 ABI
+// 입력 scene 텍스트(UTF-8) 를 라우팅하고 결과 scene 텍스트(UTF-8) 반환. out_scene_text 는 해제 필요.
+//   mode     : "multi"(순차, 충돌없음) | "single"(작업별 독립).
+//   priority : "longest"|"shortest"|"utility"|"original" (mode=multi 전용). 기본="longest".
 R3D_API R3dStatus r3d_route_scene_text(const char* scene_text, const char* mode,
                                        const char* priority, char** out_scene_text);
 
-// ---------------------------------------------------------------- Level 2: ?몃뱾 ABI
-typedef struct R3dEngine R3dEngine;  // 遺덊닾紐??몃뱾.
+// ---------------------------------------------------------------- Level 2: 핸들 ABI
+typedef struct R3dEngine R3dEngine;  // 불투명 핸들.
 
-// blittable POD (C# StructLayout.Sequential ? 1:1).
-// [?낅젰 寃利???r3d_set_grid]
+// blittable POD (C# StructLayout.Sequential 와 1:1).
+// [입력 검증 — r3d_set_grid]
 //   cell_mm > 0, nx/ny/nz > 0 : R3D_ERR_ARG
-//   nx/ny/nz > 1,048,575 (pack20 20鍮꾪듃 ?곹븳) : R3D_ERR_RANGE
-//   ??corridor.hpp pack20 ? 異뺣떦 20鍮꾪듃(理쒕? 2^20-1 = 1,048,575 ?).
-//     8,000m / 50mm = 160,000 ?쇰줈 ?ㅼ젣 ?뚮옖??洹쒕え?먯꽑 異⑸텇?섎굹,
-//     4mm ?댄븯 珥덈??멸꺽?먯뿉?쒕뒗 珥덇낵 ?꾪뿕 ??利됱떆 R3D_ERR_RANGE 濡?李⑤떒.
+//   nx/ny/nz > 1,048,575 (pack20 20비트 상한) : R3D_ERR_RANGE
+//   → corridor.hpp pack20 은 축당 20비트(최대 2^20-1 = 1,048,575 셀).
+//     8,000m / 50mm = 160,000 으로 실제 플랜트 규모에선 충분하나,
+//     4mm 이하 초미세격자에서는 초과 위험 — 즉시 R3D_ERR_RANGE 로 차단.
 typedef struct {
     double cell_mm;
     double ox, oy, oz;  // origin (mm)
     int32_t nx, ny, nz;  // shape
 } R3dGrid;
 
-// [?낅젰 寃利???r3d_set_params]
+// [입력 검증 — r3d_set_params]
 //   cell_mm > 0 : R3D_ERR_ARG
 //   w_turn / w_clear / w_corridor / w_heur / w_heur_near < 0 : R3D_ERR_ARG
 //   clearance_radius < 0 : R3D_ERR_ARG
-//   clearance_connectivity ??{0, 6, 26} : R3D_ERR_ARG  (0 ? 湲곕낯媛믪쑝濡?6 ?쇰줈 泥섎━)
+//   clearance_connectivity ∉ {0, 6, 26} : R3D_ERR_ARG  (0 은 기본값으로 6 으로 처리)
 typedef struct {
     double cell_mm, w_turn, w_clear;
-    double w_corridor;               // ?뚮옉 諛붿씠?댁뒪 媛以묒튂(mm). 0=鍮꾪솢??湲곗〈 ?숈옉). >0=湲곗〈?ㅺ퀎 ?뚮옉 踰덈뱾留?
-    double w_heur;                   // ?대━?ㅽ떛 媛以묒튂(weighted A*). 0/1=?쒖? A*. >1=紐⑺몴 吏???먯깋, ?쒓컙 鍮꾩턀??
-    double w_heur_near;              // ?곸쓳 媛以?紐⑺몴洹쇱쿂 ?섎졃). (0,w_heur] 踰붿쐞 ?섎졃 媛以? 0=怨좎젙 w_heur(遺덈?).
-    int32_t clearance_radius, clearance_connectivity;  // connectivity: 0(湲곕낯=6) | 6 | 26
-    int32_t corridor_radius;         // ?뚮옉 ?쎌갹 諛섍꼍(?). 湲곕낯 1.
-    int32_t rack_level_count;        // rack_levels ?ъ슜 媛쒖닔(0~8).
-    int32_t rack_levels[8];          // ?좏샇 ??z-? ?몃뜳?? 理쒕? 8. ?대떦 ?덈꺼? ?뚮옉 硫댁젣.
+    double w_corridor;               // 회랑 바이어스 가중치(mm). 0=비활성(기존 동작). >0=기존설계 회랑 번들링.
+    double w_heur;                   // 휴리스틱 가중치(weighted A*). 0/1=표준 A*. >1=목표 지향 탐색, 시간 비최적.
+    double w_heur_near;              // 적응 가중(목표근처 수렴). (0,w_heur] 범위 수렴 가중. 0=고정 w_heur(불변).
+    int32_t clearance_radius, clearance_connectivity;  // connectivity: 0(기본=6) | 6 | 26
+    int32_t corridor_radius;         // 회랑 팽창 반경(셀). 기본 1.
+    int32_t rack_level_count;        // rack_levels 사용 개수(0~8).
+    int32_t rack_levels[8];          // 선호 랙 z-셀 인덱스, 최대 8. 해당 레벨은 회랑 면제.
 } R3dParams;
 
 typedef struct {
@@ -103,16 +104,26 @@ typedef struct {
 } R3dRuntimeOptions;
 
 typedef struct {
+    int32_t enabled;                // 0=off, nonzero=on.
+    int32_t level;                  // 0=summary, 1=standard, 2=detail.
+    int32_t sample_every;           // Expand/progress event interval. 0=default 1000.
+    int32_t include_occupancy;      // Write occupancy summary/header.
+    int32_t include_rejects;        // Reserved for detailed A* reject events.
+    int32_t include_postprocess;    // Write unkink/min-straight postprocess events.
+    int32_t max_events_per_task;    // 0=default 20000.
+} R3dTraceOptions;
+
+typedef struct {
     int32_t success;        // 1/0
-    double length_mm;       // 湲고븯 湲몄씠
+    double length_mm;       // 기하 길이
     double cost_mm;         // total cost including penalties
     int32_t turns;
     int64_t expanded_nodes;
     double elapsed_ms;
-    int32_t path_len;       // 寃쎈줈 ? ????r3d_copy_path 踰꾪띁 ?ш린 ?곗텧??
-    int32_t visited_len;    // 諛⑸Ц(?먯깋) ? ????r3d_copy_visited 踰꾪띁 ?ш린 ?곗텧?? 鍮꾪솢?깆씠硫?0.
-    // ?ㅽ뙣 ?댁쑀(A1) ??success=0 ???뚮쭔 ?좏슚. 援ъ“泥??앹뿉 異붽?(湲곗〈 ?몄텧 ?덉쟾).
-    // 0=None쨌1=StartBlocked쨌2=GoalBlocked쨌3=CorridorMiss쨌4=ExpansionLimit쨌5=GoalDirBlocked쨌6=NoPath.
+    int32_t path_len;       // 경로 셀 수 — r3d_copy_path 버퍼 크기 산출용.
+    int32_t visited_len;    // 방문(탐색) 셀 수 — r3d_copy_visited 버퍼 크기 산출용. 비활성이면 0.
+    // 실패 이유(A1) — success=0 일 때만 유효. 구조체 끝에 추가(기존 호출 안전).
+    // 0=None·1=StartBlocked·2=GoalBlocked·3=CorridorMiss·4=ExpansionLimit·5=GoalDirBlocked·6=NoPath.
     int32_t fail_reason;
 } R3dResult;
 
@@ -123,156 +134,166 @@ R3D_API R3dStatus r3d_load_scene_text(R3dEngine* e, const char* scene_text);
 R3D_API R3dStatus r3d_set_grid(R3dEngine* e, const R3dGrid* g);
 R3D_API R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p);
 R3D_API R3dStatus r3d_set_runtime_options(R3dEngine* e, const R3dRuntimeOptions* opt);
+R3D_API R3dStatus r3d_set_trace_options(R3dEngine* e, const R3dTraceOptions* opt);
+R3D_API R3dStatus r3d_set_trace_file(R3dEngine* e, const char* path_utf8);
+R3D_API R3dStatus r3d_flush_trace(R3dEngine* e);
 R3D_API R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, double minz,
                                    double maxx, double maxy, double maxz);
-// ?듦낵(pass-through) 媛앹껜 異붽?: ?먯쑀留?媛?쒗솕?? 寃쎈줈?먯깋 異⑸룎 ??곸씠 ?꾨떂.
+// 통과(pass-through) 객체 추가: 점유맵 가시화용, 경로탐색 충돌 대상이 아님.
 R3D_API R3dStatus r3d_add_passthrough(R3dEngine* e, double minx, double miny, double minz,
                                       double maxx, double maxy, double maxz);
-// ?묒뾽 異붽? ??task index(>=0) 諛섑솚, ?ㅽ뙣 ???뚯닔. utility/utility_group ? 鍮꾩슜 遺꾨쪟?먮쭔 ?ъ슜.
+// 작업 추가 — task index(>=0) 반환, 실패 시 음수. utility/utility_group 은 비용 분류에만 사용.
 R3D_API int32_t r3d_add_task(R3dEngine* e, double sx, double sy, double sz,
                              double gx, double gy, double gz,
                              const char* utility, const char* utility_group);
-// ?묒뾽 醫낅떒??媛깆떊(?명꽣?숉떚釉??ъ쭛).
+// 작업 종단점 갱신(인터랙티브 재집).
 R3D_API R3dStatus r3d_set_task_endpoints(R3dEngine* e, int32_t task,
                                          double sx, double sy, double sz,
                                          double gx, double gy, double gz);
-// ?묒뾽 愿寃?mm) ?ㅼ젙 ???곗꽑?쒖쐞 "diameter"/"utility" ?뺣젹?먯꽌 '援듭? 諛곌? 癒쇱?' ?④낵瑜??몃떎.
-// 誘몄꽕???먮뒗 0)?대㈃ 愿寃?臾댁떆(湲곗〈 嫄곕━ ?뺣젹怨??숈씪). route_multi/route_corridor_multi/route_ripup 怨듯넻.
+// 작업 관경(mm) 설정 — 우선순위 "diameter"/"utility" 정렬에서 '굵은 배관 먼저' 효과를 낸다.
+// 미설정(또는 0)이면 관경 무시(기존 거리 정렬과 동일). route_multi/route_corridor_multi/route_ripup 공통.
 R3D_API R3dStatus r3d_set_task_diameter(R3dEngine* e, int32_t task, double diameter_mm);
-// ?묒뾽 紐⑺몴 吏꾩엯異??쒖빟(axis = NEIGHBORS_6 ?몃뜳??0..5 = +x,-x,+y,-y,+z,-z).
-// A* 媛 紐⑺몴(end_mm)??洹?諛⑺뼢?쇰줈 吏꾩엯?댁빞留??꾨떖 ?몄젙. ?뺥듃 醫낅떒 ?ㅽ뀅 由щ뱶??異뺤쓣 二쇰㈃ 諛곌????쇱쭅??吏꾩엯.
-// 留됲엳硫?臾댁젣??1???대갚(?곌껐 ?곗꽑). axis 媛 [0,5] 諛??먮뒗 誘몄꽕?뺤씠硫?-1(臾댁젣??, 湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?.
+// 작업 목표 진입축 제약(axis = NEIGHBORS_6 인덱스 0..5 = +x,-x,+y,-y,+z,-z).
+// A* 가 목표(end_mm)에 그 방향으로 진입해야만 도달 인정. 덕트 종단 스텁 리드인 축을 주면 배관이 일직선 진입.
+// 막히면 무제약 1회 폴백(연결 우선). axis 가 [0,5] 밖 또는 미설정이면 -1(무제약), 기존 동작·골든 불변.
 R3D_API R3dStatus r3d_set_task_goal_dir(R3dEngine* e, int32_t task, int32_t axis);
 
-// Route all tasks sequentially according to priority.
-R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);
-R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // ?⑥씪(?μ븷臾??꾩슜)
+// 라우팅
+R3D_API R3dStatus r3d_route_multi(R3dEngine* e, const char* priority);  // 전체 순차(충돌없음)
+R3D_API R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out);  // 단일(장애물 전용)
 
-// ?숈뒿???뚮옉 ?(ijk ?쇱쨷媛?諛곗뿴, 湲몄씠 n)???ㅼ젙?쒕떎(L2b ?뚰봽??諛붿씠?댁뒪). w_corridor>0(set_params)?대㈃
-// route_multi 媛 ????ㅼ쓣 ?뚮옉 蹂댁긽?쇰줈 ?쇱븘 諛곌???洹?怨곸쑝濡??좊룄(湲곗〈?ㅺ퀎 ?ㅽ뀅/???곸뿉 ?곕씪媛湲?.
-// n<=0 ?대굹 ijk==NULL ?대㈃ ?뚮옉??鍮꾩슫??湲곗〈 ?숈옉). ? 醫뚰몴???꾩옱 寃⑹옄(set_grid) 湲곗? (i,j,k).
+// 학습된 회랑 셀(ijk 삼중값 배열, 길이 n)을 설정한다(L2b 소프트 바이어스). w_corridor>0(set_params)이면
+// route_multi 가 이 셀들을 회랑 보상으로 삼아 배관을 그 곁으로 유도(기존설계 스텁/랙 상에 따라가기).
+// n<=0 이나 ijk==NULL 이면 회랑을 비운다(기존 동작). 셀 좌표는 현재 격자(set_grid) 기준 (i,j,k).
 R3D_API R3dStatus r3d_set_corridor_cells(R3dEngine* e, const int32_t* ijk, int32_t n);
 
-// ?쇱슦??吏꾪뻾 肄쒕갚(cdecl). 酉곗뼱 吏꾪뻾 ?ㅼ씠?쇰줈洹몄슜 ??泥섎━ ?쒖꽌쨌?꾩껜/媛쒕퀎 吏꾪뻾?꽷룹꽦怨??ㅽ뙣쨌吏?쑣룰꼍濡쒕?
-// ?ㅼ떆媛꾩뿉 ?뚮┛?? ABI ?덉쟾: ?쇱슦?낃낵 媛숈? ?ㅻ젅?쒖뿉?쒕쭔 ?몄텧. 肄쒕갚 ?덉쇅??寃쎄퀎瑜??섍린吏 留?寃?
-//   user         : ?몄뒪??而⑦뀓?ㅽ듃 ?ъ씤??洹몃?濡??ш퀬 ?ㅻ떂).
-//   phase        : 0=?먯깋 吏꾪뻾(泥섎━?곹깭 %), 1=諛곌? ?꾨즺(寃곌낵 吏??+ 寃쎈줈).
-//   order_index  : 泥섎━ ?쒖꽌(0遺?? priority ?뺣젹 湲곗?).
-//   task_index   : ?먮낯 ?묒뾽 ?몃뜳??get_result ? ?숈씪 留ㅽ븨).
-//   success      : phase==1 ?먯꽌留??좏슚(1/0).
-//   length_mm/turns/expanded_nodes/elapsed_ms : phase==1 ??寃곌낵 吏??phase==0 ? expanded 留??좏슚).
-//   done/total   : 吏꾪뻾瑜?done = ?꾨즺 諛곌? ?? total = ?꾩껜).
-//   progress01   : phase==0 ???먯깋 吏꾪뻾??0~1(?대━?ㅽ떛 洹쇱젒 湲곕컲). phase==1 ?대㈃ 1.0.
-//   path_ijk/path_len : phase==1 ?깃났 ??寃쎈줈 ?((i,j,k) ?곗냽, path_len 媛?. ?놁쑝硫?NULL/0.
-//                       ?ъ씤?곕뒗 肄쒕갚 ?몄텧 ?덉뿉?쒕쭔 ?좏슚 ??利됱떆 蹂듭궗??寃?
-//   諛섑솚媛?      : 0=怨꾩냽, 0 ?꾨떂=痍⑥냼(abort). ?먯깋 以?phase 0, ??5留??뺤옣留덈떎)쨌諛곌? ?꾨즺(phase 1)
-//                  留덈떎 寃?ы븯誘濡??몄뒪?멸? 痍⑥냼瑜??붿껌?섎㈃ ?꾩옱 諛곌? ?먯깋??利됱떆 以묐떒?섍퀬
-//                  ?욎꽌 諛곌?? 泥섎━?섏? ?딆? 梨꾨줈 route_multi_progress 媛 R3D_OK 瑜??ъ쟾??諛섑솚?쒕떎
-//                  (?대? ?꾨즺??諛곌? 寃곌낵??蹂댁〈). ?묐젰??cooperative) 痍⑥냼.
+// 라우팅 진행 콜백(cdecl). 뷰어 진행 다이얼로그용 — 처리 순서·전체/개별 진행도·성공/실패·지표·경로를
+// 실시간에 알린다. ABI 안전: 라우팅과 같은 스레드에서만 호출. 콜백 예외는 경계를 넘기지 말 것.
+//   user         : 호스트 컨텍스트 포인터(그대로 달고 다님).
+//   phase        : 0=탐색 진행(처리상태 %), 1=배관 완료(결과 지표 + 경로).
+//   order_index  : 처리 순서(0부터, priority 정렬 기준).
+//   task_index   : 원본 작업 인덱스(get_result 와 동일 매핑).
+//   success      : phase==1 에서만 유효(1/0).
+//   length_mm/turns/expanded_nodes/elapsed_ms : phase==1 시 결과 지표(phase==0 은 expanded 만 유효).
+//   done/total   : 진행률(done = 완료 배관 수, total = 전체).
+//   progress01   : phase==0 시 탐색 진행도 0~1(휴리스틱 근접 기반). phase==1 이면 1.0.
+//   path_ijk/path_len : phase==1 성공 시 경로 셀((i,j,k) 연속, path_len 개). 없으면 NULL/0.
+//                       포인터는 콜백 호출 안에서만 유효 — 즉시 복사할 것.
+//   반환값       : 0=계속, 0 아님=취소(abort). 탐색 중(phase 0, 약 5만 확장마다)·배관 완료(phase 1)
+//                  마다 검사하므로 호스트가 취소를 요청하면 현재 배관 탐색을 즉시 중단하고
+//                  앞서 배관은 처리하지 않은 채로 route_multi_progress 가 R3D_OK 를 여전히 반환한다
+//                  (이미 완료된 배관 결과는 보존). 협력적(cooperative) 취소.
 typedef int32_t(__cdecl* R3dProgressFn)(void* user, int32_t phase, int32_t order_index,
                                         int32_t task_index, int32_t success, double length_mm,
                                         int32_t turns, int64_t expanded_nodes, double elapsed_ms,
                                         int32_t done, int32_t total, double progress01,
                                         const int32_t* path_ijk, int32_t path_len);
-// r3d_route_multi ? ?숈씪(?쒖감쨌異⑸룎?놁쓬)?대릺 諛곌?留덈떎 cb 瑜??몄텧?쒕떎. cb 媛 null?대㈃ 肄쒕갚 ?놁씠 ?숈옉.
+// r3d_route_multi 와 동일(순차·충돌없음)이되 배관마다 cb 를 호출한다. cb 가 null이면 콜백 없이 동작.
 R3D_API R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
                                            void* user);
 
-// rip-up & reroute(Step 3.8): ?쒖감 踰좎씠?ㅻ씪???댄썑 留됲엺 諛곌???'媛濡쒕쭑? 湲곗〈 諛곌?'??// ?щ같移섑빐 ?댁냼?쒕떎. 臾댁넀??梨꾪깮(?깃났 +1) 寃곗젙???뚭퀬由ъ쬁. 寃곌낵???먮낯 ?묒뾽
-// ?몃뜳?ㅻ퀎濡?蹂댁〈(get_result/copy_path 留ㅽ븨 ?좎?). 0=?ㅽ뙣 ?묒뾽 ?놁쓬 ?몄뿉???곹깭肄붾뱶.
-//   max_rounds : ?쇱슫???곹븳.  max_ripup : ??踰덉뿉 ?щ같移섑븷 諛곌? ???곹븳.
+// rip-up & reroute(Step 3.8): 순차 베이스라인 이후 막힌 배관을 '가로막은 기존 배관'을
+// 재배치해 해소한다. 무손실 채택(성공 +1) 결정적 알고리즘. 결과는 원본 작업
+// 인덱스별로 보존(get_result/copy_path 매핑 유지). 0=실패 작업 없음 외에는 상태코드.
+//   max_rounds : 라운드 상한.  max_ripup : 한 번에 재배치할 배관 수 상한.
 R3D_API R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t max_rounds,
                                   int32_t max_ripup);
 
-// 怨꾩링 corridor ?쇱슦???⑥씪, 媛쒕퀎). Sparse ?먯쑀 + coarse 媛?대뱶?뭚ine tube(astar_hashed,
-// ?댁떆 湲곕컲) ??8,000m 湲?珥덈???寃⑹옄?먯꽌 諛곗뿴 ?좊떦 ?놁씠 ?숈옉. ?묒뾽蹂??낅┰(異⑸룎 ?뚰뵾 ?놁쓬).
-//   factor : coarse/fine ? 鍮꾩쑉(湲곕낯 16).  radius : corridor ?쎌갹 諛섍꼍(coarse ?).
-// 鍮꾩슜?⑥닔(?꾪솚/?대━?대윴???щ떇) 誘몄쟻????洹좎씪 鍮꾩슜. 寃곌낵???묒뾽 ?몃뜳?ㅻ퀎濡?蹂댁〈.
+// 계층 corridor 라우팅(단일, 개별). Sparse 점유 + coarse 가이드→fine tube(astar_hashed,
+// 해시 기반) — 8,000m 급 초대형 격자에서 배열 할당 없이 동작. 작업별 독립(충돌 회피 없음).
+//   factor : coarse/fine 셀 비율(기본 16).  radius : corridor 팽창 반경(coarse 셀).
+// 비용함수(전환/클리어런스/러닝) 미적용 — 균일 비용. 결과는 작업 인덱스별로 보존.
 R3D_API R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t radius);
 
-// ?쒖감 怨꾩링 corridor ?쇱슦?????寃⑹옄 + 諛곌? 媛?異⑸룎 ?뚰뵾). r3d_route_corridor ? ?숈씪 ?붿쭊.
-// Sparse + astar_hashed(?댁떆 湲곕컲, ??? 諛곗뿴 誘명븷???대릺, priority ?쒖꽌濡?諛곌????쇱슦?낇븯怨?// 源붾┛ 寃쎈줈瑜?mark_pipe(pipe_radius) 濡??먯쑀 異붽????ㅼ쓬 諛곌???洹멸쾬???쇳븯?꾨줉 ?쒕떎(異⑸룎 0).
-//   factor : coarse/fine ? 鍮꾩쑉.  radius : corridor ?쎌갹 諛섍꼍(coarse ?).
-//   priority : "longest"|"shortest"|"utility"|"original".  pipe_radius : 源붾┛ 諛곌? ?쎌갹 諛섍꼍(fine ?).
-// 鍮꾩슜?⑥닔(?꾪솚/?대━?대윴???щ떇) 誘몄쟻????洹좎씪 鍮꾩슜. 寃곌낵???묒뾽 ?몃뜳?ㅻ퀎濡?蹂댁〈.
+// 순차 계층 corridor 라우팅(대형 격자 + 배관 간 충돌 회피). r3d_route_corridor 와 동일 엔진.
+// Sparse + astar_hashed(해시 기반, 전 셀 배열 미할당)이되, priority 순서로 배관을 라우팅하고
+// 깔린 경로를 mark_pipe(pipe_radius) 로 점유 추가해 다음 배관이 그것을 피하도록 한다(충돌 0).
+//   factor : coarse/fine 셀 비율.  radius : corridor 팽창 반경(coarse 셀).
+//   priority : "longest"|"shortest"|"utility"|"original".  pipe_radius : 깔린 배관 팽창 반경(fine 셀).
+// 비용함수(전환/클리어런스/러닝) 미적용 — 균일 비용. 결과는 작업 인덱스별로 보존.
 R3D_API R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int32_t radius,
                                            const char* priority, int32_t pipe_radius);
 
-// 寃곌낵/寃쎈줈 議고쉶.
+// 결과/경로 조회.
 R3D_API R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out);
-// 寃쎈줈 ???buf(int32_t[3*buf_cells], (i,j,k) ?곗냽)??蹂듭궗. 諛섑솚=?ㅼ젣 蹂듭궗??? ??
+// 경로 셀을 buf(int32_t[3*buf_cells], (i,j,k) 연속)에 복사. 반환=실제 복사된 셀 수.
 R3D_API int32_t r3d_copy_path(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells);
-// 諛⑸Ц(?먯깋) ???buf ??蹂듭궗(媛?쒗솕 '諛⑸Ц留?). 諛섑솚=?ㅼ젣 蹂듭궗??? ?? 鍮꾪솢??誘몄쭛怨꾨㈃ 0.
+// 방문(탐색) 셀을 buf 에 복사(가시화 '방문맵'). 반환=실제 복사된 셀 수. 비활성/미집계면 0.
 R3D_API int32_t r3d_copy_visited(const R3dEngine* e, int32_t task, int32_t* buf, int32_t buf_cells);
 
-// 諛⑸Ц ? 吏묎퀎 on/off (湲곕낯 on=1). off ?대㈃ 諛⑸Ц留??놁씠 ?쇱슦????visited_len=0, copy_visited=0.
-// 酉곗뼱 諛⑸Ц留??④퀎?먯깋 鍮꾪솢????硫붾え由??덉빟???좎슜 ??誘몃━ 0 ?쇰줈 ?ㅼ젙 ???쇱슦?낇븳??
+// 방문 셀 집계 on/off (기본 on=1). off 이면 방문맵 없이 라우팅 — visited_len=0, copy_visited=0.
+// 뷰어 방문맵/단계탐색 비활성 시 메모리 절약에 유용 — 미리 0 으로 설정 후 라우팅한다.
 R3D_API R3dStatus r3d_set_collect_visited(R3dEngine* e, int32_t enabled);
 
-// 諛곌? ?먯쑀 ?쎌갹 諛섍꼍(?) ?ㅼ젙 ??諛곌?-諛곌? 異⑸룎 ?뚰뵾(?듭뀡1). route_multi(_progress) 媛 源붾┛ 諛곌???// 寃쎈줈 짹radius 6-?댁썐源뚯? ?먯쑀濡?留됱븘 ?ㅼ쓬 諛곌? 以묒떖?좎쓣 洹몃쭔???꾩슫???ㅼ젣 愿寃쎈낫????踰뚮━硫?寃뱀묠 諛⑹?).
-// 0=湲곗〈 ?숈옉(寃쎈줈 ?留?. env R3D_PIPE_RADIUS 濡쒕룄 ?ㅼ젙 媛?? ?뚯닔??0 ?쇰줈 ?대옩??
+// 배관 점유 팽창 반경(셀) 설정 — 배관-배관 충돌 회피(옵션1). route_multi(_progress) 가 깔린 배관의
+// 경로 ±radius 6-이웃까지 점유로 막아 다음 배관 중심선을 그만큼 띄운다(실제 관경보다 더 벌리면 겹침 방지).
+// 0=기존 동작(경로 셀만). env R3D_PIPE_RADIUS 로도 설정 가능. 음수는 0 으로 클램프.
 R3D_API R3dStatus r3d_set_pipe_radius(R3dEngine* e, int32_t radius_cells);
 
-// per-task 愿寃?諛섍꼍(B1) ?쒖꽦?? enabled!=0 ?대㈃ route_multi(_progress) 媛 媛?諛곌???diameter_mm ? cell_mm
-// 濡?留덊궧 諛섍꼍???먮룞 ?곗텧(radius = clamp(ceil(d/cell)-1, 0, 8)). ?곗텧??湲濡쒕쾶 pipe_radius ?곗텧 梨낆엫??// ?쒓굅?섍퀬, 媛??諛곌???援듭? 諛곌? 諛섍꼍?쇰줈 怨쇳뙣?밸릺??臾몄젣瑜??댁냼?쒕떎. 愿寃?誘몄긽(0)쨌OFF?대㈃ 湲濡쒕쾶 pipe_radius
-// ?대갚(湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?). env R3D_PER_TASK_RADIUS 濡쒕룄 以????덈떎(?ㅻ뱶由ъ뒪 A/B).
+// per-task 관경 반경(B1) 활성화. enabled!=0 이면 route_multi(_progress) 가 각 배관의 diameter_mm 와 cell_mm
+// 로 마킹 반경을 자동 산출(radius = clamp(ceil(d/cell)-1, 0, 8)). 산출된 글로벌 pipe_radius 산출 책임을
+// 제거하고, 가는 배관이 굵은 배관 반경으로 과패킹되던 문제를 해소한다. 관경 미상(0)·OFF이면 글로벌 pipe_radius
+// 폴백(기존 동작·골든 불변). env R3D_PER_TASK_RADIUS 로도 줄 수 있다(헤드리스 A/B).
 R3D_API R3dStatus r3d_set_per_task_radius(R3dEngine* e, int32_t enabled);
 
-// C1 negotiated-congestion(CBS-lite, Phase C) 源딆씠 ?ㅼ젙. 0=OFF(?됰㈃ rip-up留뙿룰린蹂??숈옉쨌怨⑤뱺 遺덈?). >0 ?대㈃
-// ?됰㈃ rip-up ?쇰줈???닿껐?섏? ?딅뒗 ?ㅽ뙣 諛곌???blocker 媛 ?щ같移섎? 紐??섎㈃ 洹?blocker ??blocker 源뚯? ?대떦 源딆씠留뚰겮
-// ?뚭퀬?ㅼ뼱 ?묐낫?쒖폒 ?댁냼?쒕떎(conflict-based search 寃쎈웾??. 臾댁넀?ㅒ룰껐?뺤쟻. [0,3] ?대옩?? env R3D_CBS 濡?媛??
+// C1 negotiated-congestion(CBS-lite, Phase C) 깊이 설정. 0=OFF(평면 rip-up만·기본 동작·골든 불변). >0 이면
+// 평면 rip-up 으로도 해결되지 않는 실패 배관의 blocker 가 재배치를 못 하면 그 blocker 의 blocker 까지 해당 깊이만큼
+// 파고들어 양보시켜 해소한다(conflict-based search 경량판). 무손실·결정적. [0,3] 클램프. env R3D_CBS 로 가능.
 R3D_API R3dStatus r3d_set_cbs_depth(R3dEngine* e, int32_t depth);
 
-// C2 肄붾꼫 理쒖냼諛섍꼍 諛곗닔(Phase C) ?ㅼ젙. ?섎낫 ?ъ씠 吏곸꽑(?④?)??(mult 횞 愿寃? 誘몃쭔?대㈃ ?쒖옉 遺덇?(吏㏃? ?④?) ??// 寃쎈줈(?) ?④퀎?먯꽌 異⑸룎寃???섏뿉 ?몄젒 ??肄붾꼫瑜?吏곴탳 ?⑹튂湲곕줈 ?≪닔?쒕떎(爰얠엫 鍮꾩쬆媛???뚮쭔, ???앹젏 怨좎젙).
-// 0=OFF(湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?). 沅뚯옣 2.0(?섎낫 媛?吏곸꽑 ??2횞愿寃?. env R3D_MIN_STRAIGHT 濡?媛??
+// C2 코너 최소반경 배수(Phase C) 설정. 엘보 사이 직선(단관)이 (mult × 관경) 미만이면 제작 불가(짧은 단관) —
+// 경로(셀) 단계에서 충돌검사 하에 인접 두 코너를 직교 합치기로 흡수한다(꺾임 비증가일 때만, 양 끝점 고정).
+// 0=OFF(기존 동작·골든 불변). 권장 2.0(엘보 간 직선 ≥ 2×관경). env R3D_MIN_STRAIGHT 로 가능.
 R3D_API R3dStatus r3d_set_min_straight(R3dEngine* e, double mult);
 
-// 肄붾꼫 理쒖냼吏곸꽑(?덈? mm, ?섎뱶 ?쒖빟). >0 ?대㈃ A* ?먯깋??'??踰?爰얠씤 ????湲몄씠留뚰겮 吏곸쭊?섍린 ?꾩뿏 ?ㅼ떆
-// 爰얠? 紐삵븯?꾨줉' 媛뺤젣?쒕떎 ???섎낫 媛?紐⑤뱺 吏곸꽑 援ш컙(?④?) ????湲몄씠. r3d_set_min_straight(愿寃?諛곗닔쨌?꾩쿂由?// ?≪닔)? ?щ━ ?먯깋 ?④퀎???섎뱶 蹂댁옣?대ŉ 愿寃?臾닿?쨌??諛곌? ?곸슜(紐⑺몴 吏곸쟾 留덉?留??묒냽 援ш컙留?硫댁젣). ?濡쒕뒗
-// ceil(mm/cell) 濡??섏궛. 0=OFF(湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?). env R3D_MIN_STRAIGHT_MM ?쇰줈 ?ъ젙?? 沅뚯옣 100mm.
+// 코너 최소직선(절대 mm, 하드 제약). >0 이면 A* 탐색이 '한 번 꺾인 뒤 이 길이만큼 직진하기 전엔 다시
+// 꺾지 못하도록' 강제한다 → 엘보 간 모든 직선 구간(단관) ≥ 이 길이. r3d_set_min_straight(관경 배수·후처리
+// 흡수)와 달리 탐색 단계의 하드 보장이며 관경 무관·전 배관 적용(목표 직전 마지막 접속 구간만 면제). 셀로는
+// ceil(mm/cell) 로 환산. 0=OFF(기존 동작·골든 불변). env R3D_MIN_STRAIGHT_MM 으로 재정의. 권장 100mm.
 R3D_API R3dStatus r3d_set_min_straight_mm(R3dEngine* e, double mm);
 
-// 諛곌?-諛곌? ?닿꺽(mm) ?ㅼ젙 ????諛곌? ?쇳꽣??嫄곕━ ??r1 + r2 + gap_mm 蹂댁옣(?쒕㈃ ?닿꺽 理쒖냼 gap_mm ?댁긽).
-// 湲곗〈 留덊궧? ?쇳꽣?좎쓣 ~愿寃?d)留뚰겮留??꾩썙 ?쒕㈃??留욌떯?섎떎(寃뱀퀜 蹂댁엫). gap>0 ?대㈃ route_multi 硫붿씤 猷⑦봽媛
-// 源붾┛ 諛곌???'routing 諛곌? 湲곗? ?쎌갹 諛섍꼍 = ceil((r_a+r_b+gap)/cell)'?쇰줈 留됱븘 ?뺥솗??r_a+r_b+gap ?닿꺽??// 蹂댁옣?쒕떎(per-pipe 援ы쁽). 0=OFF(湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?). 洹쒓꺽 沅뚯옣 60mm. env R3D_PIPE_GAP.
+// 배관-배관 이격(mm) 설정 — 두 배관 센터선 거리 ≥ r1 + r2 + gap_mm 보장(표면 이격 최소 gap_mm 이상).
+// 기존 마킹은 센터선을 ~관경(d)만큼만 띄워 표면이 맞닿았다(겹쳐 보임). gap>0 이면 route_multi 메인 루프가
+// 깔린 배관을 'routing 배관 기준 팽창 반경 = ceil((r_a+r_b+gap)/cell)'으로 막아 정확히 r_a+r_b+gap 이격을
+// 보장한다(per-pipe 구현). 0=OFF(기존 동작·골든 불변). 규격 권장 60mm. env R3D_PIPE_GAP.
 R3D_API R3dStatus r3d_set_pipe_gap(R3dEngine* e, double gap_mm);
 
-// ?먯쑀(釉붾줉???) ?몃뜳?ㅻ? buf ??蹂듭궗(媛?쒗솕 '?먯쑀留?). ?꾩옱 doc ??obstacles 瑜?利됱꽍 voxelize.
-// 諛섑솚=?ㅼ젣 蹂듭궗??? ?? buf_cells 媛 遺議깊븯硫?泥섏쓬 buf_cells 媛쒕쭔 蹂듭궗?섍퀬 洹몃쭔?붾떎.
-// 珥?釉붾줉 ? ?섎? 誘몃━ ?뚮젮硫?buf=NULL, buf_cells=0 ?쇰줈 ?몄텧(珥???諛섑솚).
-// [二쇱쓽] ????뚮옖???섏뼲 ?)?먯꽌 ?꾩껜 蹂듭궗??硫붾え由??쒓컙 ??컻 ?꾪뿕.
-//        UI 誘몃━蹂닿린?먮뒗 r3d_copy_blocked_sampled ?ъ슜 沅뚯옣.
+// 점유(블록된 셀) 인덱스를 buf 에 복사(가시화 '점유맵'). 현재 doc 의 obstacles 를 즉석 voxelize.
+// 반환=실제 복사된 셀 수. buf_cells 가 부족하면 처음 buf_cells 개만 복사하고 그만둔다.
+// 총 블록 셀 수를 미리 알려면 buf=NULL, buf_cells=0 으로 호출(총 수 반환).
+// [주의] 대형 플랜트(수억 셀)에서 전체 복사는 메모리/시간 폭발 위험.
+//        UI 미리보기에는 r3d_copy_blocked_sampled 사용 권장.
 R3D_API int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t buf_cells);
 
-// ???寃⑹옄 ?쒓컖?붿슜 ??blocked cell ??理쒕? max_cells 媛?洹좎씪 ?섑뵆留곹빐 buf ??蹂듭궗.
-// ?꾩껜 媛쒖닔??r3d_copy_blocked(e, NULL, 0) 濡?議고쉶.
-// 諛섑솚=?ㅼ젣 蹂듭궗 ? ???쨗ax_cells). max_cells?? ?먮뒗 buf=NULL ?대㈃ 0 諛섑솚.
-// ????뚮옖???섏뼲 ?)?먯꽌 r3d_copy_blocked ?꾩껜 ?붿껌 ??????⑥닔濡??쒗븳???섎? 諛쏅뒗??
+// 대형 격자 시각화용 — blocked cell 을 최대 max_cells 개 균일 샘플링해 buf 에 복사.
+// 전체 개수는 r3d_copy_blocked(e, NULL, 0) 로 조회.
+// 반환=실제 복사 셀 수(≤max_cells). max_cells≤0 또는 buf=NULL 이면 0 반환.
+// 대형 플랜트(수억 셀)에서 r3d_copy_blocked 전체 요청 대신 이 함수로 제한된 수를 받는다.
 R3D_API int32_t r3d_copy_blocked_sampled(const R3dEngine* e, int32_t max_cells, int32_t* buf);
 
-// ?듦낵 媛앹껜 ?먯쑀 ? ?몃뜳?ㅻ? buf ??蹂듭궗(媛?쒗솕 '?듦낵 ?먯쑀留?). r3d_copy_blocked ? ?숈씪 洹쒖빟.
+// 통과 객체 점유 셀 인덱스를 buf 에 복사(가시화 '통과 점유맵'). r3d_copy_blocked 와 동일 규약.
 R3D_API int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_t buf_cells);
 
-// ?꾩옱 ?곹깭瑜?scene ?띿뒪??UTF-8)濡??ㅽ봽(Python ?붾쾭嫄?援먯감寃利?. out_text ???댁젣 ?꾩슂.
+// 현재 상태를 scene 텍스트(UTF-8)로 덤프(Python 디버거 교차검증). out_text 는 해제 필요.
 R3D_API R3dStatus r3d_dump_scene_text(const R3dEngine* e, char** out_text);
 
-// ---- 媛蹂? ?ν듃由??쇱슦??----
-// ?μ븷臾?AABB 瑜??ν듃由щ줈 ?됱씤?섍퀬 ?먯쑀怨듦컙?먯꽌 ????????踰덉뿉 ?먰봽?섎뒗
-// ?곸쓳??A* 濡??⑥씪 諛곌????먯깋?쒕떎. 10mm ?댄븯 誘몄꽭寃⑹옄 理쒕떒寃쎈줈???좊━.
-// task: r3d_add_task ?몃뜳?? max_exp: ?먯깋 ?곹븳(0=臾댁젣??.
-// goal_dir: 吏꾩엯異?-1=臾댁젣?? 0..5=NEIGHBORS_6). out: 寃곌낵 POD.
+// ---- 가변셀 옥트리 라우팅 ----
+// 장애물 AABB 를 옥트리로 색인하고 자유공간에서 대형 셀을 한 번에 점프하는
+// 적응형 A* 로 단일 배관을 탐색한다. 10mm 이하 미세격자 최단경로에 유리.
+// task: r3d_add_task 인덱스. max_exp: 탐색 상한(0=무제한).
+// goal_dir: 진입축(-1=무제약, 0..5=NEIGHBORS_6). out: 결과 POD.
 R3D_API R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
                                         int64_t max_exp, int32_t goal_dir,
                                         R3dResult* out);
 
-// ---- ?ν듃由?由ы봽 ?닿굅 (3D 媛?쒗솕?? ----
-// ?붿쭊??濡쒕뱶????臾몄꽌濡??ν듃由щ? 鍮뚮뱶?섍퀬 紐⑤뱺 由ы봽 ?몃뱶瑜?buf ??梨꾩슫??
-// x0_mm/y0_mm/z0_mm: 由ы봽 ?먯젏(mm). size_mm: 由ы봽 ??蹂 ?ш린(mm). state: 0=FREE, 1=BLOCKED.
-// buf: ?몄텧???좊떦 諛곗뿴(maxCount). *out_count: ?ㅼ젣 梨꾩슫 媛쒖닔.
-// R3D_ERR_ARG: e=null / scene 誘몃줈??/ buf=null / maxCount<=0
+// ---- 옥트리 리프 열거 (3D 가시화용) ----
+// 엔진에 로드된 씬 문서로 옥트리를 빌드하고 모든 리프 노드를 buf 에 채운다.
+// x0_mm/y0_mm/z0_mm: 리프 원점(mm). size_mm: 리프 한 변 크기(mm). state: 0=FREE, 1=BLOCKED.
+// buf: 호출자 할당 배열(maxCount). *out_count: 실제 채운 개수.
+// R3D_ERR_ARG: e=null / scene 미로드 / buf=null / maxCount<=0
 typedef struct {
-    float x0_mm, y0_mm, z0_mm;   // 由ы봽 ?먯젏 (world mm)
-    float size_mm;                 // 由ы봽 ??蹂 ?ш린 (mm)
+    float x0_mm, y0_mm, z0_mm;   // 리프 원점 (world mm)
+    float size_mm;                 // 리프 한 변 크기 (mm)
     int32_t state;                 // 0=FREE, 1=BLOCKED
 } R3dOctreeLeaf;
 
@@ -285,4 +306,3 @@ R3D_API R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
 #endif
 
 #endif  // ROUTING3D_CAPI_H
-
