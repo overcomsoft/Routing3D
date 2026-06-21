@@ -1,9 +1,9 @@
-// Routing3D C ABI P/Invoke 선언 (routing3d_capi.dll) — C# 뷰어
+// Routing3D C ABI P/Invoke ?�언 (routing3d_capi.dll) ??C# 뷰어
 // =============================================================================
-// [이 파일이 하는 일]
-//   cpp/capi/routing3d_capi.h 의 C ABI 를 .NET 에서 호출하기 위한 P/Invoke 선언.
-//   문자열은 모두 UTF-8 바이트(byte[])로 전달한다(한글 이름 안전 — ANSI 마샬링 금지).
-//   설계: docs/csharp_helix_interop_design.md §4.
+// [???�일???�는 ??
+//   cpp/capi/routing3d_capi.h ??C ABI �?.NET ?�서 ?�출?�기 ?�한 P/Invoke ?�언.
+//   문자?��? 모두 UTF-8 바이??byte[])�??�달?�다(?��? ?�름 ?�전 ??ANSI 마샬�?금�?).
+//   ?�계: docs/csharp_helix_interop_design.md §4.
 // =============================================================================
 using System;
 using System.Runtime.InteropServices;
@@ -13,11 +13,11 @@ namespace Routing3D.Viewer.Interop
 {
     internal static class Native
     {
-        // routing3d_capi.dll (앱 출력 폴더에 복사됨). 확장자 없이 적으면 OS 가 .dll 을 붙인다.
+        // routing3d_capi.dll (??출력 ?�더??복사??. ?�장???�이 ?�으�?OS 가 .dll ??붙인??
         private const string Dll = "routing3d_capi";
         private const CallingConvention Cdecl = CallingConvention.Cdecl;
 
-        // R3dGrid (blittable, C 헤더와 1:1).
+        // R3dGrid (blittable, C ?�더?� 1:1).
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dGrid
         {
@@ -26,19 +26,19 @@ namespace Routing3D.Viewer.Interop
             public int nx, ny, nz;
         }
 
-        // R3dParams (blittable, C 헤더와 1:1).
+        // R3dParams (blittable, C ?�더?� 1:1).
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dParams
         {
             public double cell_mm, w_turn, w_clear;
-            public double w_corridor;            // 회랑 밖 셀 가산 mm. 0=비활성(기존 동작).
-            public double w_heur;                // 휴리스틱 가중(weighted A*). 0/1=표준, >1=목표 지향.
-            public double w_heur_near;           // 동적 가중 목표근처 값. (0,w_heur)=수렴 가중, 0=정적.
+            public double w_corridor;            // ?�랑 �??� 가??mm. 0=비활??기존 ?�작).
+            public double w_heur;                // ?�리?�틱 가�?weighted A*). 0/1=?��?, >1=목표 지??
+            public double w_heur_near;           // ?�적 가�?목표근처 �? (0,w_heur)=?�렴 가�? 0=?�적.
             public int clearance_radius, clearance_connectivity;
-            public int corridor_radius;          // 회랑 성장 반경(셀).
-            public int rack_level_count;         // rack_levels 사용 개수(0~8).
+            public int corridor_radius;          // ?�랑 ?�장 반경(?�).
+            public int rack_level_count;         // rack_levels ?�용 개수(0~8).
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-            public int[] rack_levels;            // 선호 단(z셀 인덱스), 최대 8.
+            public int[] rack_levels;            // ?�호 ??z?� ?�덱??, 최�? 8.
         }
 
         // R3dResult (blittable).
@@ -52,25 +52,25 @@ namespace Routing3D.Viewer.Interop
             public long expanded_nodes;
             public double elapsed_ms;
             public int path_len;
-            public int visited_len;   // 방문(확장) 셀 수 — '방문맵' 가시화 용. 비활성 시 0.
-            public int fail_reason;   // 실패 사유(A1) — success=0 일 때만. 0~6(RouteFail). 구조체 끝 추가.
+            public int visited_len;   // 방문(?�장) ?� ????'방문�? 가?�화 ?? 비활????0.
+            public int fail_reason;   // ?�패 ?�유(A1) ??success=0 ???�만. 0~6(RouteFail). 구조�???추�?.
         }
 
         // ---- 공통 ----
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern IntPtr r3d_version();
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern void r3d_free_string(IntPtr s);
 
-        // ---- Level 1: 문자열 ABI ----
+        // ---- Level 1: 문자??ABI ----
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_route_scene_text(byte[] sceneUtf8, byte[] modeUtf8,
                                                       byte[] priorityUtf8, out IntPtr outScene);
 
-        // ---- Level 2: 핸들 ABI ----
+        // ---- Level 2: ?�들 ABI ----
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern IntPtr r3d_create();
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern void r3d_destroy(IntPtr e);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_load_scene_text(IntPtr e, byte[] sceneUtf8);
 
-        // R3dRuntimeOptions (blittable, C 헤더 R3dRuntimeOptions 와 1:1). 0 필드=엔진 기본값 사용.
+        // R3dRuntimeOptions (blittable, C ?�더 R3dRuntimeOptions ?� 1:1). 0 ?�드=?�진 기본�??�용.
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dRuntimeOptions
         {
@@ -115,19 +115,19 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_set_task_endpoints(IntPtr e, int task, double sx, double sy,
                                                        double sz, double gx, double gy, double gz);
-        // 작업 관경(mm) — 우선순위 "diameter"/"utility" 의 '굵은 배관 먼저' 정렬 키. 0=관경 무시.
+        // ?�업 관�?mm) ???�선?�위 "diameter"/"utility" ??'굵�? 배�? 먼�?' ?�렬 ?? 0=관�?무시.
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_diameter(IntPtr e, int task, double diameterMm);
-        // 작업 목표 진입축 제약 — A* 가 목표에 axis(0..5=+x,-x,+y,-y,+z,-z) 방향으로 진입할 때만 도달. -1=무제약.
+        // ?�업 목표 진입�??�약 ??A* 가 목표??axis(0..5=+x,-x,+y,-y,+z,-z) 방향?�로 진입???�만 ?�달. -1=무제??
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_goal_dir(IntPtr e, int task, int axis);
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
 
-        // 학습된 회랑 셀(ijk 삼중항×n) 설정 — w_corridor>0 일 때 route_multi 가 시드로 사용(L2b). n<=0=초기화.
+        // ?�습???�랑 ?�(ijk ?�중??�n) ?�정 ??w_corridor>0 ????route_multi 가 ?�드�??�용(L2b). n<=0=초기??
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_corridor_cells(IntPtr e, int[]? ijk, int n);
 
-        // 진행 콜백(cdecl) — phase=0(탐색 진행)/1(배관 완료). UnmanagedFunctionPointer 로 마샬링.
-        // pathIjk 는 phase==1 성공 시 경로 셀((i,j,k)×pathLen) 포인터(콜백 동안만 유효 → 즉시 복사).
-        // 반환 0=계속, 0아님=취소(abort) → 엔진이 현재 배관 탐색을 중단하고 남은 배관 없이 정상 반환.
+        // 진행 콜백(cdecl) ??phase=0(?�색 진행)/1(배�? ?�료). UnmanagedFunctionPointer �?마샬�?
+        // pathIjk ??phase==1 ?�공 ??경로 ?�((i,j,k)×pathLen) ?�인??콜백 ?�안�??�효 ??즉시 복사).
+        // 반환 0=계속, 0?�님=취소(abort) ???�진???�재 배�? ?�색??중단?�고 ?��? 배�? ?�이 ?�상 반환.
         [UnmanagedFunctionPointer(Cdecl)]
         public delegate int R3dProgressFn(IntPtr user, int phase, int orderIndex, int taskIndex,
                                           int success, double lengthMm, int turns, long expandedNodes,
@@ -137,6 +137,7 @@ namespace Routing3D.Viewer.Interop
         public static extern int r3d_route_multi_progress(IntPtr e, byte[] priorityUtf8,
                                                           R3dProgressFn cb, IntPtr user);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_task(IntPtr e, int task, out R3dResult outRes);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_task_anytime(IntPtr e, int task, double initialWeight, double finalWeight, double weightStep, double timeBudgetMs, long maxExpansions, int goalDir, out R3dResult outRes, out int iterations, out int improvements);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_corridor(IntPtr e, int factor, int radius);
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_route_corridor_multi(IntPtr e, int factor, int radius,
@@ -154,26 +155,29 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight(IntPtr e, double mult);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_min_straight_mm(IntPtr e, double mm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_pipe_gap(IntPtr e, double gapMm);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_segment_astar(IntPtr e, int enabled, int maxSegmentCells);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_octree_guide(IntPtr e, int enabled, int corridorRadius);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_route_split(IntPtr e, int enabled, double trunkZMm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 
-        // ---- 옥트리 리프 열거 (3D 가시화) ----
-        // 엔진에 로드된 씬으로 옥트리를 빌드하고 모든 리프를 buf 에 채운다.
-        // state: 0=FREE, 1=BLOCKED. R3D_OK 면 *outCount 에 실제 개수.
+        // ---- ?�트�?리프 ?�거 (3D 가?�화) ----
+        // ?�진??로드???�으�??�트리�? 빌드?�고 모든 리프�?buf ??채운??
+        // state: 0=FREE, 1=BLOCKED. R3D_OK �?*outCount ???�제 개수.
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dOctreeLeaf
         {
-            public float X0Mm, Y0Mm, Z0Mm;   // 리프 원점 (world mm)
-            public float SizeMm;               // 리프 한 변 크기 (mm)
+            public float X0Mm, Y0Mm, Z0Mm;   // 리프 ?�점 (world mm)
+            public float SizeMm;               // 리프 ??변 ?�기 (mm)
             public int   State;                // 0=FREE, 1=BLOCKED
         }
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_enum_octree_leaves(IntPtr e,
             [Out] R3dOctreeLeaf[]? buf, int maxCount, out int outCount);
 
-        // 문자열 → UTF-8 바이트(널 종료). 한글 보존.
+        // 문자????UTF-8 바이????종료). ?��? 보존.
         public static byte[] Utf8(string? s) => Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
 
-        // 콜리 할당 char* → string 후 해제.
+        // 콜리 ?�당 char* ??string ???�제.
         public static string TakeString(IntPtr p)
         {
             if (p == IntPtr.Zero) return string.Empty;

@@ -69,6 +69,12 @@
                     <TextBox x:Name="SearchBox" Width="220" Margin="5,0,12,0"
                              TextChanged="OnFilterChanged"/>
                     <Button Content="Clear Filters" Click="OnClearFilters"/>
+                    <CheckBox x:Name="PathPlaybackBox"
+                              Content="Path Playback"
+                              Margin="12,0,0,0"
+                              Foreground="#e8eaf0"
+                              Checked="OnPathPlaybackChanged"
+                              Unchecked="OnPathPlaybackChanged"/>
                     <CheckBox x:Name="ShowVoxelMapBox"
                               Content="Voxel Map"
                               IsChecked="True"
@@ -92,8 +98,8 @@
                               Unchecked="OnLayerChanged"/>
                     <TextBlock Text="Speed(ms)" Margin="14,0,0,0"/>
                     <Slider x:Name="PlaybackSpeedSlider"
-                            Width="150" Minimum="50" Maximum="2000" Value="350"
-                            TickFrequency="50" IsSnapToTickEnabled="True"
+                            Width="150" Minimum="10" Maximum="2000" Value="350"
+                            TickFrequency="10" IsSnapToTickEnabled="True"
                             ValueChanged="OnSpeedChanged"/>
                     <TextBlock x:Name="SpeedText" Text="350" Margin="6,0,0,0"/>
                 </WrapPanel>

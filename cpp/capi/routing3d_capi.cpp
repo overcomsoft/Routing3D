@@ -15,6 +15,7 @@
 #include "routing3d_capi.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -148,11 +149,17 @@ struct R3dEngine {
     int cbs_depth = 0;
     // Post-process minimum straight-run multiplier, relative to pipe diameter.
     double min_straight_mult = 0.0;
-    // 코너 최소직선(절대 mm, 하드 제약). >0 이면 A* 가 '한 번 꺾인 뒤 이 길이만큼 직진하기 전엔 다시 꺾지
-    //   못하도록' 강제한다(상태에 진행 셀 수 run 추가). min_straight_mult(관경 배수·후처리 흡수)와 달리
-    //   탐색 단계의 하드 보장이며 관경 무관·전 배관 적용(목표 직전 마지막 구간은 면제). 셀로는
-    //   ceil(min_straight_mm/cell)→params.min_straight_cells. 0=OFF(골든 불변). r3d_set_min_straight_mm.
+    // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm, ?섎뱶 ?쒖빟). >0 ?대㈃ A* 媛 '??踰?爰얠씤 ????湲몄씠留뚰겮 吏곸쭊?섍린 ?꾩뿏 ?ㅼ떆 爰얠?
+    //   紐삵븯?꾨줉' 媛뺤젣?쒕떎(?곹깭??吏꾪뻾 ? ??run 異붽?). min_straight_mult(愿寃?諛곗닔쨌?꾩쿂由??≪닔)? ?щ━
+    //   ?먯깋 ?④퀎???섎뱶 蹂댁옣?대ŉ 愿寃?臾닿?쨌??諛곌? ?곸슜(紐⑺몴 吏곸쟾 留덉?留?援ш컙? 硫댁젣). ?濡쒕뒗
+    //   ceil(min_straight_mm/cell)?뭦arams.min_straight_cells. 0=OFF(怨⑤뱺 遺덈?). r3d_set_min_straight_mm.
     double min_straight_mm = 0.0;
+    bool segment_astar = false;
+    int segment_max_cells = 64;
+    bool octree_guide = false;
+    int octree_corridor_radius = 2;
+    bool route_split = false;
+    double route_split_z_mm = 0.0;
     R3dRuntimeOptions runtime{};
     R3dTraceOptions trace_options{};
     TraceWriter trace;
@@ -171,9 +178,9 @@ long long env_ll(const char* name, long long def) {
 
 long long large_grid_cap() { return env_ll("R3D_MAX_EXP", 48000000LL); }
 
-// 코너 최소직선(절대 mm) → A* 상태 제약용 셀 수로 변환해 doc.params 에 반영. 라우팅 직전에 호출한다
-//   (cell_mm 이 set_params 로 확정된 뒤). env R3D_MIN_STRAIGHT_MM(>0)이 있으면 우선. 0/미설정이면 0(OFF,
-//   골든 불변). route_multi_impl 의 params_for 가 doc.params 를 복사하므로 main·rip-up·CBS 전부에 전파된다.
+// 肄붾꼫 理쒖냼吏곸꽑(?덈? mm) ??A* ?곹깭 ?쒖빟??? ?섎줈 蹂?섑빐 doc.params ??諛섏쁺. ?쇱슦??吏곸쟾???몄텧?쒕떎
+//   (cell_mm ??set_params 濡??뺤젙????. env R3D_MIN_STRAIGHT_MM(>0)???덉쑝硫??곗꽑. 0/誘몄꽕?뺤씠硫?0(OFF,
+//   怨⑤뱺 遺덈?). route_multi_impl ??params_for 媛 doc.params 瑜?蹂듭궗?섎?濡?main쨌rip-up쨌CBS ?꾨????꾪뙆?쒕떎.
 void apply_min_straight_cells(R3dEngine* e) {
     double mm = e->min_straight_mm;
     if (const char* s = std::getenv("R3D_MIN_STRAIGHT_MM")) {
@@ -486,6 +493,242 @@ ImplicitOccupancy coarse_implicit_from_doc(const SceneDoc& doc, int factor) {
     return occ;
 }
 
+uint64_t pack_chunk(const Cell& c) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(c.i)) << 40) |
+           (static_cast<uint64_t>(static_cast<uint32_t>(c.j)) << 20) |
+           static_cast<uint64_t>(static_cast<uint32_t>(c.k));
+}
+
+std::vector<Cell> expand_macro_cells(const std::vector<Cell>& nodes) {
+    std::vector<Cell> path;
+    auto push = [&](const Cell& c) {
+        if (path.empty() || !(path.back() == c)) path.push_back(c);
+    };
+    for (size_t n = 0; n < nodes.size(); ++n) {
+        if (n == 0) { push(nodes[n]); continue; }
+        Cell cur = path.back();
+        const Cell dst = nodes[n];
+        while (cur.i != dst.i) { cur.i += (dst.i > cur.i) ? 1 : -1; push(cur); }
+        while (cur.j != dst.j) { cur.j += (dst.j > cur.j) ? 1 : -1; push(cur); }
+        while (cur.k != dst.k) { cur.k += (dst.k > cur.k) ? 1 : -1; push(cur); }
+    }
+    return path;
+}
+
+bool hpa_macro_path(const ImplicitOccupancy& coarse, Cell start, Cell goal, int chunk_size,
+                    long long max_expansions, std::vector<Cell>& out) {
+    if (chunk_size < 2) chunk_size = 2;
+    if (coarse.is_blocked(start) || coarse.is_blocked(goal)) return false;
+    const Cell shape = coarse.shape();
+    const int cxn = (shape.i + chunk_size - 1) / chunk_size;
+    const int cyn = (shape.j + chunk_size - 1) / chunk_size;
+    const int czn = (shape.k + chunk_size - 1) / chunk_size;
+    const int portal_cap = static_cast<int>(env_ll("R3D_HPA_PORTAL_MAX", 250000));
+    std::vector<Cell> nodes;
+    std::unordered_map<uint64_t, int> node_index;
+    std::unordered_map<uint64_t, std::vector<int>> chunk_nodes;
+    auto chunk_of = [&](const Cell& c) {
+        return Cell{c.i / chunk_size, c.j / chunk_size, c.k / chunk_size};
+    };
+    auto add_node = [&](const Cell& c) -> int {
+        if (!coarse.in_bounds(c) || coarse.is_blocked(c)) return -1;
+        const uint64_t key = pack20(c);
+        auto it = node_index.find(key);
+        if (it != node_index.end()) return it->second;
+        if (portal_cap > 0 && static_cast<int>(nodes.size()) >= portal_cap) return -1;
+        const int idx = static_cast<int>(nodes.size());
+        nodes.push_back(c);
+        node_index[key] = idx;
+        chunk_nodes[pack_chunk(chunk_of(c))].push_back(idx);
+        return idx;
+    };
+    const int start_idx = add_node(start);
+    const int goal_idx = add_node(goal);
+    if (start_idx < 0 || goal_idx < 0) return false;
+
+    auto add_pair = [&](const Cell& a, const Cell& b) {
+        if (coarse.in_bounds(a) && coarse.in_bounds(b) && !coarse.is_blocked(a) && !coarse.is_blocked(b)) {
+            add_node(a);
+            add_node(b);
+        }
+    };
+    for (int cx = 0; cx + 1 < cxn; ++cx) {
+        const int i = (cx + 1) * chunk_size - 1;
+        if (i < 0 || i + 1 >= shape.i) continue;
+        for (int cz = 0; cz < czn; ++cz) {
+            const int k0 = cz * chunk_size, k1 = std::min(shape.k, k0 + chunk_size);
+            for (int k = k0; k < k1; ++k) {
+                const int j0 = 0, j1 = shape.j;
+                int run = -1;
+                for (int j = j0; j <= j1; ++j) {
+                    bool free = false;
+                    if (j < j1) {
+                        Cell a{i, j, k}, b{i + 1, j, k};
+                        free = coarse.in_bounds(a) && coarse.in_bounds(b) && !coarse.is_blocked(a) && !coarse.is_blocked(b);
+                    }
+                    if (free && run < 0) run = j;
+                    if ((!free || j == j1) && run >= 0) {
+                        int mid = (run + j - 1) / 2;
+                        add_pair(Cell{i, mid, k}, Cell{i + 1, mid, k});
+                        run = -1;
+                    }
+                }
+            }
+        }
+    }
+    for (int cy = 0; cy + 1 < cyn; ++cy) {
+        const int j = (cy + 1) * chunk_size - 1;
+        if (j < 0 || j + 1 >= shape.j) continue;
+        for (int cz = 0; cz < czn; ++cz) {
+            const int k0 = cz * chunk_size, k1 = std::min(shape.k, k0 + chunk_size);
+            for (int k = k0; k < k1; ++k) {
+                int run = -1;
+                for (int i = 0; i <= shape.i; ++i) {
+                    bool free = false;
+                    if (i < shape.i) {
+                        Cell a{i, j, k}, b{i, j + 1, k};
+                        free = coarse.in_bounds(a) && coarse.in_bounds(b) && !coarse.is_blocked(a) && !coarse.is_blocked(b);
+                    }
+                    if (free && run < 0) run = i;
+                    if ((!free || i == shape.i) && run >= 0) {
+                        int mid = (run + i - 1) / 2;
+                        add_pair(Cell{mid, j, k}, Cell{mid, j + 1, k});
+                        run = -1;
+                    }
+                }
+            }
+        }
+    }
+    for (int cz = 0; cz + 1 < czn; ++cz) {
+        const int k = (cz + 1) * chunk_size - 1;
+        if (k < 0 || k + 1 >= shape.k) continue;
+        for (int cy = 0; cy < cyn; ++cy) {
+            const int j0 = cy * chunk_size, j1 = std::min(shape.j, j0 + chunk_size);
+            for (int j = j0; j < j1; ++j) {
+                int run = -1;
+                for (int i = 0; i <= shape.i; ++i) {
+                    bool free = false;
+                    if (i < shape.i) {
+                        Cell a{i, j, k}, b{i, j, k + 1};
+                        free = coarse.in_bounds(a) && coarse.in_bounds(b) && !coarse.is_blocked(a) && !coarse.is_blocked(b);
+                    }
+                    if (free && run < 0) run = i;
+                    if ((!free || i == shape.i) && run >= 0) {
+                        int mid = (run + i - 1) / 2;
+                        add_pair(Cell{mid, j, k}, Cell{mid, j, k + 1});
+                        run = -1;
+                    }
+                }
+            }
+        }
+    }
+    const int max_chunk_nodes = static_cast<int>(env_ll("R3D_HPA_MAX_CHUNK_NODES", 160));
+    for (const auto& kv : chunk_nodes)
+        if (max_chunk_nodes > 0 && static_cast<int>(kv.second.size()) > max_chunk_nodes) return false;
+
+    struct HNode { double f; long long seq; int idx; };
+    struct HCmp { bool operator()(const HNode& a, const HNode& b) const { return a.f > b.f || (a.f == b.f && a.seq > b.seq); } };
+    auto h = [&](int idx) { return manhattan(nodes[static_cast<size_t>(idx)], goal) * coarse.cell_mm(); };
+    std::priority_queue<HNode, std::vector<HNode>, HCmp> open;
+    std::unordered_map<int, double> gscore;
+    std::unordered_map<int, int> came;
+    std::unordered_set<int> closed;
+    long long seq = 0, expanded = 0;
+    gscore[start_idx] = 0.0;
+    open.push(HNode{h(start_idx), seq++, start_idx});
+    while (!open.empty()) {
+        HNode cur = open.top(); open.pop();
+        if (closed.count(cur.idx)) continue;
+        closed.insert(cur.idx);
+        if (cur.idx == goal_idx) {
+            std::vector<Cell> macro{goal};
+            int k = goal_idx;
+            auto it = came.find(k);
+            while (it != came.end()) {
+                k = it->second;
+                macro.push_back(nodes[static_cast<size_t>(k)]);
+                it = came.find(k);
+            }
+            for (size_t a = 0, b = macro.size() - 1; a < b; ++a, --b) std::swap(macro[a], macro[b]);
+            out = expand_macro_cells(macro);
+            return !out.empty();
+        }
+        if (max_expansions > 0 && ++expanded >= max_expansions) break;
+        std::vector<int> neigh;
+        const Cell cc = chunk_of(nodes[static_cast<size_t>(cur.idx)]);
+        auto cit = chunk_nodes.find(pack_chunk(cc));
+        if (cit != chunk_nodes.end()) {
+            for (int ni : cit->second) if (ni != cur.idx) neigh.push_back(ni);
+        }
+        for (const Cell& d : NEIGHBORS_6) {
+            Cell nb{nodes[static_cast<size_t>(cur.idx)].i + d.i,
+                    nodes[static_cast<size_t>(cur.idx)].j + d.j,
+                    nodes[static_cast<size_t>(cur.idx)].k + d.k};
+            auto nit = node_index.find(pack20(nb));
+            if (nit != node_index.end()) neigh.push_back(nit->second);
+        }
+        for (int ni : neigh) {
+            if (closed.count(ni)) continue;
+            const double step = manhattan(nodes[static_cast<size_t>(cur.idx)], nodes[static_cast<size_t>(ni)]) * coarse.cell_mm();
+            if (step <= 0.0) continue;
+            const double ng = gscore[cur.idx] + step;
+            auto git = gscore.find(ni);
+            if (git == gscore.end() || ng < git->second) {
+                gscore[ni] = ng;
+                came[ni] = cur.idx;
+                open.push(HNode{ng + h(ni), seq++, ni});
+            }
+        }
+    }
+    return false;
+}
+template <class Occ>
+AStarResult route_anytime_weighted(const Occ& occ, Cell start, Cell goal, RouteParams params,
+                                   double initial_weight, double final_weight, double weight_step,
+                                   double time_budget_ms, long long max_expansions,
+                                   bool collect_visited, int goal_dir,
+                                   int* out_iterations = nullptr,
+                                   int* out_improvements = nullptr) {
+    auto t0 = detail::Clock::now();
+    auto elapsed = [&]() { return detail::ms_since(t0); };
+    if (initial_weight < 1.0) initial_weight = 1.0;
+    if (final_weight < 1.0) final_weight = 1.0;
+    if (initial_weight < final_weight) std::swap(initial_weight, final_weight);
+    if (weight_step <= 0.0) weight_step = 0.25;
+    const bool has_budget = time_budget_ms > 0.0;
+
+    AStarResult best;
+    AStarResult last;
+    int iterations = 0;
+    int improvements = 0;
+    for (double w = initial_weight;; w -= weight_step) {
+        RouteParams rp = params;
+        rp.w_heur = w;
+        rp.w_heur_near = 0.0;
+        AStarResult cur = astar_weighted(occ, start, goal, rp, max_expansions, collect_visited,
+                                         nullptr, nullptr, 0, AllowAll{}, goal_dir);
+        ++iterations;
+        last = cur;
+        if (cur.success && !cur.path.empty()) {
+            const bool better = !best.success || cur.cost_mm < best.cost_mm - 1e-6 ||
+                (std::fabs(cur.cost_mm - best.cost_mm) <= 1e-6 && cur.length_mm < best.length_mm - 1e-6);
+            if (better) {
+                best = cur;
+                ++improvements;
+            }
+        }
+        if (w <= final_weight + 1e-9) break;
+        if (has_budget && elapsed() >= time_budget_ms) break;
+        if (has_budget && iterations > 0 && elapsed() >= time_budget_ms) break;
+        const double next_w = w - weight_step;
+        if (next_w < final_weight && w != final_weight) w = final_weight + weight_step;
+    }
+    AStarResult out = best.success ? best : last;
+    out.elapsed_ms = elapsed();
+    if (out_iterations) *out_iterations = iterations;
+    if (out_improvements) *out_improvements = improvements;
+    return out;
+}
 template <class Occ>
 bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, int radius,
                 Cell s, Cell g, const RouteParams& params, long long max_exp,
@@ -498,20 +741,36 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     Cell cgl = snap_to_free_cell(coarse, cg0, 4);
     RouteParams cp = params;
     cp.cell_mm = coarse.cell_mm();
-    // 적응형 해상도 핵심(Tier-3 Stage 1): coarse 골격은 '최적(표준 A*)'으로 푼다. coarse 격자는 fine 의
-    //   1/factor³(예 8³=512배 작음 → 수십만 셀)이라 w_heur=1.0(최적)·동적가중 OFF 로도 저렴하고, 이 골격이
-    //   fine corridor 의 길잡이가 되므로 골격이 최적이어야 fine 경로가 짧다. 정적 greedy(w=2.0) coarse 는
-    //   골격 자체가 우회해 fine 이 그 튜브에 갇혀 3~4× 우회의 주원인이었다. min_straight 도 coarse 엔 불필요
-    //   (fine 에서 강제) → 상태폭발 방지.
+    // ?곸쓳???댁긽???듭떖(Tier-3 Stage 1): coarse 怨④꺽? '理쒖쟻(?쒖? A*)'?쇰줈 ?쇰떎. coarse 寃⑹옄??fine ??
+    //   1/factor쨀(??8쨀=512諛??묒쓬 ???섏떗留??)?대씪 w_heur=1.0(理쒖쟻)쨌?숈쟻媛以?OFF 濡쒕룄 ??댄븯怨? ??怨④꺽??
+    //   fine corridor ??湲몄옟?닿? ?섎?濡?怨④꺽??理쒖쟻?댁뼱??fine 寃쎈줈媛 吏㏓떎. ?뺤쟻 greedy(w=2.0) coarse ??
+    //   怨④꺽 ?먯껜媛 ?고쉶??fine ??洹??쒕툕??媛뉙? 3~4횞 ?고쉶??二쇱썝?몄씠?덈떎. min_straight ??coarse ??遺덊븘??
+    //   (fine ?먯꽌 媛뺤젣) ???곹깭??컻 諛⑹?.
     cp.w_heur = 1.0;
     cp.w_heur_near = 0.0;
     cp.min_straight_cells = 0;
-    AStarResult cg = astar_weighted(coarse, cs, cgl, cp, 2000000LL, false);
+    AStarResult cg;
+    bool hpa_enabled = true;
+    if (const char* hs = std::getenv("R3D_HPA"))
+        hpa_enabled = !(hs[0] == '0' || hs[0] == '\0' || (hs[0] == 'o' && hs[1] == 'f'));
+    const int hpa_chunk = static_cast<int>(env_ll("R3D_HPA_CHUNK", 8));
+    if (hpa_enabled) {
+        std::vector<Cell> hpa_path;
+        const long long hpa_exp = env_ll("R3D_HPA_EXP", 2000000LL);
+        if (hpa_macro_path(coarse, cs, cgl, hpa_chunk, hpa_exp, hpa_path)) {
+            cg.success = true;
+            cg.path = std::move(hpa_path);
+            cg.length_mm = cg.path.empty() ? 0.0 : (cg.path.size() - 1) * coarse.cell_mm();
+            cg.cost_mm = cg.length_mm;
+            cg.turns = count_turns(cg.path);
+        }
+    }
+    if (!cg.success || cg.path.empty())
+        cg = astar_weighted(coarse, cs, cgl, cp, 2000000LL, false);
     if (!cg.success || cg.path.empty()) return false;
-
-    // 적응형 corridor 확장 재시도(Tier-3 Stage 2): 실패 시 반경 r 을 ×2 로 키워 최대 3회 재시도 → 좁은
-    //   튜브 미스로 전체탐색 fall-through(메모리 폭발·상한 실패) 대신 넓힌 튜브에서 재탐색(메모리 한계
-    //   실패 직접 감소). 탐색은 항상 corridor 로 바운드되므로 최종 실패해도 메모리 안전.
+    // ?곸쓳??corridor ?뺤옣 ?ъ떆??Tier-3 Stage 2): ?ㅽ뙣 ??諛섍꼍 r ??횞2 濡??ㅼ썙 理쒕? 3???ъ떆????醫곸?
+    //   ?쒕툕 誘몄뒪濡??꾩껜?먯깋 fall-through(硫붾え由???컻쨌?곹븳 ?ㅽ뙣) ????볧엺 ?쒕툕?먯꽌 ?ы깘??硫붾え由??쒓퀎
+    //   ?ㅽ뙣 吏곸젒 媛먯냼). ?먯깋? ??긽 corridor 濡?諛붿슫?쒕릺誘濡?理쒖쥌 ?ㅽ뙣?대룄 硫붾え由??덉쟾.
     for (int attempt = 0, r = radius; attempt < 3; ++attempt, r *= 2) {
     auto corr = std::make_shared<std::unordered_set<uint64_t>>();
     corr->reserve(cg.path.size() * static_cast<size_t>((2 * r + 1) * (2 * r + 1) * (2 * r + 1)) + 64);
@@ -539,17 +798,70 @@ bool route_hier(const Occ& work, const ImplicitOccupancy& coarse, int factor, in
     AStarResult fr = astar_weighted(work, s, g, params, max_exp, collect_visited,
                                     nullptr, nullptr, 0, in_corr);
     if (fr.success && !fr.path.empty()) { out = std::move(fr); return true; }
-        // 예산 소진(ExpansionLimit) 실패는 튜브를 넓혀도 탐색만 더 폭발 → 재시도 무의미(중단). '튜브가 좁아
-        //   경로 없음'(NoPath)·'시작/목표가 튜브 밖'(CorridorMiss)일 때만 반경을 키워 재시도한다.
+        // ?덉궛 ?뚯쭊(ExpansionLimit) ?ㅽ뙣???쒕툕瑜??볧????먯깋留?????컻 ???ъ떆??臾댁쓽誘?以묐떒). '?쒕툕媛 醫곸븘
+        //   寃쎈줈 ?놁쓬'(NoPath)쨌'?쒖옉/紐⑺몴媛 ?쒕툕 諛?(CorridorMiss)???뚮쭔 諛섍꼍???ㅼ썙 ?ъ떆?꾪븳??
         if (fr.fail == RouteFail::ExpansionLimit) break;
-    }   // 적응형 corridor 확장 재시도 루프 끝(반경 ×2).
-    return false;   // 넓힌 튜브로도 실패 → 호출자가 fb_exp 전체탐색 폴백(드묾).
+    }   // ?곸쓳??corridor ?뺤옣 ?ъ떆??猷⑦봽 ??諛섍꼍 횞2).
+    return false;   // ?볧엺 ?쒕툕濡쒕룄 ?ㅽ뙣 ???몄텧?먭? fb_exp ?꾩껜?먯깋 ?대갚(?쒕Ь).
 }
 
-//   ?몄옄: phase, order_index, task_index, success, length_mm, turns, expanded_nodes, elapsed_ms,
+//   ?紐꾩쁽: phase
+template <class Occ>
+bool route_octree_guided(const Occ& work, OctreeOccupancy& oct, int radius,
+                         Cell s, Cell g, const RouteParams& params, long long max_exp,
+                         bool collect_visited, AStarResult& out) {
+    RouteParams op = params;
+    op.w_heur = 1.0;
+    op.w_heur_near = 0.0;
+    op.min_straight_cells = 0;
+    const long long oct_max = env_ll("R3D_OCTREE_MAX_EXP", 5000000LL);
+    long long fine_max = env_ll("R3D_OCTREE_FINE_EXP", 1000000LL);
+    if (max_exp > 0 && fine_max > 0) fine_max = std::min(fine_max, max_exp);
+    AStarResult macro = astar_octree(oct, s, g, op, oct_max, -1, false);
+    if (!macro.success || macro.path.empty()) return false;
+
+    for (int attempt = 0, r = std::max(0, radius); attempt < 3; ++attempt, r = std::max(r * 2, r + 1)) {
+        auto corr = std::make_shared<std::unordered_set<uint64_t>>();
+        const int side = 2 * r + 1;
+        corr->reserve(macro.path.size() * static_cast<size_t>(side * side * side) + 64);
+        auto add_dilated = [&](const Cell& c) {
+            for (int di = -r; di <= r; ++di)
+                for (int dj = -r; dj <= r; ++dj)
+                    for (int dk = -r; dk <= r; ++dk) {
+                        Cell q{c.i + di, c.j + dj, c.k + dk};
+                        if (work.in_bounds(q)) corr->insert(pack20(q));
+                    }
+        };
+        auto add_box = [&](const Cell& a, const Cell& b) {
+            int i0 = std::min(a.i, b.i) - r, i1 = std::max(a.i, b.i) + r;
+            int j0 = std::min(a.j, b.j) - r, j1 = std::max(a.j, b.j) + r;
+            int k0 = std::min(a.k, b.k) - r, k1 = std::max(a.k, b.k) + r;
+            for (int i = i0; i <= i1; ++i)
+                for (int j = j0; j <= j1; ++j)
+                    for (int k = k0; k <= k1; ++k) {
+                        Cell q{i, j, k};
+                        if (work.in_bounds(q)) corr->insert(pack20(q));
+                    }
+        };
+        for (const Cell& c : macro.path) add_dilated(c);
+        add_box(s, macro.path.front());
+        add_box(g, macro.path.back());
+        add_dilated(s);
+        add_dilated(g);
+
+        auto in_corr = [corr](const Cell& fc) {
+            return corr->count(pack20(fc)) > 0;
+        };
+        AStarResult fr = astar_weighted(work, s, g, params, fine_max, collect_visited,
+                                        nullptr, nullptr, 0, in_corr);
+        if (fr.success && !fr.path.empty()) { out = std::move(fr); return true; }
+        if (fr.fail == RouteFail::ExpansionLimit) break;
+    }
+    return false;
+}
+
 using ProgressCb = std::function<int(int, int, int, bool, double, int, long long, double, int, int,
                                      double, const std::vector<Cell>*)>;
-
 inline std::vector<Cell> walk_order(Cell A, Cell B, const int (&axisOrder)[3]) {
     std::vector<Cell> v;
     v.push_back(A);
@@ -650,7 +962,7 @@ std::vector<Cell> enforce_min_straight(const Occ& occ, const std::vector<Cell>& 
                 continue;
             std::vector<Cell> slice(cur.begin() + a, cur.begin() + b + 1);
             if (count_turns(seg) > count_turns(slice)) continue;
-            if (static_cast<int>(seg.size()) - 1 > b - a) continue;  // 湲몄??利앷? 湲덉?.
+            if (static_cast<int>(seg.size()) - 1 > b - a) continue;  // 疫뀀챷??筌앹빓? 疫뀀뜆?.
             std::vector<Cell> next(cur.begin(), cur.begin() + a);    // [0..a) + seg + (b..end].
             for (const Cell& c : seg) next.push_back(c);
             for (size_t t = static_cast<size_t>(b) + 1; t < cur.size(); ++t) next.push_back(cur[t]);
@@ -668,7 +980,9 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                       const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                       int pipe_radius = 0, bool per_task_radius = false,
                       int cbs_depth = 0, double min_straight_mult = 0.0,
-                      double pipe_gap_mm = 0.0,
+                      double pipe_gap_mm = 0.0, bool segment_astar = false, int segment_max_cells = 64,
+                      bool octree_guide = false, int octree_corridor_radius = 2,
+                      bool route_split = false, double route_split_z_mm = 0.0,
                       const R3dRuntimeOptions* runtime = nullptr,
                       TraceWriter* trace = nullptr) {
     const long long large_threshold = runtime ? opt_or_default(runtime->large_grid_threshold, 5000000LL) : 5000000LL;
@@ -704,6 +1018,34 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     bool eff_per_task = per_task_radius;
     if (const char* pt = std::getenv("R3D_PER_TASK_RADIUS"))
         eff_per_task = !(pt[0] == '0' || pt[0] == '\0');
+    bool eff_segment_astar = segment_astar;
+    if (const char* sa = std::getenv("R3D_SEGMENT_ASTAR"))
+        eff_segment_astar = !(sa[0] == '0' || sa[0] == '\0' || (sa[0] == 'o' && sa[1] == 'f'));
+    int eff_segment_max = segment_max_cells > 0 ? segment_max_cells : 64;
+    if (const char* sm = std::getenv("R3D_SEGMENT_MAX")) {
+        char* end = nullptr; long v = std::strtol(sm, &end, 10);
+        if (end != sm && v > 0) eff_segment_max = static_cast<int>(v);
+    }
+    if (eff_segment_max < 4) eff_segment_max = 4;
+    if (eff_segment_max > 512) eff_segment_max = 512;
+    bool eff_octree_guide = octree_guide;
+    if (const char* og = std::getenv("R3D_OCTREE_GUIDE"))
+        eff_octree_guide = !(og[0] == '0' || og[0] == '\0' || (og[0] == 'o' && og[1] == 'f'));
+    int eff_octree_radius = octree_corridor_radius > 0 ? octree_corridor_radius : 2;
+    if (const char* orad = std::getenv("R3D_OCTREE_CORR_RAD")) {
+        char* end = nullptr; long v = std::strtol(orad, &end, 10);
+        if (end != orad && v >= 0) eff_octree_radius = static_cast<int>(v);
+    }
+    if (eff_octree_radius < 0) eff_octree_radius = 0;
+    if (eff_octree_radius > 16) eff_octree_radius = 16;
+    bool eff_route_split = route_split;
+    if (const char* rs = std::getenv("R3D_ROUTE_SPLIT"))
+        eff_route_split = !(rs[0] == '0' || rs[0] == '\0' || (rs[0] == 'o' && rs[1] == 'f'));
+    double eff_route_split_z_mm = route_split_z_mm;
+    if (const char* rz = std::getenv("R3D_TRUNK_Z_MM")) {
+        char* end = nullptr; double v = std::strtod(rz, &end);
+        if (end != rz) eff_route_split_z_mm = v;
+    }
     const int PIPE_RADIUS_MAX = 8;
     const double cell_for_r = doc.params.cell_mm;
     auto radius_of = [&](int task_idx) -> int {
@@ -743,6 +1085,8 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             int r = radius_of(task_idx);
             if (r > tp.clearance_radius) tp.clearance_radius = r;
         }
+        tp.use_segment_astar = eff_segment_astar;
+        tp.segment_max_cells = eff_segment_max;
         return tp;
     };
 
@@ -797,10 +1141,10 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     const long long progress_every = on_pipe ? 50000LL : 0;
     const bool large_grid = occ.size() > large_threshold;
     const bool use_hier = large_grid;
-    // 적응형 coarse factor(Tier-3 Stage 3b): 미설정이면 coarse 셀이 ~200mm 가 되도록 fine 셀 크기에 맞춰
-    //   factor 를 정한다(목표 200mm/cell, [4,32] 클램프). 이러면 coarse 격자 셀 수가 fine 해상도와 무관하게
-    //   거의 일정 → coarse 골격 솔브 비용이 10mm 같은 초미세격자에서도 폭발하지 않는다. cell=25 → factor 8
-    //   (기존과 동일), cell=10 → 20, cell=50 → 4. 명시 설정(configured>0)이면 그대로.
+    // ?곸쓳??coarse factor(Tier-3 Stage 3b): 誘몄꽕?뺤씠硫?coarse ???~200mm 媛 ?섎룄濡?fine ? ?ш린??留욎떠
+    //   factor 瑜??뺥븳??紐⑺몴 200mm/cell, [4,32] ?대옩??. ?대윭硫?coarse 寃⑹옄 ? ?섍? fine ?댁긽?꾩? 臾닿??섍쾶
+    //   嫄곗쓽 ?쇱젙 ??coarse 怨④꺽 ?붾툕 鍮꾩슜??10mm 媛숈? 珥덈??멸꺽?먯뿉?쒕룄 ??컻?섏? ?딅뒗?? cell=25 ??factor 8
+    //   (湲곗〈怨??숈씪), cell=10 ??20, cell=50 ??4. 紐낆떆 ?ㅼ젙(configured>0)?대㈃ 洹몃?濡?
     int adaptive_factor = 8;
     {
         const double cm = doc.params.cell_mm;
@@ -818,6 +1162,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         if (end != fe && v > 0) fallback_exp = (max_exp > 0) ? std::min(v, max_exp) : v;
     }
     std::optional<ImplicitOccupancy> coarse;
+    std::optional<OctreeOccupancy> octree;
     int done = 0;
     bool aborted = false;
     std::map<int, std::vector<Cell>> placed;
@@ -860,7 +1205,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         AStarResult res;
         bool routed = false;
         long long fb_exp = max_exp;
-        if (use_hier) {
+        if (use_hier && !eff_route_split) {
             const long long probe = (max_exp > 0) ? std::min(HIER_PROBE, max_exp) : HIER_PROBE;
             res = astar_weighted(work, s, g, tp, probe, collect_visited,
                                  use_corridor ? &corridor : nullptr,
@@ -869,27 +1214,114 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             if (res.success && !res.path.empty()) {
                 routed = true;
             } else if (res.expanded_nodes >= probe) {
-                if (!coarse) coarse.emplace(coarse_implicit_from_doc(doc, HIER_FACTOR));
-                if (route_hier(work, *coarse, HIER_FACTOR, HIER_RADIUS, s, g, tp,
-                               max_exp, collect_visited, res))
-                    routed = true;
-                else
-                    fb_exp = fallback_exp;
+                if (eff_octree_guide) {
+                    if (!octree) { octree.emplace(); octree->build(doc); }
+                    if (route_octree_guided(work, *octree, eff_octree_radius, s, g, tp,
+                                            max_exp, collect_visited, res))
+                        routed = true;
+                }
+                if (!routed) {
+                    if (!coarse) coarse.emplace(coarse_implicit_from_doc(doc, HIER_FACTOR));
+                    if (route_hier(work, *coarse, HIER_FACTOR, HIER_RADIUS, s, g, tp,
+                                   max_exp, collect_visited, res))
+                        routed = true;
+                    else
+                        fb_exp = fallback_exp;
+                }
             } else {
                 routed = true;
             }
         }
-        if (!routed)
-            res = astar_weighted(work, s, g, tp, fb_exp, collect_visited,
-                                 use_corridor ? &corridor : nullptr,
-                                 intra ? &intra : nullptr, progress_every, AllowAll{}, t.goal_dir,
-                                 astar_trace ? &astar_trace : nullptr);
+        auto route_between = [&](const Cell& a, const Cell& b, int gd) -> AStarResult {
+            AStarResult sr;
+            if (tp.use_segment_astar) {
+                sr = astar_segmented(work, a, b, tp, fb_exp, collect_visited,
+                                     use_corridor ? &corridor : nullptr,
+                                     intra ? &intra : nullptr, progress_every, AllowAll{}, gd,
+                                     astar_trace ? &astar_trace : nullptr);
+                if (sr.success && !sr.path.empty()) return sr;
+            }
+            return astar_weighted(work, a, b, tp, fb_exp, collect_visited,
+                                  use_corridor ? &corridor : nullptr,
+                                  intra ? &intra : nullptr, progress_every, AllowAll{}, gd,
+                                  astar_trace ? &astar_trace : nullptr);
+        };
+        auto route_split_path = [&](int gd) -> AStarResult {
+            AStarResult out;
+            if (!eff_route_split || doc.shape.k <= 1 || doc.params.cell_mm <= 0.0) {
+                out.fail = RouteFail::NoPath;
+                return out;
+            }
+            auto clamp_k = [&](int k) -> int {
+                if (k < 0) return 0;
+                if (k >= doc.shape.k) return doc.shape.k - 1;
+                return k;
+            };
+            const int preferred_k = clamp_k(std::max(s.k, g.k) + 4);
+            int trunk_k = preferred_k;
+            if (eff_route_split_z_mm > 0.0) {
+                trunk_k = clamp_k(static_cast<int>(std::floor((eff_route_split_z_mm - doc.origin.z) / doc.params.cell_mm)));
+            } else if (!tp.rack_levels.empty()) {
+                int best = trunk_k;
+                int best_score = std::numeric_limits<int>::max();
+                for (int rk : tp.rack_levels) {
+                    if (rk < 0 || rk >= doc.shape.k) continue;
+                    const int score = std::abs(rk - preferred_k) + (rk < std::max(s.k, g.k) ? doc.shape.k : 0);
+                    if (score < best_score) { best = rk; best_score = score; }
+                }
+                trunk_k = best;
+            }
+            Cell truck_in = snap_to_free_cell(work, Cell{s.i, s.j, trunk_k}, snap_r);
+            Cell terminal = snap_to_free_cell(work, Cell{g.i, g.j, trunk_k}, snap_r);
+            std::vector<Cell> waypoints;
+            auto add_wp = [&](const Cell& c) {
+                if (work.in_bounds(c) && (waypoints.empty() || !(waypoints.back() == c))) waypoints.push_back(c);
+            };
+            add_wp(s);
+            add_wp(truck_in);
+            add_wp(terminal);
+            add_wp(g);
+            if (waypoints.size() <= 2) {
+                out.fail = RouteFail::NoPath;
+                return out;
+            }
+            out.success = true;
+            out.fail = RouteFail::None;
+            for (size_t wi = 0; wi + 1 < waypoints.size(); ++wi) {
+                const int seg_goal_dir = (wi + 2 == waypoints.size()) ? gd : -1;
+                AStarResult seg = route_between(waypoints[wi], waypoints[wi + 1], seg_goal_dir);
+                out.expanded_nodes += seg.expanded_nodes;
+                out.elapsed_ms += seg.elapsed_ms;
+                out.cost_mm += seg.cost_mm;
+                if (collect_visited && !seg.visited.empty())
+                    out.visited.insert(out.visited.end(), seg.visited.begin(), seg.visited.end());
+                if (!seg.success || seg.path.empty()) {
+                    out.success = false;
+                    out.fail = seg.fail;
+                    out.path.clear();
+                    return out;
+                }
+                if (out.path.empty()) {
+                    out.path = std::move(seg.path);
+                } else {
+                    out.path.insert(out.path.end(), seg.path.begin() + 1, seg.path.end());
+                }
+            }
+            out.length_mm = out.path.empty() ? 0.0 : (out.path.size() - 1) * doc.params.cell_mm;
+            out.turns = count_turns(out.path);
+            return out;
+        };
+        auto route_direct = [&](int gd) -> AStarResult {
+            if (eff_route_split) {
+                AStarResult sr = route_split_path(gd);
+                if (sr.success && !sr.path.empty()) return sr;
+            }
+            return route_between(s, g, gd);
+        };        if (!routed)
+            res = route_direct(t.goal_dir);
         bool ok = res.success && !res.path.empty();
         if (!ok && t.goal_dir >= 0 && !aborted) {
-            res = astar_weighted(work, s, g, tp, fb_exp, collect_visited,
-                                 use_corridor ? &corridor : nullptr,
-                                 intra ? &intra : nullptr, progress_every, AllowAll{}, -1,
-                                 astar_trace ? &astar_trace : nullptr);
+            res = route_direct(-1);
             ok = res.success && !res.path.empty();
         }
         std::vector<Cell> path = res.path;
@@ -990,7 +1422,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                 std::vector<AStarResult> rbs(blockers.size());
                 bool all_ok = true;
                 for (size_t bi = 0; bi < blockers.size(); ++bi) {
-                    AStarResult rb = route_on(wt, blockers[bi]);   // ??? blocker ????고똿.
+                    AStarResult rb = route_on(wt, blockers[bi]);   // ??? blocker ????怨좊샒.
                     if (rb.success && !rb.path.empty()) {
                         mark_pipe(wt, rb.path, radius_of(blockers[bi]));
                         trial[blockers[bi]] = rb.path;
@@ -1162,22 +1594,27 @@ void route_multi_into_doc(SceneDoc& doc, const std::string& priority, bool colle
                           const ProgressCb& on_pipe = {}, const std::vector<Cell>* seed = nullptr,
                           int pipe_radius = 0, bool per_task_radius = false,
                           int cbs_depth = 0, double min_straight_mult = 0.0,
-                          double pipe_gap_mm = 0.0,
-                          const R3dRuntimeOptions* runtime = nullptr,
-                          TraceWriter* trace = nullptr) {
+                          double pipe_gap_mm = 0.0, bool segment_astar = false, int segment_max_cells = 64,
+                      bool octree_guide = false, int octree_corridor_radius = 2,
+                      bool route_split = false, double route_split_z_mm = 0.0,
+                      const R3dRuntimeOptions* runtime = nullptr,
+                      TraceWriter* trace = nullptr) {
 #ifdef ROUTING3D_USE_OPENVDB
     route_multi_impl(doc, vdb_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                     pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
+                     pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm,
+                     segment_astar, segment_max_cells, octree_guide, octree_corridor_radius, route_split, route_split_z_mm, runtime, trace);
 #else
     const long long cells =
         static_cast<long long>(doc.shape.i) * doc.shape.j * doc.shape.k;
     const long long large_threshold = runtime ? opt_or_default(runtime->large_grid_threshold, 5000000LL) : 5000000LL;
     if (cells > large_threshold) {
         route_multi_impl(doc, implicit_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm,
+                     segment_astar, segment_max_cells, octree_guide, octree_corridor_radius, route_split, route_split_z_mm, runtime, trace);
     } else {
         route_multi_impl(doc, occupancy_from_doc(doc), priority, collect_visited, on_pipe, seed,
-                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm, runtime, trace);
+                         pipe_radius, per_task_radius, cbs_depth, min_straight_mult, pipe_gap_mm,
+                     segment_astar, segment_max_cells, octree_guide, octree_corridor_radius, route_split, route_split_z_mm, runtime, trace);
     }
 #endif
 }
@@ -1264,8 +1701,8 @@ extern "C" R3dStatus r3d_set_grid(R3dEngine* e, const R3dGrid* g) {
     if (!e || !g) return R3D_ERR_ARG;
     if (g->cell_mm <= 0.0) return R3D_ERR_ARG;
     if (g->nx <= 0 || g->ny <= 0 || g->nz <= 0) return R3D_ERR_ARG;
-    // corridor.hpp pack20 은 축당 20비트(최대 2^20-1 = 1,048,575).
-    // 초과 시 64비트 키 충돌 → 즉시 R3D_ERR_RANGE 로 차단.
+    // corridor.hpp pack20 ? 異뺣떦 20鍮꾪듃(理쒕? 2^20-1 = 1,048,575).
+    // 珥덇낵 ??64鍮꾪듃 ??異⑸룎 ??利됱떆 R3D_ERR_RANGE 濡?李⑤떒.
     constexpr int kPack20Max = (1 << 20) - 1;
     if (g->nx > kPack20Max || g->ny > kPack20Max || g->nz > kPack20Max) return R3D_ERR_RANGE;
     e->doc.cell_mm = g->cell_mm;
@@ -1280,14 +1717,14 @@ extern "C" R3dStatus r3d_set_params(R3dEngine* e, const R3dParams* p) {
     if (p->w_turn < 0.0 || p->w_clear < 0.0 || p->w_corridor < 0.0) return R3D_ERR_ARG;
     if (p->w_heur < 0.0 || p->w_heur_near < 0.0) return R3D_ERR_ARG;
     if (p->clearance_radius < 0) return R3D_ERR_ARG;
-    // clearance_connectivity: 0=기본값(6으로 처리), 그 외 6 또는 26 만 허용.
+    // clearance_connectivity: 0=湲곕낯媛?6?쇰줈 泥섎━), 洹???6 ?먮뒗 26 留??덉슜.
     if (p->clearance_connectivity != 0 && p->clearance_connectivity != 6 && p->clearance_connectivity != 26)
         return R3D_ERR_ARG;
     e->doc.params.cell_mm = p->cell_mm;
     e->doc.params.w_turn = p->w_turn;
     e->doc.params.w_clear = p->w_clear;
     e->doc.params.clearance_radius = p->clearance_radius;
-    // 0 은 기본값으로 6(면 이웃 BFS)으로 처리 — clearance_map 이 6/26 만 허용하므로 변환.
+    // 0 ? 湲곕낯媛믪쑝濡?6(硫??댁썐 BFS)?쇰줈 泥섎━ ??clearance_map ??6/26 留??덉슜?섎?濡?蹂??
     e->doc.params.clearance_connectivity = (p->clearance_connectivity == 0) ? 6 : p->clearance_connectivity;
     e->doc.params.w_corridor = p->w_corridor;
     e->doc.params.w_heur = p->w_heur;
@@ -1412,11 +1849,11 @@ extern "C" R3dStatus r3d_set_task_goal_dir(R3dEngine* e, int32_t task, int32_t a
 extern "C" R3dStatus r3d_route_multi(R3dEngine* e, const char* priority) {
     if (!e) return R3D_ERR_ARG;
     try {
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, {}, seed,
                              e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
-                             e->pipe_gap_mm, &e->runtime, &e->trace);
+                             e->pipe_gap_mm, e->segment_astar, e->segment_max_cells, e->octree_guide, e->octree_corridor_radius, e->route_split, e->route_split_z_mm, &e->runtime, &e->trace);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
@@ -1441,8 +1878,8 @@ extern "C" R3dStatus r3d_set_min_straight(R3dEngine* e, double mult) {
     return R3D_OK;
 }
 
-// 코너 최소직선(절대 mm, 하드 제약) 설정. A* 가 '꺾인 뒤 이 길이만큼 직진 전엔 못 꺾도록' 강제한다.
-//   라우팅 직전 apply_min_straight_cells 가 ceil(mm/cell)→params.min_straight_cells 로 환산. 0=OFF(골든 불변).
+// 肄붾꼫 理쒖냼吏곸꽑(?덈? mm, ?섎뱶 ?쒖빟) ?ㅼ젙. A* 媛 '爰얠씤 ????湲몄씠留뚰겮 吏곸쭊 ?꾩뿏 紐?爰얜룄濡? 媛뺤젣?쒕떎.
+//   ?쇱슦??吏곸쟾 apply_min_straight_cells 媛 ceil(mm/cell)?뭦arams.min_straight_cells 濡??섏궛. 0=OFF(怨⑤뱺 遺덈?).
 extern "C" R3dStatus r3d_set_min_straight_mm(R3dEngine* e, double mm) {
     if (!e) return R3D_ERR_ARG;
     e->min_straight_mm = mm > 0.0 ? mm : 0.0;
@@ -1455,6 +1892,26 @@ extern "C" R3dStatus r3d_set_pipe_gap(R3dEngine* e, double gap_mm) {
     return R3D_OK;
 }
 
+extern "C" R3dStatus r3d_set_segment_astar(R3dEngine* e, int32_t enabled, int32_t max_segment_cells) {
+    if (!e) return R3D_ERR_ARG;
+    e->segment_astar = enabled != 0;
+    e->segment_max_cells = max_segment_cells > 0 ? static_cast<int>(max_segment_cells) : 64;
+    return R3D_OK;
+}
+
+extern "C" R3dStatus r3d_set_octree_guide(R3dEngine* e, int32_t enabled, int32_t corridor_radius) {
+    if (!e) return R3D_ERR_ARG;
+    e->octree_guide = enabled != 0;
+    e->octree_corridor_radius = corridor_radius >= 0 ? static_cast<int>(corridor_radius) : 2;
+    return R3D_OK;
+}
+
+extern "C" R3dStatus r3d_set_route_split(R3dEngine* e, int32_t enabled, double trunk_z_mm) {
+    if (!e) return R3D_ERR_ARG;
+    e->route_split = enabled != 0;
+    e->route_split_z_mm = trunk_z_mm > 0.0 ? trunk_z_mm : 0.0;
+    return R3D_OK;
+}
 extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority, R3dProgressFn cb,
                                               void* user) {
     if (!e) return R3D_ERR_ARG;
@@ -1481,11 +1938,11 @@ extern "C" R3dStatus r3d_route_multi_progress(R3dEngine* e, const char* priority
                           pptr, plen);
             };
         }
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         const std::vector<Cell>* seed = e->corridor_seed.empty() ? nullptr : &e->corridor_seed;
         route_multi_into_doc(e->doc, priority ? priority : "longest", e->collect_visited, on_pipe, seed,
                              e->pipe_radius, e->per_task_radius, e->cbs_depth, e->min_straight_mult,
-                             e->pipe_gap_mm, &e->runtime, &e->trace);
+                             e->pipe_gap_mm, e->segment_astar, e->segment_max_cells, e->octree_guide, e->octree_corridor_radius, e->route_split, e->route_split_z_mm, &e->runtime, &e->trace);
         return R3D_OK;
     } catch (...) {
         return R3D_ERR_RUNTIME;
@@ -1523,7 +1980,7 @@ extern "C" R3dStatus r3d_route_ripup(R3dEngine* e, const char* priority, int32_t
                                      int32_t max_ripup) {
     if (!e) return R3D_ERR_ARG;
     try {
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         SceneDoc& doc = e->doc;
         const std::string prio = priority ? priority : "longest";
         auto run = [&](auto&& occ) {
@@ -1552,7 +2009,7 @@ extern "C" R3dStatus r3d_route_corridor(R3dEngine* e, int32_t factor, int32_t ra
     if (!e) return R3D_ERR_ARG;
     if (factor < 1 || radius < 0) return R3D_ERR_ARG;
     try {
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         SceneDoc& doc = e->doc;
 
         SparseOccupancy fine(doc.shape, doc.origin, doc.cell_mm);
@@ -1587,7 +2044,7 @@ extern "C" R3dStatus r3d_route_corridor_multi(R3dEngine* e, int32_t factor, int3
     if (!e) return R3D_ERR_ARG;
     if (factor < 1 || radius < 0) return R3D_ERR_ARG;
     try {
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         SceneDoc& doc = e->doc;
 
         SparseOccupancy fine(doc.shape, doc.origin, doc.cell_mm);
@@ -1628,7 +2085,7 @@ extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) 
     if (!e) return R3D_ERR_ARG;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
     try {
-        apply_min_straight_cells(e);   // 코너 최소직선(절대 mm)→셀 제약 반영.
+        apply_min_straight_cells(e);   // 肄붾꼫 理쒖냼吏곸꽑(?덈? mm)?믪? ?쒖빟 諛섏쁺.
         const RouteTask& t = e->doc.tasks[static_cast<size_t>(task)];
         const long long cells =
             static_cast<long long>(e->doc.shape.i) * e->doc.shape.j * e->doc.shape.k;
@@ -1663,6 +2120,63 @@ extern "C" R3dStatus r3d_route_task(R3dEngine* e, int32_t task, R3dResult* out) 
     }
 }
 
+extern "C" R3dStatus r3d_route_task_anytime(R3dEngine* e, int32_t task,
+                                             double initial_weight, double final_weight,
+                                             double weight_step, double time_budget_ms,
+                                             int64_t max_expansions, int32_t goal_dir,
+                                             R3dResult* out, int32_t* out_iterations,
+                                             int32_t* out_improvements) {
+    if (!e) return R3D_ERR_ARG;
+    if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
+    if (initial_weight < 0.0 || final_weight < 0.0 || weight_step < 0.0 || time_budget_ms < 0.0)
+        return R3D_ERR_ARG;
+    try {
+        apply_min_straight_cells(e);
+        const RouteTask& t = e->doc.tasks[static_cast<size_t>(task)];
+        const long long cells =
+            static_cast<long long>(e->doc.shape.i) * e->doc.shape.j * e->doc.shape.k;
+        const long long mx = max_expansions > 0 ? max_expansions :
+            ((cells > 5000000LL) ? large_grid_cap() : -1);
+        int iters = 0;
+        int improves = 0;
+        SceneResult sr;
+#ifdef ROUTING3D_USE_OPENVDB
+        {
+            VdbOccupancy occ = vdb_from_doc(e->doc);
+            AStarResult r = route_anytime_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
+                                                   e->doc.params, initial_weight, final_weight,
+                                                   weight_step, time_budget_ms, mx, e->collect_visited,
+                                                   goal_dir, &iters, &improves);
+            sr = to_scene_result(r);
+        }
+#else
+        if (cells > 5000000LL) {
+            ImplicitOccupancy occ = implicit_from_doc(e->doc);
+            AStarResult r = route_anytime_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
+                                                   e->doc.params, initial_weight, final_weight,
+                                                   weight_step, time_budget_ms, mx, e->collect_visited,
+                                                   goal_dir, &iters, &improves);
+            sr = to_scene_result(r);
+        } else {
+            DenseOccupancy occ = occupancy_from_doc(e->doc);
+            AStarResult r = route_anytime_weighted(occ, occ.to_cell(t.start_mm), occ.to_cell(t.end_mm),
+                                                   e->doc.params, initial_weight, final_weight,
+                                                   weight_step, time_budget_ms, mx, e->collect_visited,
+                                                   goal_dir, &iters, &improves);
+            sr = to_scene_result(r);
+        }
+#endif
+        if (e->doc.results.size() != e->doc.tasks.size())
+            e->doc.results.resize(e->doc.tasks.size());
+        e->doc.results[static_cast<size_t>(task)] = sr;
+        if (out) fill_result(*out, e->doc.results[static_cast<size_t>(task)]);
+        if (out_iterations) *out_iterations = static_cast<int32_t>(iters);
+        if (out_improvements) *out_improvements = static_cast<int32_t>(improves);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
 extern "C" R3dStatus r3d_get_result(const R3dEngine* e, int32_t task, R3dResult* out) {
     if (!e || !out) return R3D_ERR_ARG;
     if (task < 0 || task >= static_cast<int32_t>(e->doc.tasks.size())) return R3D_ERR_RANGE;
@@ -1762,9 +2276,9 @@ extern "C" int32_t r3d_copy_blocked(const R3dEngine* e, int32_t* buf, int32_t bu
     }
 }
 
-// 대형 격자 시각화용 — blocked cell 을 최대 max_cells 개 균일 샘플링해 buf 에 복사.
-// 수억 셀 격자에서 r3d_copy_blocked 전체 요청 대신 UI 미리보기용 대표 셀만 받는다.
-// 반환=실제 복사 셀 수(<=max_cells). max_cells<=0 또는 buf=NULL 이면 0 반환.
+// ???寃⑹옄 ?쒓컖?붿슜 ??blocked cell ??理쒕? max_cells 媛?洹좎씪 ?섑뵆留곹빐 buf ??蹂듭궗.
+// ?섏뼲 ? 寃⑹옄?먯꽌 r3d_copy_blocked ?꾩껜 ?붿껌 ???UI 誘몃━蹂닿린??????留?諛쏅뒗??
+// 諛섑솚=?ㅼ젣 蹂듭궗 ? ??<=max_cells). max_cells<=0 ?먮뒗 buf=NULL ?대㈃ 0 諛섑솚.
 // Copy a deterministic preview sample of blocked cells without materializing the full set.
 extern "C" int32_t r3d_copy_blocked_sampled(const R3dEngine* e, int32_t max_cells, int32_t* buf) {
     if (!e || max_cells <= 0 || !buf) return 0;
@@ -1821,7 +2335,7 @@ extern "C" int32_t r3d_copy_blocked_sampled(const R3dEngine* e, int32_t max_cell
     }
 }
 
-// 통과 객체 점유 셀을 buf 에 복사(가시화 '통과 점유맵'). r3d_copy_blocked 와 동일 규약.
+// ?듦낵 媛앹껜 ?먯쑀 ???buf ??蹂듭궗(媛?쒗솕 '?듦낵 ?먯쑀留?). r3d_copy_blocked ? ?숈씪 洹쒖빟.
 extern "C" int32_t r3d_copy_passthrough(const R3dEngine* e, int32_t* buf, int32_t buf_cells) {
     if (!e) return 0;
     try {
@@ -1860,7 +2374,7 @@ extern "C" R3dStatus r3d_dump_scene_text(const R3dEngine* e, char** out_text) {
     }
 }
 
-// ============================================================================ 가변셀 옥트리 라우팅
+// ============================================================================ 媛蹂? ?ν듃由??쇱슦??
 extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
                                            int64_t max_exp, int32_t goal_dir,
                                            R3dResult* out) {
@@ -1870,7 +2384,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
     *out = R3dResult{};
     try {
         apply_min_straight_cells(e);
-        // 옥트리 빌드
+        // ?ν듃由?鍮뚮뱶
         OctreeOccupancy occ;
         occ.build(e->doc);
 
@@ -1878,7 +2392,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
         Cell start = occ.to_cell(t.start_mm);
         Cell goal  = occ.to_cell(t.end_mm);
 
-        // 격자 범위 스냅
+        // 寃⑹옄 踰붿쐞 ?ㅻ깄
         auto snap = [&](Cell c) -> Cell {
             c.i = std::clamp(c.i, 0, occ.nx-1);
             c.j = std::clamp(c.j, 0, occ.ny-1);
@@ -1893,7 +2407,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
         AStarResult res = astar_octree(occ, start, goal, params, mx, goal_dir,
                                        e->collect_visited);
 
-        // 결과 저장
+        // 寃곌낵 ???
         if ((int)e->doc.results.size() <= task)
             e->doc.results.resize(n, std::nullopt);
         e->doc.results[task] = to_scene_result(res);
@@ -1913,7 +2427,7 @@ extern "C" R3dStatus r3d_route_task_octree(R3dEngine* e, int32_t task,
     }
 }
 
-// ============================================================================ 옥트리 리프 열거 (3D 가시화)
+// ============================================================================ ?ν듃由?由ы봽 ?닿굅 (3D 媛?쒗솕)
 // Enumerate octree leaves. buf == nullptr and maxCount == 0 performs a size query.
 extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
                                              R3dOctreeLeaf* buf, int32_t maxCount,
@@ -1921,7 +2435,7 @@ extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
     if (!e || !out_count) return R3D_ERR_ARG;
     if (maxCount < 0) return R3D_ERR_ARG;
     if (!buf && maxCount > 0) return R3D_ERR_ARG;
-    if (e->doc.shape.i <= 0) return R3D_ERR_ARG;   // scene 미로드
+    if (e->doc.shape.i <= 0) return R3D_ERR_ARG;   // scene 誘몃줈??
     *out_count = 0;
     try {
         OctreeOccupancy occ;

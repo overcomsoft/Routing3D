@@ -36,6 +36,7 @@ namespace Routing3D.Viewer.Views
         private readonly List<TraceCell> _passthroughCells = new();
         private bool _savingVideo;
         private bool _uiReady;
+        private int _pathPlaybackCells;
 
         public TraceReplayWindow(string? path = null)
         {
@@ -391,7 +392,13 @@ namespace Routing3D.Viewer.Views
                     if (type == "expand_cell" && TryGetCell(root, "cell", out var ec)) expanded.Add(ec);
                     else if (type == "candidate_reject" && TryGetCell(root, "to", out var rc)) rejected.Add(rc);
                     else if (type == "snap" && TryGetCell(root, "to", out var sc)) snapped.Add(sc);
-                    else if (type == "route_path" && TryGetArray(root, "cells", out var pathCells)) finalPath.AddRange(ReadCells(pathCells));
+                    else if (type == "route_path" && TryGetArray(root, "cells", out var pathCells))
+                    {
+                        var path = ReadCells(pathCells);
+                        if (PathPlaybackBox?.IsChecked == true && row.Seq == selected.Seq)
+                            path = path.Take(Math.Max(1, _pathPlaybackCells));
+                        finalPath.AddRange(path);
+                    }
                     else if (type == "task_begin")
                     {
                         if (TryGetCell(root, "snapped_source", out var ss)) snapped.Add(ss);
@@ -480,6 +487,14 @@ namespace Routing3D.Viewer.Views
         private void OnLayerChanged(object sender, RoutedEventArgs e)
         {
             if (!_uiReady) return;
+            RebuildModel(EventGrid?.SelectedItem as TraceEventRow);
+        }
+
+        private void OnPathPlaybackChanged(object sender, RoutedEventArgs e)
+        {
+            if (!_uiReady) return;
+            StopPlayback();
+            _pathPlaybackCells = 0;
             RebuildModel(EventGrid?.SelectedItem as TraceEventRow);
         }
 
@@ -781,13 +796,19 @@ namespace Routing3D.Viewer.Views
         private void OnSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (SpeedText == null || _playTimer == null) return;
-            int ms = Math.Max(50, (int)e.NewValue);
+            int ms = Math.Max(10, (int)e.NewValue);
             SpeedText.Text = ms.ToString();
             _playTimer.Interval = TimeSpan.FromMilliseconds(ms);
         }
 
         private void OnPlaybackTick(object? sender, EventArgs e)
         {
+            if (PathPlaybackBox?.IsChecked == true)
+            {
+                AdvancePathPlayback();
+                return;
+            }
+
             var rows = VisibleRows();
             if (rows.Count == 0)
             {
@@ -812,9 +833,91 @@ namespace Routing3D.Viewer.Views
             SelectVisibleIndex(current + 1);
         }
 
+        private bool PreparePathPlayback()
+        {
+            var selected = EventGrid.SelectedItem as TraceEventRow;
+            var row = selected?.Type == "route_path" ? selected : FindRoutePathRow(selected);
+            if (row == null)
+            {
+                StatusText.Text = "Path Playback needs a route_path event. Select a route_path row or a routed task.";
+                return false;
+            }
+
+            EventGrid.SelectedItem = row;
+            EventGrid.ScrollIntoView(row);
+            var cells = ReadRoutePathCells(row);
+            if (cells.Count < 2)
+            {
+                StatusText.Text = "Selected route_path has no drawable path cells.";
+                return false;
+            }
+
+            _pathPlaybackCells = 1;
+            RebuildModel(row);
+            StatusText.Text = $"Path Playback 1/{cells.Count:N0} cells | task={row.TaskText}";
+            return true;
+        }
+
+        private void AdvancePathPlayback()
+        {
+            var row = EventGrid.SelectedItem as TraceEventRow;
+            if (row?.Type != "route_path")
+            {
+                if (!PreparePathPlayback()) StopPlayback();
+                return;
+            }
+
+            var cells = ReadRoutePathCells(row);
+            if (cells.Count < 2)
+            {
+                StopPlayback();
+                return;
+            }
+
+            if (_pathPlaybackCells >= cells.Count)
+            {
+                StopPlayback();
+                StatusText.Text = $"Path Playback complete {cells.Count:N0}/{cells.Count:N0} cells | task={row.TaskText}";
+                return;
+            }
+
+            _pathPlaybackCells = Math.Clamp(_pathPlaybackCells + 1, 1, cells.Count);
+            RebuildModel(row);
+            StatusText.Text = $"Path Playback {_pathPlaybackCells:N0}/{cells.Count:N0} cells | task={row.TaskText}";
+        }
+
+        private TraceEventRow? FindRoutePathRow(TraceEventRow? selected)
+        {
+            if (selected?.Task is int task)
+            {
+                var byTask = Events.FirstOrDefault(e => e.Task == task && e.Type == "route_path");
+                if (byTask != null) return byTask;
+            }
+            return VisibleRows().FirstOrDefault(e => e.Type == "route_path")
+                ?? Events.FirstOrDefault(e => e.Type == "route_path");
+        }
+
+        private static List<TraceCell> ReadRoutePathCells(TraceEventRow row)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(row.RawJson);
+                return TryGetArray(doc.RootElement, "cells", out var pathCells)
+                    ? ReadCells(pathCells).ToList()
+                    : new List<TraceCell>();
+            }
+            catch
+            {
+                return new List<TraceCell>();
+            }
+        }
         private void StartPlayback()
         {
-            if (VisibleRows().Count == 0) return;
+            if (PathPlaybackBox?.IsChecked == true)
+            {
+                if (!PreparePathPlayback()) return;
+            }
+            else if (VisibleRows().Count == 0) return;
             _isPlaying = true;
             PlayButton.Content = "Pause";
             _playTimer.Start();

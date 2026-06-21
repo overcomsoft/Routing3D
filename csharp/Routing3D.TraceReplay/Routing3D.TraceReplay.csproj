@@ -1,0 +1,30 @@
+﻿./<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Routing3D.TraceReplay</RootNamespace>
+    <AssemblyName>Routing3D.TraceReplay</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Page Include="..\Routing3D.Viewer\Views\TraceReplayWindow.xaml">
+      <Link>Views\TraceReplayWindow.xaml</Link>
+    </Page>
+    <Compile Include="..\Routing3D.Viewer\Views\TraceReplayWindow.xaml.cs">
+      <Link>Views\TraceReplayWindow.xaml.cs</Link>
+      <DependentUpon>TraceReplayWindow.xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HelixToolkit.Wpf" Version="2.24.0" />
+  </ItemGroup>
+
+</Project>

@@ -229,6 +229,14 @@ namespace Routing3D.Viewer.Diagnostics
                 wCorrUsed = wCorr;
                 eng.SetParams(cell, 500, wClear, clr, 6, wCorridor: wCorr, corridorRadius: corrRad,
                               rackLevels: appliedRack, wHeur: wHeur, wHeurNear: wHeurNear);
+                bool useSegmentAstar = !string.Equals(Environment.GetEnvironmentVariable("R3D_SEGMENT_ASTAR"), "off", StringComparison.OrdinalIgnoreCase)
+                                    && !string.Equals(Environment.GetEnvironmentVariable("R3D_SEGMENT_ASTAR"), "0", StringComparison.OrdinalIgnoreCase);
+                int segmentMax = Math.Max(4, (int)ParseEnv("R3D_SEGMENT_MAX", 64));
+                eng.SetSegmentAstar(useSegmentAstar, segmentMax);
+                bool useOctreeGuide = string.Equals(Environment.GetEnvironmentVariable("R3D_OCTREE_GUIDE"), "on", StringComparison.OrdinalIgnoreCase)
+                                   || string.Equals(Environment.GetEnvironmentVariable("R3D_OCTREE_GUIDE"), "1", StringComparison.OrdinalIgnoreCase);
+                int octreeCorrRadius = Math.Max(0, (int)ParseEnv("R3D_OCTREE_CORR_RAD", 2));
+                eng.SetOctreeGuide(useOctreeGuide, octreeCorrRadius);
                 foreach (var o in sd.Obstacles)
                     if (o.IsPassThrough) eng.AddPassthrough(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
                     else eng.AddObstacle(o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);

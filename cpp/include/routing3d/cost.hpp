@@ -151,6 +151,18 @@ struct RouteParams {
     //         C# 기본 적용값 100mm (cell=100이면 1셀=비활성, cell=50이면 2셀=활성).
     // capi: r3d_set_min_straight_mm / env R3D_MIN_STRAIGHT_MM.
     int min_straight_cells = 0;
+
+    // Segment A* opt-in. Instead of expanding only the six adjacent cells, the
+    // search expands deterministic straight runs and then reconstructs the
+    // normal cell-by-cell path. Default OFF keeps golden behavior unchanged.
+    bool use_segment_astar = false;
+    int segment_max_cells = 64;
+
+    // JPS-3D-lite mode for Segment A*. When enabled, segment search only pushes
+    // useful straight-run endpoints: goal-axis projection points, forced-neighbor
+    // obstacle-edge jump points, and ray end points. It remains opt-in through
+    // use_segment_astar and still falls back to weighted A* at the C API layer.
+    bool segment_jps_lite = true;
 };
 
 // neighbors26 — 26-연결 이웃 오프셋 배열(면+모서리+꼭짓점, 중심 제외). 고정 순서.

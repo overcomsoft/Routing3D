@@ -680,4 +680,224 @@ AStarResult astar_weighted(const Occ& occ, Cell start, Cell goal, const RoutePar
     return R;
 }
 
+template <class Occ, class InCorridor = AllowAll>
+AStarResult astar_segmented(const Occ& occ, Cell start, Cell goal, const RouteParams& params,
+                            long long max_expansions = -1, bool collect_visited = false,
+                            const std::unordered_set<long long>* corridor = nullptr,
+                            const std::function<bool(long long, double)>* on_progress = nullptr,
+                            long long progress_every = 0, InCorridor in_corridor = {},
+                            int goal_dir = -1,
+                            const AStarTraceFn* on_trace = nullptr) {
+    auto t0 = detail::Clock::now();
+    AStarResult R;
+    if (occ.is_blocked(start)) { R.fail = RouteFail::StartBlocked; R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (occ.is_blocked(goal)) { R.fail = RouteFail::GoalBlocked; R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (!in_corridor(start) || !in_corridor(goal)) { R.fail = RouteFail::CorridorMiss; R.elapsed_ms = detail::ms_since(t0); return R; }
+    if (start == goal) {
+        R.success = true; R.path = {start}; R.expanded_nodes = 1; R.elapsed_ms = detail::ms_since(t0);
+        return R;
+    }
+
+    CostModel<Occ> model(occ, params, corridor);
+    const int min_run = params.min_straight_cells > 1 ? params.min_straight_cells : 1;
+    const int max_seg = params.segment_max_cells > 0 ? params.segment_max_cells : 64;
+    const bool jps_lite = params.segment_jps_lite;
+    const int stride = min_run > 1 ? min_run : 4;
+    auto state_of = [&](long long lin, int dir) -> long long { return lin * 7 + (dir + 1); };
+    auto trace = [&](const char* event, const Cell& from, const Cell& to,
+                     long long exp, int dir, int run, int required) {
+        if (on_trace) (*on_trace)(event, from, to, exp, dir, run, required);
+    };
+    auto weighted_h = [&](const Cell& c) -> double {
+        const double wf = params.w_heur > 0.0 ? params.w_heur : 1.0;
+        return model.heuristic_raw(c, goal) * wf;
+    };
+    auto on_ray_to_goal = [&](const Cell& c, const Cell& d) -> bool {
+        if (d.i != 0) return c.j == goal.j && c.k == goal.k && ((goal.i - c.i) * d.i) > 0;
+        if (d.j != 0) return c.i == goal.i && c.k == goal.k && ((goal.j - c.j) * d.j) > 0;
+        return c.i == goal.i && c.j == goal.j && ((goal.k - c.k) * d.k) > 0;
+    };
+    auto on_goal_axis_plane = [&](const Cell& c, const Cell& d) -> bool {
+        if (d.i != 0) return c.i == goal.i;
+        if (d.j != 0) return c.j == goal.j;
+        return c.k == goal.k;
+    };
+    auto forced_jump_point = [&](const Cell& c, const Cell& d) -> bool {
+        const Cell prev{c.i - d.i, c.j - d.j, c.k - d.k};
+        for (const Cell& side : NEIGHBORS_6) {
+            if ((side.i && d.i) || (side.j && d.j) || (side.k && d.k)) continue;
+            Cell side_cur{c.i + side.i, c.j + side.j, c.k + side.k};
+            if (!occ.in_bounds(side_cur) || occ.is_blocked(side_cur) || !in_corridor(side_cur)) continue;
+            Cell side_prev{prev.i + side.i, prev.j + side.j, prev.k + side.k};
+            if (!occ.in_bounds(side_prev) || occ.is_blocked(side_prev) || !in_corridor(side_prev)) return true;
+        }
+        return false;
+    };
+    auto densify = [](const std::vector<Cell>& endpoints) {
+        std::vector<Cell> out;
+        if (endpoints.empty()) return out;
+        out.push_back(endpoints.front());
+        for (size_t a = 1; a < endpoints.size(); ++a) {
+            Cell p = endpoints[a - 1];
+            const Cell q = endpoints[a];
+            int di = (q.i > p.i) - (q.i < p.i);
+            int dj = (q.j > p.j) - (q.j < p.j);
+            int dk = (q.k > p.k) - (q.k < p.k);
+            while (!(p == q)) {
+                p = Cell{p.i + di, p.j + dj, p.k + dk};
+                out.push_back(p);
+            }
+        }
+        return out;
+    };
+
+    std::priority_queue<detail::PQItem, std::vector<detail::PQItem>, detail::PQCmp> open;
+    detail::StateMap nodes;
+    std::unordered_set<int> visited_seen;
+    long long counter = 0;
+    const long long s0 = state_of(occ.lin(start), -1);
+    { bool ins0; detail::StateMap::Slot& sl0 = nodes.emplace(s0, ins0); sl0.g = 0.0; }
+    open.push({weighted_h(start), counter++, start, -1, 0});
+
+    const double h_start = model.heuristic(start, goal);
+    double h_min = h_start;
+    long long expanded = 0;
+    bool hit_limit = false;
+    bool reached_goal_wrong_dir = false;
+
+    while (!open.empty()) {
+        detail::PQItem cur = open.top();
+        open.pop();
+        const long long st = state_of(occ.lin(cur.cell), cur.dir);
+        detail::StateMap::Slot* cs = nodes.find(st);
+        if (cs->closed) continue;
+        cs->closed = true;
+        const double g_st = cs->g;
+        ++expanded;
+        trace("expand_cell", cur.cell, cur.cell, expanded, cur.dir, 0, min_run);
+
+        if (collect_visited) {
+            int cl = occ.lin(cur.cell);
+            if (visited_seen.insert(cl).second) R.visited.push_back(cur.cell);
+        }
+        if (on_progress && progress_every > 0) {
+            double hc = model.heuristic(cur.cell, goal);
+            if (hc < h_min) h_min = hc;
+            if (expanded % progress_every == 0) {
+                double prog = h_start > 0.0 ? 1.0 - h_min / h_start : 0.0;
+                if (prog < 0.0) prog = 0.0;
+                if (prog > 0.99) prog = 0.99;
+                if ((*on_progress)(expanded, prog)) { R.expanded_nodes = expanded; R.elapsed_ms = detail::ms_since(t0); return R; }
+            }
+        }
+        if (cur.cell == goal && goal_dir >= 0 && cur.dir != goal_dir) reached_goal_wrong_dir = true;
+        if (cur.cell == goal && (goal_dir < 0 || cur.dir == goal_dir)) {
+            std::vector<Cell> endpoints;
+            long long s = st;
+            endpoints.push_back(occ.unlin(s / 7));
+            detail::StateMap::Slot* sp = nodes.find(s);
+            while (sp && sp->parent != -1) {
+                s = sp->parent;
+                endpoints.push_back(occ.unlin(s / 7));
+                sp = nodes.find(s);
+            }
+            for (size_t a = 0, b = endpoints.size() - 1; a < b; ++a, --b) std::swap(endpoints[a], endpoints[b]);
+            R.path = densify(endpoints);
+            R.success = true;
+            R.length_mm = (R.path.size() - 1) * params.cell_mm;
+            R.cost_mm = g_st;
+            R.turns = count_turns(R.path);
+            R.expanded_nodes = expanded;
+            R.elapsed_ms = detail::ms_since(t0);
+            return R;
+        }
+        if (max_expansions > 0 && expanded >= max_expansions) { hit_limit = true; break; }
+
+        const Cell* prev_off0 = cur.dir < 0 ? nullptr : &NEIGHBORS_6[static_cast<size_t>(cur.dir)];
+        for (int nidx = 0; nidx < 6; ++nidx) {
+            const Cell& d = NEIGHBORS_6[static_cast<size_t>(nidx)];
+            const bool is_turn = cur.dir >= 0 && nidx != cur.dir;
+            const int min_accept = is_turn ? min_run : 1;
+            const Cell* prev_off = prev_off0;
+            Cell p = cur.cell;
+            Cell last_valid = cur.cell;
+            double seg_cost = 0.0;
+            double last_valid_cost = 0.0;
+            int last_valid_step = 0;
+            int last_added_step = -1;
+            bool blocked_before_accept = false;
+
+            auto push_endpoint = [&](const Cell& nb, double cost_to_nb, int step, const char* reason) {
+                if (step < min_accept && !(nb == goal)) return;
+                const long long ns = state_of(occ.lin(nb), nidx);
+                const double t = g_st + cost_to_nb;
+                bool ins;
+                detail::StateMap::Slot& sl = nodes.emplace(ns, ins);
+                if (!ins && sl.closed) return;
+                if (ins || t < sl.g) {
+                    sl.g = t;
+                    sl.parent = st;
+                    open.push({t + weighted_h(nb), counter++, nb, nidx, 0});
+                    trace(reason, cur.cell, nb, expanded, nidx, step, min_accept);
+                }
+                last_added_step = step;
+            };
+
+            for (int step = 1; step <= max_seg; ++step) {
+                Cell nb{p.i + d.i, p.j + d.j, p.k + d.k};
+                if (!occ.in_bounds(nb)) {
+                    trace("candidate_reject_out_of_bounds", cur.cell, nb, expanded, nidx, step, min_accept);
+                    if (jps_lite && last_valid_step >= min_accept && !(last_valid == cur.cell))
+                        push_endpoint(last_valid, last_valid_cost, last_valid_step, "jump_point_ray_end");
+                    break;
+                }
+                if (occ.is_blocked(nb)) {
+                    trace("candidate_reject_blocked", cur.cell, nb, expanded, nidx, step, min_accept);
+                    blocked_before_accept = step < min_accept;
+                    if (jps_lite && last_valid_step >= min_accept && !(last_valid == cur.cell))
+                        push_endpoint(last_valid, last_valid_cost, last_valid_step, "jump_point_ray_end");
+                    break;
+                }
+                if (!in_corridor(nb)) {
+                    trace("candidate_reject_corridor_gate", cur.cell, nb, expanded, nidx, step, min_accept);
+                    if (jps_lite && last_valid_step >= min_accept && !(last_valid == cur.cell))
+                        push_endpoint(last_valid, last_valid_cost, last_valid_step, "jump_point_ray_end");
+                    break;
+                }
+                seg_cost += model.move_cost(nb, prev_off, d);
+                prev_off = &d;
+                p = nb;
+                last_valid = nb;
+                last_valid_cost = seg_cost;
+                last_valid_step = step;
+
+                const bool reaches_goal = (nb == goal);
+                const bool goal_on_axis = on_ray_to_goal(cur.cell, d) && nb == goal;
+                const bool goal_axis_plane = on_goal_axis_plane(nb, d);
+                const bool forced = jps_lite && step >= min_accept && forced_jump_point(nb, d);
+                const bool periodic = !jps_lite && step >= min_accept && ((step - min_accept) % stride == 0);
+                const bool furthest_probe = step == max_seg;
+                if (step >= min_accept || reaches_goal) {
+                    if (periodic || reaches_goal || goal_on_axis || goal_axis_plane || forced || furthest_probe) {
+                        push_endpoint(nb, seg_cost, step,
+                                      forced ? "jump_point_forced" :
+                                      goal_axis_plane ? "jump_point_goal_axis" :
+                                      furthest_probe ? "jump_point_ray_end" : "jump_point_periodic");
+                    }
+                }
+                if (reaches_goal) break;
+            }
+            if (blocked_before_accept) {
+                trace("candidate_reject_min_straight", cur.cell, cur.cell, expanded, nidx, last_added_step, min_accept);
+            }
+        }
+    }
+
+    R.expanded_nodes = expanded;
+    R.elapsed_ms = detail::ms_since(t0);
+    R.fail = hit_limit ? RouteFail::ExpansionLimit
+           : reached_goal_wrong_dir ? RouteFail::GoalDirBlocked
+           : RouteFail::NoPath;
+    return R;
+}
 }  // namespace routing3d

@@ -187,10 +187,31 @@ static void cross_backend_sparse() {
     }
 }
 
+static void scenario_04_segment_jps_lite() {
+    std::printf("=== 04_segment_jps_lite ===\n");
+    DenseOccupancy occ(Cell{120, 120, 20}, Vec3{0, 0, 0}, 50.0);
+    RouteParams p = baseline();
+    p.use_segment_astar = true;
+    p.segment_jps_lite = true;
+    p.segment_max_cells = 128;
+    Cell s{2, 2, 10};
+    Cell g{110, 95, 10};
+    AStarResult base = astar_weighted(occ, s, g, baseline());
+    AStarResult seg = astar_segmented(occ, s, g, p);
+    std::printf("  base: success=%d length=%.1f turns=%d expanded=%lld\n",
+                base.success, base.length_mm, base.turns, base.expanded_nodes);
+    std::printf("  jps-lite: success=%d length=%.1f turns=%d expanded=%lld\n",
+                seg.success, seg.length_mm, seg.turns, seg.expanded_nodes);
+    check(seg.success, "segment jps-lite success");
+    check(seg.length_mm == base.length_mm, "segment jps-lite preserves empty-space shortest length");
+    check(seg.turns <= base.turns, "segment jps-lite turns <= baseline turns");
+    check(seg.expanded_nodes < base.expanded_nodes, "segment jps-lite expands fewer states than weighted A*");
+}
 int main() {
     scenario_01_single_empty();
     scenario_02_single_obstacle();
     scenario_03_multi_tier();
+    scenario_04_segment_jps_lite();
     cross_backend_sparse();
     std::printf("\n%s (failures=%d)\n", g_failures == 0 ? "ALL PASS" : "FAILED", g_failures);
     return g_failures == 0 ? 0 : 1;

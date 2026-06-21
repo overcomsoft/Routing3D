@@ -1598,6 +1598,16 @@ namespace Routing3D.Viewer.ViewModels
                          : (_useRackBundling || (_useBundlePattern && hasRack)) ? g.CellMm * 0.2 : 0.0;
             _engine.SetParams(g.CellMm, 500, 10, 2, 6, wCorridor: wCorr, corridorRadius: 2,
                               rackLevels: rackLevels, wHeur: wHeur, wHeurNear: wHeurNear);
+            bool useSegmentAstar = !string.Equals(Environment.GetEnvironmentVariable("R3D_SEGMENT_ASTAR"), "off", StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(Environment.GetEnvironmentVariable("R3D_SEGMENT_ASTAR"), "0", StringComparison.OrdinalIgnoreCase);
+            int segmentMax = 64;
+            if (int.TryParse(Environment.GetEnvironmentVariable("R3D_SEGMENT_MAX"), out var sm) && sm > 0) segmentMax = sm;
+            _engine.SetSegmentAstar(useSegmentAstar, segmentMax);
+            bool useOctreeGuide = string.Equals(Environment.GetEnvironmentVariable("R3D_OCTREE_GUIDE"), "on", StringComparison.OrdinalIgnoreCase)
+                               || string.Equals(Environment.GetEnvironmentVariable("R3D_OCTREE_GUIDE"), "1", StringComparison.OrdinalIgnoreCase);
+            int octreeCorrRadius = 2;
+            if (int.TryParse(Environment.GetEnvironmentVariable("R3D_OCTREE_CORR_RAD"), out var ogRad) && ogRad >= 0) octreeCorrRadius = ogRad;
+            _engine.SetOctreeGuide(useOctreeGuide, octreeCorrRadius);
             // 배관-배관 물리 이격 — per-task 관경 반경 활성 + 표면 최소 60mm 갭.
             // per-task: route_multi 가 각 배관 diameter_mm 로 마킹 반경을 자동 산출해 가는 배관 과패킹 해소.
             // gap60: 두 배관 센터선 거리 ≥ r1+r2+60mm 를 쌍별 마킹으로 강제(표면 맞닿음→분리).

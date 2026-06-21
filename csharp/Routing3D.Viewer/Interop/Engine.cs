@@ -1,22 +1,22 @@
-// 매니지드 엔진 래퍼 — C# 코드가 실제로 사용하는 OOP 면
+// 매니지???�진 ?�퍼 ??C# 코드가 ?�제�??�용?�는 OOP �?
 // =============================================================================
-//   Native(P/Invoke) + R3dEngineHandle 위에 예외 기반 OOP API 를 제공한다.
-//   상태 코드가 0(R3D_OK)이 아니면 예외를 던진다.
+//   Native(P/Invoke) + R3dEngineHandle ?�에 ?�외 기반 OOP API �??�공?�다.
+//   ?�태 코드가 0(R3D_OK)???�니�??�외�??�진??
 // =============================================================================
 using System;
 
 namespace Routing3D.Viewer.Interop
 {
-    /// <summary>경로 셀 (i, j, k).</summary>
+    /// <summary>경로 ?� (i, j, k).</summary>
     public readonly record struct PathCell(int I, int J, int K);
 
-    /// <summary>옥트리 리프 노드 정보 (3D 가시화용). State: 0=FREE, 1=BLOCKED.</summary>
+    /// <summary>?�트�?리프 ?�드 ?�보 (3D 가?�화??. State: 0=FREE, 1=BLOCKED.</summary>
     public readonly record struct OctreeLeaf(float X0Mm, float Y0Mm, float Z0Mm, float SizeMm, int State);
 
-    /// <summary>라우팅 실패 사유(A1) — 엔진 RouteFail 과 1:1. Success=false 일 때만 의미.</summary>
+    /// <summary>?�우???�패 ?�유(A1) ???�진 RouteFail �?1:1. Success=false ???�만 ?��?.</summary>
     public enum RouteFail { None = 0, StartBlocked = 1, GoalBlocked = 2, CorridorMiss = 3, ExpansionLimit = 4, GoalDirBlocked = 5, NoPath = 6 }
 
-    /// <summary>한 작업의 라우팅 결과(성공/길이/회전/경로/방문 셀).</summary>
+    /// <summary>???�업???�우??결과(?�공/길이/?�전/경로/방문 ?�).</summary>
     public sealed class RouteResult
     {
         public bool Success { get; init; }
@@ -24,10 +24,10 @@ namespace Routing3D.Viewer.Interop
         public double CostMm { get; init; }
         public int Turns { get; init; }
         public long ExpandedNodes { get; init; }
-        /// <summary>실패 사유(A1). 성공 시 None. UI 실패 진단(ExplainFailure)에서 정확 분류.</summary>
+        /// <summary>?�패 ?�유(A1). ?�공 ??None. UI ?�패 진단(ExplainFailure)?�서 ?�확 분류.</summary>
         public RouteFail Fail { get; init; }
         public PathCell[] Path { get; init; } = Array.Empty<PathCell>();
-        /// <summary>이 작업의 A* 가 확장한 셀(가시화 '방문맵'). 엔진의 collect_visited 가 ON 일 때만.</summary>
+        /// <summary>???�업??A* 가 ?�장???�(가?�화 '방문�?). ?�진??collect_visited 가 ON ???�만.</summary>
         public PathCell[] Visited { get; init; } = Array.Empty<PathCell>();
     }
 
@@ -39,7 +39,7 @@ namespace Routing3D.Viewer.Interop
         public bool IsValid => !_disposed && !_h.IsInvalid;
         public static string Version => Native.VersionString();
 
-        // ---- 장면 구성(Level 2) ----
+        // ---- ?�면 구성(Level 2) ----
         public void LoadSceneText(string sceneText)
             => Check(Native.r3d_load_scene_text(H, Native.Utf8(sceneText)), "load_scene_text");
 
@@ -70,55 +70,67 @@ namespace Routing3D.Viewer.Interop
             Check(Native.r3d_set_params(H, in p), "set_params");
         }
 
-        /// <summary>배관 점유 팽창 반경(셀) 설정 — 배관-배관 충돌 회피(옵션1). route_multi(_progress) 가
-        /// 깔린 배관을 경로 ±radius 6-이웃까지 점유로 막아 다음 배관 중심선을 띄운다(실제 관경 렌더 시 표면
-        /// 겹침 방지). 0=기존 동작(경로 셀만). 관경/셀 기반 산출은 호출자(BuildEngineForRows)가 수행한다.</summary>
+        /// <summary>배�? ?�유 ?�창 반경(?�) ?�정 ??배�?-배�? 충돌 ?�피(?�션1). route_multi(_progress) 가
+        /// 깔린 배�???경로 ±radius 6-?�웃까�? ?�유�?막아 ?�음 배�? 중심?�을 ?�운???�제 관�??�더 ???�면
+        /// 겹침 방�?). 0=기존 ?�작(경로 ?��?. 관�??� 기반 ?�출?� ?�출??BuildEngineForRows)가 ?�행?�다.</summary>
         public void SetPipeRadius(int radiusCells)
             => Check(Native.r3d_set_pipe_radius(H, radiusCells), "set_pipe_radius");
 
-        /// <summary>per-task 관경 반경(B1) 활성화 — ON 이면 route_multi 가 각 배관 diameter_mm 로 마킹 반경을
-        /// 자동 산출(글로벌 SetPipeRadius 책임 제거·가는 배관 과패킹 해소). 관경 미상은 글로벌 폴백.</summary>
+        /// <summary>per-task 관�?반경(B1) ?�성????ON ?�면 route_multi 가 �?배�? diameter_mm �?마킹 반경??
+        /// ?�동 ?�출(글로벌 SetPipeRadius 책임 ?�거·가??배�? 과패???�소). 관�?미상?� 글로벌 ?�백.</summary>
         public void SetPerTaskRadius(bool on)
             => Check(Native.r3d_set_per_task_radius(H, on ? 1 : 0), "set_per_task_radius");
 
-        /// <summary>C1 negotiated-congestion(CBS-lite, Phase C) 깊이 — 0=OFF(평면 rip-up만·기존 동작).
-        /// >0 이면 평면 rip-up 으로도 안 풀린 실패 배관을 blocker 의 blocker 까지 재귀 양보시켜 해소(무손실·
-        /// 결정적). [0,3] 클램프(엔진). 고밀도 병목의 잔여 실패를 줄인다.</summary>
+        /// <summary>C1 negotiated-congestion(CBS-lite, Phase C) 깊이 ??0=OFF(?�면 rip-up만·기�??�작).
+        /// >0 ?�면 ?�면 rip-up ?�로?????��??�패 배�???blocker ??blocker 까�? ?��? ?�보?�켜 ?�소(무손?��?
+        /// 결정??. [0,3] ?�램???�진). 고�???병목???�여 ?�패�?줄인??</summary>
         public void SetCbsDepth(int depth)
             => Check(Native.r3d_set_cbs_depth(H, depth), "set_cbs_depth");
 
-        /// <summary>C2 코너 최소반경 배수(Phase C) — 엘보 사이 직선(런) ≥ (mult × 관경) 보장(제작성).
-        /// 경로(셀) 단계에서 충돌검사 하에 짧은 단관을 흡수(꺾임 비증가일 때만, 양 끝점 고정). 0=OFF(기존
-        /// 동작). 권장 2.0. PathRectifier(렌더 레벨, 되돌림)와 달리 충돌 안전.</summary>
+        /// <summary>C2 코너 최소반경 배수(Phase C) ???�보 ?�이 직선(?? ??(mult × 관�? 보장(?�작??.
+        /// 경로(?�) ?�계?�서 충돌검???�에 짧�? ?��????�수(꺾임 비증가???�만, ???�점 고정). 0=OFF(기존
+        /// ?�작). 권장 2.0. PathRectifier(?�더 ?�벨, ?�돌�??� ?�리 충돌 ?�전.</summary>
         public void SetMinStraight(double mult)
             => Check(Native.r3d_set_min_straight(H, mult), "set_min_straight");
 
-        /// <summary>코너 최소직선(절대 mm, 하드 제약) — A* 가 '한 번 꺾인 뒤 이 길이만큼 직진하기 전엔 다시
-        /// 꺾지 못하도록' 탐색 단계에서 강제한다. 엘보 간 모든 직선 구간(단관)이 이 길이 이상 보장됨(관경 무관·
-        /// 전 배관, 목표 직전 마지막 접속 구간만 면제). SetMinStraight(관경 배수·후처리 흡수)와 달리 하드 보장.
-        /// 0=OFF(기존 동작·골든 불변). 권장 100mm.</summary>
+        /// <summary>코너 최소직선(?��? mm, ?�드 ?�약) ??A* 가 '??�?꺾인 ????길이만큼 직진?�기 ?�엔 ?�시
+        /// 꺾�? 못하?�록' ?�색 ?�계?�서 강제?�다. ?�보 �?모든 직선 구간(?��?)????길이 ?�상 보장??관�?무�?·
+        /// ??배�?, 목표 직전 마�?�??�속 구간�?면제). SetMinStraight(관�?배수·?�처�??�수)?� ?�리 ?�드 보장.
+        /// 0=OFF(기존 ?�작·골든 불�?). 권장 100mm.</summary>
         public void SetMinStraightMm(double mm)
             => Check(Native.r3d_set_min_straight_mm(H, mm), "set_min_straight_mm");
 
-        /// <summary>배관-배관 이격(mm) — 두 배관 센터선 거리 ≥ r1 + r2 + gap 보장(표면 사이 최소 gap mm 띄움).
-        /// 기존 마킹은 센터선을 ~관경만큼만 띄워 표면이 맞닿았다(겹쳐 보임). gap>0 이면 route_multi 가 깔린
-        /// 배관을 쌍 반경으로 막아 정확히 띄운다. 0=기존 동작. 규격 60mm.</summary>
+        /// <summary>배�?-배�? ?�격(mm) ????배�? ?�터??거리 ??r1 + r2 + gap 보장(?�면 ?�이 최소 gap mm ?��?).
+        /// 기존 마킹?� ?�터?�을 ~관경만?�만 ?�워 ?�면??맞닿?�다(겹쳐 보임). gap>0 ?�면 route_multi 가 깔린
+        /// 배�?????반경?�로 막아 ?�확???�운?? 0=기존 ?�작. 규격 60mm.</summary>
         public void SetPipeGap(double gapMm)
             => Check(Native.r3d_set_pipe_gap(H, gapMm), "set_pipe_gap");
 
-        /// <summary>대형 격자 최대 탐색 확장 수 — 0=환경변수/기본값(48M). 최단경로 모드 등에서 탐색 상한을
-        /// 줄여 배관당 탐색 폭발(수분 동결)을 방지한다. large_threshold(기본 5M셀) 이하 격자는 무제한(-1)이므로
-        /// 이 값은 대형 격자에서만 적용된다. 권장: 최단경로 8M, 특징점/기존설계 0(기본 48M).</summary>
+        /// <summary>Segment A*: straight-run expansion first, existing A* fallback. maxSegmentCells controls jump length.</summary>
+        public void SetSegmentAstar(bool on, int maxSegmentCells = 64)
+            => Check(Native.r3d_set_segment_astar(H, on ? 1 : 0, maxSegmentCells), "set_segment_astar");
+
+        /// <summary>Octree macro path guide: Octree Jump A* generates a corridor, fine A* produces the final route.</summary>
+        public void SetOctreeGuide(bool on, int corridorRadius = 2)
+            => Check(Native.r3d_set_octree_guide(H, on ? 1 : 0, corridorRadius), "set_octree_guide");
+
+        /// <summary>TruckIn/Middle/Terminal split routing. trunkZMm <= 0 selects rack/auto trunk height.</summary>
+        public void SetRouteSplit(bool on, double trunkZMm = 0.0)
+            => Check(Native.r3d_set_route_split(H, on ? 1 : 0, trunkZMm), "set_route_split");
+
+        /// <summary>?�??격자 최�? ?�색 ?�장 ????0=?�경변??기본�?48M). 최단경로 모드 ?�에???�색 ?�한??
+        /// 줄여 배�????�색 ??��(?�분 ?�결)??방�??�다. large_threshold(기본 5M?�) ?�하 격자??무제??-1)?��?�?
+        /// ??값�? ?�??격자?�서�??�용?�다. 권장: 최단경로 8M, ?�징??기존?�계 0(기본 48M).</summary>
         public void SetMaxExpansions(long maxExp)
         {
             var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp };
             Check(Native.r3d_set_runtime_options(H, in opt), "set_runtime_options");
         }
 
-        /// <summary>대형 격자 탐색 상한 + 계층(hier) escalation 임계(hier_probe)를 함께 설정.
-        /// hierProbe 를 크게(=maxExp) 주면 어려운 배관도 '직접 가중 A*'로 먼저 충분히 탐색한 뒤에야 계층
-        /// corridor 로 넘어간다 → 직접 A*가 찾는 짧은(≤w_heur배) 경로를 계층의 3~4× 우회보다 우선한다.
-        /// 최단경로 모드처럼 '길이'가 중요한 경우에 쓴다(대신 어려운 배관은 더 오래 탐색).</summary>
+        /// <summary>?�??격자 ?�색 ?�한 + 계층(hier) escalation ?�계(hier_probe)�??�께 ?�정.
+        /// hierProbe �??�게(=maxExp) 주면 ?�려??배�???'직접 가�?A*'�?먼�? 충분???�색???�에??계층
+        /// corridor �??�어간다 ??직접 A*가 찾는 짧�?(?�w_heur�? 경로�?계층??3~4× ?�회보다 ?�선?�다.
+        /// 최단경로 모드처럼 '길이'가 중요??경우???�다(?�???�려??배�??� ???�래 ?�색).</summary>
         public void SetRuntimeLimits(long maxExp, long hierProbe)
         {
             var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp, hier_probe = hierProbe };
@@ -156,7 +168,7 @@ namespace Routing3D.Viewer.Interop
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
 
-        // 통과(pass-through) 객체 추가 — 경로탐색 충돌 제외, '통과 점유맵' 가시화용.
+        // ?�과(pass-through) 객체 추�? ??경로?�색 충돌 ?�외, '?�과 ?�유�? 가?�화??
         public void AddPassthrough(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_passthrough(H, minx, miny, minz, maxx, maxy, maxz), "add_passthrough");
 
@@ -164,45 +176,45 @@ namespace Routing3D.Viewer.Interop
                            string? utility, string? utilityGroup)
         {
             int idx = Native.r3d_add_task(H, sx, sy, sz, gx, gy, gz, Native.Utf8(utility), Native.Utf8(utilityGroup));
-            if (idx < 0) throw new InvalidOperationException("r3d_add_task 실패");
+            if (idx < 0) throw new InvalidOperationException("r3d_add_task ?�패");
             return idx;
         }
 
         public void SetTaskEndpoints(int task, double sx, double sy, double sz, double gx, double gy, double gz)
             => Check(Native.r3d_set_task_endpoints(H, task, sx, sy, sz, gx, gy, gz), "set_task_endpoints");
 
-        /// <summary>작업 관경(mm) 설정 — 우선순위 "diameter"/"utility" 정렬에서 '굵은 배관 먼저' 키.
-        /// 0=관경 무시(기존 거리 정렬과 동일). 굵은 배관이 최단 경로를 선점해 가는 배관이 우회·충돌하지 않게 한다.</summary>
+        /// <summary>?�업 관�?mm) ?�정 ???�선?�위 "diameter"/"utility" ?�렬?�서 '굵�? 배�? 먼�?' ??
+        /// 0=관�?무시(기존 거리 ?�렬�??�일). 굵�? 배�???최단 경로�??�점??가??배�????�회·충돌?��? ?�게 ?�다.</summary>
         public void SetTaskDiameter(int task, double diameterMm)
             => Check(Native.r3d_set_task_diameter(H, task, diameterMm), "set_task_diameter");
 
-        /// <summary>작업 목표 진입축 제약 — A* 가 목표(end)에 axis(0..5 = +x,-x,+y,-y,+z,-z) 방향으로 진입할
-        /// 때만 도달 인정. 덕트 종단 스텁 리드인 축을 주면 배관이 스텁에 일직선 진입(군더더기 꺾임 제거).
-        /// -1=무제약(기본). 제약으로 막히면 엔진이 무제약 1회 폴백(연결 우선).</summary>
+        /// <summary>?�업 목표 진입�??�약 ??A* 가 목표(end)??axis(0..5 = +x,-x,+y,-y,+z,-z) 방향?�로 진입??
+        /// ?�만 ?�달 ?�정. ?�트 종단 ?�텁 리드??축을 주면 배�????�텁???�직??진입(군더?�기 꺾임 ?�거).
+        /// -1=무제??기본). ?�약?�로 막히�??�진??무제??1???�백(?�결 ?�선).</summary>
         public void SetTaskGoalDir(int task, int axis)
             => Check(Native.r3d_set_task_goal_dir(H, task, axis), "set_task_goal_dir");
 
-        // ---- 라우팅 ----
+        // ---- ?�우??----
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
-        /// <summary>학습된 회랑 셀(ijk 삼중항 평탄 배열)을 설정한다(L2b 소프트 바이어스). w_corridor>0 일 때
-        /// route_multi 가 이 셀들을 회랑 시드로 삼아 배관을 그 곁으로 유도. null/빈 배열이면 회랑을 비운다.</summary>
+        /// <summary>?�습???�랑 ?�(ijk ?�중???�탄 배열)???�정?�다(L2b ?�프??바이?�스). w_corridor>0 ????
+        /// route_multi 가 ???�?�을 ?�랑 ?�드�??�아 배�???�?곁으�??�도. null/�?배열?�면 ?�랑??비운??</summary>
         public void SetCorridorCells(int[]? ijk)
             => Check(Native.r3d_set_corridor_cells(H, ijk, ijk == null ? 0 : ijk.Length / 3), "set_corridor_cells");
 
-        /// <summary>라우팅 진행 이벤트. Phase 0=탐색 진행(Progress01), 1=배관 완료(지표+Path).</summary>
+        /// <summary>?�우??진행 ?�벤?? Phase 0=?�색 진행(Progress01), 1=배�? ?�료(지??Path).</summary>
         public readonly record struct RouteProgress(int Phase, int OrderIndex, int TaskIndex,
             bool Success, double LengthMm, int Turns, long ExpandedNodes, double ElapsedMs,
             int Done, int Total, double Progress01, PathCell[] Path);
 
-        /// <summary>route_multi 와 동일(순차·충돌없음)하되 배관마다 onPipe 를 호출(처리순서·진행율·경로 실시간).
-        /// 콜백은 라우팅 스레드에서 동기 호출되므로, UI 갱신은 호출자가 Dispatcher 로 마샬링한다.
-        /// shouldCancel 이 true 를 반환하면 엔진이 현재 배관 탐색을 즉시 중단하고 남은 배관 없이 정상 반환한다
-        /// (협력적 취소 — 약 5만 확장마다·배관 완료마다 검사). 완료된 배관 결과는 보존된다.</summary>
+        /// <summary>route_multi ?� ?�일(?�차·충돌?�음)?�되 배�?마다 onPipe �??�출(처리?�서·진행?�·경�??�시�?.
+        /// 콜백?� ?�우???�레?�에???�기 ?�출?��?�? UI 갱신?� ?�출?��? Dispatcher �?마샬링한??
+        /// shouldCancel ??true �?반환?�면 ?�진???�재 배�? ?�색??즉시 중단?�고 ?��? 배�? ?�이 ?�상 반환?�다
+        /// (?�력??취소 ????5�??�장마다·배�? ?�료마다 검??. ?�료??배�? 결과??보존?�다.</summary>
         public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe, Func<bool>? shouldCancel = null)
         {
-            // 델리게이트는 네이티브 호출이 끝날 때까지 살아 있어야 한다(지역 변수로 GC 보호).
+            // ?�리게이?�는 ?�이?�브 ?�출???�날 ?�까지 ?�아 ?�어???�다(지??변?�로 GC 보호).
             Native.R3dProgressFn cb = (user, phase, oi, ti, ok, len, turns, exp, ms, done, total, prog, pathPtr, pathLen) =>
             {
                 var path = Array.Empty<PathCell>();
@@ -214,25 +226,36 @@ namespace Routing3D.Viewer.Interop
                     for (int i = 0; i < pathLen; i++) path[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
                 }
                 onPipe(new RouteProgress(phase, oi, ti, ok != 0, len, turns, exp, ms, done, total, prog, path));
-                return (shouldCancel != null && shouldCancel()) ? 1 : 0;   // 0아님=취소 → 엔진 탐색 중단.
+                return (shouldCancel != null && shouldCancel()) ? 1 : 0;   // 0?�님=취소 ???�진 ?�색 중단.
             };
             try { Check(Native.r3d_route_multi_progress(H, Native.Utf8(priority), cb, IntPtr.Zero), "route_multi_progress"); }
             finally { GC.KeepAlive(cb); }
         }
 
-        // 단일 작업 재라우팅(원본 장애물 기준, 다른 배관 무시). 결과는 엔진에 저장된다.
+        // ?�일 ?�업 ?�라?�팅(?�본 ?�애�?기�?, ?�른 배�? 무시). 결과???�진???�?�된??
         public RouteResult RouteTask(int task)
         {
             Check(Native.r3d_route_task(H, task, out _), "route_task");
             return GetResult(task);
         }
 
-        // 대형 장면용 계층 corridor 라우팅(Sparse + coarse→fine). 작업별 독립(충돌 회피 없음).
+        public RouteResult RouteTaskAnytime(int task, double initialWeight, double finalWeight,
+                                           double weightStep, double timeBudgetMs,
+                                           long maxExpansions, int goalDir,
+                                           out int iterations, out int improvements)
+        {
+            Check(Native.r3d_route_task_anytime(H, task, initialWeight, finalWeight, weightStep,
+                                                timeBudgetMs, maxExpansions, goalDir, out _,
+                                                out iterations, out improvements),
+                  "route_task_anytime");
+            return GetResult(task);
+        }
+        // ?�???�면??계층 corridor ?�우??Sparse + coarse?�fine). ?�업�??�립(충돌 ?�피 ?�음).
         public void RouteCorridor(int factor = 16, int radius = 2)
             => Check(Native.r3d_route_corridor(H, factor, radius), "route_corridor");
 
-        // 순차 계층 corridor(Sparse + astar_hashed, 셀 수 배열 미할당 → 10mm 등 대형/정밀 격자 안전).
-        // priority 순서로 한 배관씩 라우팅하고 mark_pipe(pipeRadius)로 점유 추가 → 배관 간 충돌 0.
+        // ?�차 계층 corridor(Sparse + astar_hashed, ?� ??배열 미할????10mm ???�???��? 격자 ?�전).
+        // priority ?�서�???배�????�우?�하�?mark_pipe(pipeRadius)�??�유 추�? ??배�? �?충돌 0.
         public void RouteCorridorMulti(int factor, int radius, string priority = "longest", int pipeRadius = 0)
             => Check(Native.r3d_route_corridor_multi(H, factor, radius, Native.Utf8(priority), pipeRadius),
                      "route_corridor_multi");
@@ -270,10 +293,10 @@ namespace Routing3D.Viewer.Interop
             };
         }
 
-        /// <summary>'점유맵' 가시화 용 — 현재 doc 의 voxelize 된 블록 셀 전체를 한 번에 반환.</summary>
+        /// <summary>'?�유�? 가?�화 ?????�재 doc ??voxelize ??블록 ?� ?�체�???번에 반환.</summary>
         public PathCell[] CopyBlocked()
         {
-            int total = Native.r3d_copy_blocked(H, null, 0);  // 사이즈 조회.
+            int total = Native.r3d_copy_blocked(H, null, 0);  // ?�이�?조회.
             if (total <= 0) return Array.Empty<PathCell>();
             var buf = new int[total * 3];
             int n = Native.r3d_copy_blocked(H, buf, total);
@@ -282,7 +305,7 @@ namespace Routing3D.Viewer.Interop
             return cells;
         }
 
-        /// <summary>점유 셀을 엔진에서 직접 균등 샘플링해 복사한다. 대형 장면 미리보기용.</summary>
+        /// <summary>?�유 ?�???�진?�서 직접 균등 ?�플링해 복사?�다. ?�???�면 미리보기??</summary>
         public PathCell[] CopyBlockedSampled(int maxCells)
         {
             if (maxCells <= 0) return Array.Empty<PathCell>();
@@ -293,7 +316,7 @@ namespace Routing3D.Viewer.Interop
             for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
             return cells;
         }
-        /// <summary>'통과 점유맵' 가시화 — doc.passthrough 의 voxelize 된 셀 전체 반환.</summary>
+        /// <summary>'?�과 ?�유�? 가?�화 ??doc.passthrough ??voxelize ???� ?�체 반환.</summary>
         public PathCell[] CopyPassthrough()
         {
             int total = Native.r3d_copy_passthrough(H, null, 0);
@@ -305,7 +328,7 @@ namespace Routing3D.Viewer.Interop
             return cells;
         }
 
-        /// <summary>방문(확장) 셀 수집을 켜고/끄기. 기본 ON. OFF 면 라우팅 후 Visited 가 비어있다.</summary>
+        /// <summary>방문(?�장) ?� ?�집??켜고/?�기. 기본 ON. OFF �??�우????Visited 가 비어?�다.</summary>
         public void SetCollectVisited(bool on)
             => Check(Native.r3d_set_collect_visited(H, on ? 1 : 0), "set_collect_visited");
 
@@ -315,8 +338,8 @@ namespace Routing3D.Viewer.Interop
             return Native.TakeString(p);
         }
 
-        /// <summary>옥트리 리프 노드 배열 반환 (3D 가시화용).
-        /// maxLeaves: 상한(기본 1M). State: 0=FREE, 1=BLOCKED.</summary>
+        /// <summary>?�트�?리프 ?�드 배열 반환 (3D 가?�화??.
+        /// maxLeaves: ?�한(기본 1M). State: 0=FREE, 1=BLOCKED.</summary>
         public OctreeLeaf[] EnumOctreeLeaves(int maxLeaves = 1_000_000)
         {
             if (maxLeaves <= 0) return Array.Empty<OctreeLeaf>();
@@ -344,7 +367,7 @@ namespace Routing3D.Viewer.Interop
 
         private static void Check(int status, string op)
         {
-            if (status != 0) throw new InvalidOperationException($"r3d_{op} 실패 (status {status})");
+            if (status != 0) throw new InvalidOperationException($"r3d_{op} ?�패 (status {status})");
         }
 
         public void Dispose()
