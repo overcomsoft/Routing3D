@@ -1,9 +1,9 @@
-// Routing3D C ABI P/Invoke ?�언 (routing3d_capi.dll) ??C# 뷰어
+// Routing3D C ABI P/Invoke ?좎뼵 (routing3d_capi.dll) ??C# 酉곗뼱
 // =============================================================================
-// [???�일???�는 ??
-//   cpp/capi/routing3d_capi.h ??C ABI �?.NET ?�서 ?�출?�기 ?�한 P/Invoke ?�언.
-//   문자?��? 모두 UTF-8 바이??byte[])�??�달?�다(?��? ?�름 ?�전 ??ANSI 마샬�?금�?).
-//   ?�계: docs/csharp_helix_interop_design.md §4.
+// [???뚯씪???섎뒗 ??
+//   cpp/capi/routing3d_capi.h ??C ABI 瑜?.NET ?먯꽌 ?몄텧?섍린 ?꾪븳 P/Invoke ?좎뼵.
+//   臾몄옄?댁? 紐⑤몢 UTF-8 諛붿씠??byte[])濡??꾨떖?쒕떎(?쒓? ?대쫫 ?덉쟾 ??ANSI 留덉꺃留?湲덉?).
+//   ?ㅺ퀎: docs/csharp_helix_interop_design.md 짠4.
 // =============================================================================
 using System;
 using System.Runtime.InteropServices;
@@ -13,11 +13,11 @@ namespace Routing3D.Viewer.Interop
 {
     internal static class Native
     {
-        // routing3d_capi.dll (??출력 ?�더??복사??. ?�장???�이 ?�으�?OS 가 .dll ??붙인??
+        // routing3d_capi.dll (??異쒕젰 ?대뜑??蹂듭궗??. ?뺤옣???놁씠 ?곸쑝硫?OS 媛 .dll ??遺숈씤??
         private const string Dll = "routing3d_capi";
         private const CallingConvention Cdecl = CallingConvention.Cdecl;
 
-        // R3dGrid (blittable, C ?�더?� 1:1).
+        // R3dGrid (blittable, C ?ㅻ뜑? 1:1).
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dGrid
         {
@@ -26,19 +26,19 @@ namespace Routing3D.Viewer.Interop
             public int nx, ny, nz;
         }
 
-        // R3dParams (blittable, C ?�더?� 1:1).
+        // R3dParams (blittable, C ?ㅻ뜑? 1:1).
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dParams
         {
             public double cell_mm, w_turn, w_clear;
-            public double w_corridor;            // ?�랑 �??� 가??mm. 0=비활??기존 ?�작).
-            public double w_heur;                // ?�리?�틱 가�?weighted A*). 0/1=?��?, >1=목표 지??
-            public double w_heur_near;           // ?�적 가�?목표근처 �? (0,w_heur)=?�렴 가�? 0=?�적.
+            public double w_corridor;            // ?뚮옉 諛?? 媛??mm. 0=鍮꾪솢??湲곗〈 ?숈옉).
+            public double w_heur;                // ?대━?ㅽ떛 媛以?weighted A*). 0/1=?쒖?, >1=紐⑺몴 吏??
+            public double w_heur_near;           // ?숈쟻 媛以?紐⑺몴洹쇱쿂 媛? (0,w_heur)=?섎졃 媛以? 0=?뺤쟻.
             public int clearance_radius, clearance_connectivity;
-            public int corridor_radius;          // ?�랑 ?�장 반경(?�).
-            public int rack_level_count;         // rack_levels ?�용 개수(0~8).
+            public int corridor_radius;          // ?뚮옉 ?깆옣 諛섍꼍(?).
+            public int rack_level_count;         // rack_levels ?ъ슜 媛쒖닔(0~8).
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-            public int[] rack_levels;            // ?�호 ??z?� ?�덱??, 최�? 8.
+            public int[] rack_levels;            // ?좏샇 ??z? ?몃뜳??, 理쒕? 8.
         }
 
         // R3dResult (blittable).
@@ -52,25 +52,25 @@ namespace Routing3D.Viewer.Interop
             public long expanded_nodes;
             public double elapsed_ms;
             public int path_len;
-            public int visited_len;   // 방문(?�장) ?� ????'방문�? 가?�화 ?? 비활????0.
-            public int fail_reason;   // ?�패 ?�유(A1) ??success=0 ???�만. 0~6(RouteFail). 구조�???추�?.
+            public int visited_len;   // 諛⑸Ц(?뺤옣) ? ????'諛⑸Ц留? 媛?쒗솕 ?? 鍮꾪솢????0.
+            public int fail_reason;   // ?ㅽ뙣 ?ъ쑀(A1) ??success=0 ???뚮쭔. 0~6(RouteFail). 援ъ“泥???異붽?.
         }
 
-        // ---- 공통 ----
+        // ---- 怨듯넻 ----
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern IntPtr r3d_version();
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern void r3d_free_string(IntPtr s);
 
-        // ---- Level 1: 문자??ABI ----
+        // ---- Level 1: 臾몄옄??ABI ----
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_route_scene_text(byte[] sceneUtf8, byte[] modeUtf8,
                                                       byte[] priorityUtf8, out IntPtr outScene);
 
-        // ---- Level 2: ?�들 ABI ----
+        // ---- Level 2: ?몃뱾 ABI ----
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern IntPtr r3d_create();
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern void r3d_destroy(IntPtr e);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_load_scene_text(IntPtr e, byte[] sceneUtf8);
 
-        // R3dRuntimeOptions (blittable, C ?�더 R3dRuntimeOptions ?� 1:1). 0 ?�드=?�진 기본�??�용.
+        // R3dRuntimeOptions (blittable, C ?ㅻ뜑 R3dRuntimeOptions ? 1:1). 0 ?꾨뱶=?붿쭊 湲곕낯媛??ъ슜.
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dRuntimeOptions
         {
@@ -102,6 +102,7 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_trace_options(IntPtr e, in R3dTraceOptions opt);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_trace_file(IntPtr e, byte[] pathUtf8);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_flush_trace(IntPtr e);
+        [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_get_runtime_report(IntPtr e, out IntPtr outJson);
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_add_obstacle(IntPtr e, double minx, double miny, double minz,
                                                  double maxx, double maxy, double maxz);
@@ -115,19 +116,19 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_set_task_endpoints(IntPtr e, int task, double sx, double sy,
                                                        double sz, double gx, double gy, double gz);
-        // ?�업 관�?mm) ???�선?�위 "diameter"/"utility" ??'굵�? 배�? 먼�?' ?�렬 ?? 0=관�?무시.
+        // ?묒뾽 愿寃?mm) ???곗꽑?쒖쐞 "diameter"/"utility" ??'援듭? 諛곌? 癒쇱?' ?뺣젹 ?? 0=愿寃?臾댁떆.
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_diameter(IntPtr e, int task, double diameterMm);
-        // ?�업 목표 진입�??�약 ??A* 가 목표??axis(0..5=+x,-x,+y,-y,+z,-z) 방향?�로 진입???�만 ?�달. -1=무제??
+        // ?묒뾽 紐⑺몴 吏꾩엯異??쒖빟 ??A* 媛 紐⑺몴??axis(0..5=+x,-x,+y,-y,+z,-z) 諛⑺뼢?쇰줈 吏꾩엯???뚮쭔 ?꾨떖. -1=臾댁젣??
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_task_goal_dir(IntPtr e, int task, int axis);
 
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_route_multi(IntPtr e, byte[] priorityUtf8);
 
-        // ?�습???�랑 ?�(ijk ?�중??�n) ?�정 ??w_corridor>0 ????route_multi 가 ?�드�??�용(L2b). n<=0=초기??
+        // ?숈뒿???뚮옉 ?(ijk ?쇱쨷??뾫) ?ㅼ젙 ??w_corridor>0 ????route_multi 媛 ?쒕뱶濡??ъ슜(L2b). n<=0=珥덇린??
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_corridor_cells(IntPtr e, int[]? ijk, int n);
 
-        // 진행 콜백(cdecl) ??phase=0(?�색 진행)/1(배�? ?�료). UnmanagedFunctionPointer �?마샬�?
-        // pathIjk ??phase==1 ?�공 ??경로 ?�((i,j,k)×pathLen) ?�인??콜백 ?�안�??�효 ??즉시 복사).
-        // 반환 0=계속, 0?�님=취소(abort) ???�진???�재 배�? ?�색??중단?�고 ?��? 배�? ?�이 ?�상 반환.
+        // 吏꾪뻾 肄쒕갚(cdecl) ??phase=0(?먯깋 吏꾪뻾)/1(諛곌? ?꾨즺). UnmanagedFunctionPointer 濡?留덉꺃留?
+        // pathIjk ??phase==1 ?깃났 ??寃쎈줈 ?((i,j,k)횞pathLen) ?ъ씤??肄쒕갚 ?숈븞留??좏슚 ??利됱떆 蹂듭궗).
+        // 諛섑솚 0=怨꾩냽, 0?꾨떂=痍⑥냼(abort) ???붿쭊???꾩옱 諛곌? ?먯깋??以묐떒?섍퀬 ?⑥? 諛곌? ?놁씠 ?뺤긽 諛섑솚.
         [UnmanagedFunctionPointer(Cdecl)]
         public delegate int R3dProgressFn(IntPtr user, int phase, int orderIndex, int taskIndex,
                                           int success, double lengthMm, int turns, long expandedNodes,
@@ -160,24 +161,24 @@ namespace Routing3D.Viewer.Interop
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_set_route_split(IntPtr e, int enabled, double trunkZMm);
         [DllImport(Dll, CallingConvention = Cdecl)] public static extern int r3d_dump_scene_text(IntPtr e, out IntPtr outScene);
 
-        // ---- ?�트�?리프 ?�거 (3D 가?�화) ----
-        // ?�진??로드???�으�??�트리�? 빌드?�고 모든 리프�?buf ??채운??
-        // state: 0=FREE, 1=BLOCKED. R3D_OK �?*outCount ???�제 개수.
+        // ---- ?ν듃由?由ы봽 ?닿굅 (3D 媛?쒗솕) ----
+        // ?붿쭊??濡쒕뱶???ъ쑝濡??ν듃由щ? 鍮뚮뱶?섍퀬 紐⑤뱺 由ы봽瑜?buf ??梨꾩슫??
+        // state: 0=FREE, 1=BLOCKED. R3D_OK 硫?*outCount ???ㅼ젣 媛쒖닔.
         [StructLayout(LayoutKind.Sequential)]
         public struct R3dOctreeLeaf
         {
-            public float X0Mm, Y0Mm, Z0Mm;   // 리프 ?�점 (world mm)
-            public float SizeMm;               // 리프 ??변 ?�기 (mm)
+            public float X0Mm, Y0Mm, Z0Mm;   // 由ы봽 ?먯젏 (world mm)
+            public float SizeMm;               // 由ы봽 ??蹂 ?ш린 (mm)
             public int   State;                // 0=FREE, 1=BLOCKED
         }
         [DllImport(Dll, CallingConvention = Cdecl)]
         public static extern int r3d_enum_octree_leaves(IntPtr e,
             [Out] R3dOctreeLeaf[]? buf, int maxCount, out int outCount);
 
-        // 문자????UTF-8 바이????종료). ?��? 보존.
+        // 臾몄옄????UTF-8 諛붿씠????醫낅즺). ?쒓? 蹂댁〈.
         public static byte[] Utf8(string? s) => Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
 
-        // 콜리 ?�당 char* ??string ???�제.
+        // 肄쒕━ ?좊떦 char* ??string ???댁젣.
         public static string TakeString(IntPtr p)
         {
             if (p == IntPtr.Zero) return string.Empty;

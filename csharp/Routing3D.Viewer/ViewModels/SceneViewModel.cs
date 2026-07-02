@@ -177,6 +177,9 @@ namespace Routing3D.Viewer.ViewModels
         // BuildModel 의 pts 빌드 로직과 동일 — 클릭 감지(SelectObjectAt)에서 재사용.
         private List<Point3D> GetRoutedPolyline(TaskRowVM row, GridMeta grid)
         {
+            if (row.LoadedPolylinePts != null && row.LoadedPolylinePts.Count >= 2)
+                return row.LoadedPolylinePts.ToList();
+
             var pts = new List<Point3D>();
             if (row.StartStub != null)
                 pts.AddRange(row.StartStub.Select(p2 => new Point3D(p2.X, p2.Y, p2.Z)));
@@ -298,9 +301,10 @@ namespace Routing3D.Viewer.ViewModels
         private bool _useStubRouting = true;
         // 기존배관 복제(폴리라인) — 매칭되는 기존 설계배관이 있으면 그 폴리라인을 셀 경로로 '복제'하고, 현재
         // 점유에서 막힌(장애물이 달라진) 구간만 A* 로 국소 우회 수리한다. 결과 = 기존설계 그대로 + 변경된 곳만
-        // 우회 → 가장 강한 '기존설계 유사'. 매칭 없으면 일반 A* 결과 유지(무해 폴백). 기본 OFF(경로를 크게 바꿈).
+        // 우회 → 가장 강한 '기존설계 유사'. 매칭 없으면 일반 A* 결과 유지(무해 폴백). 기본 OFF(충돌회피 A* 우선).
         private bool _useDesignReplicate;
         // 경로 탐색 방식(라디오버튼 3-모드 — 값 변경 시 내부 옵션 자동 동기화).
+        // PatternApplied = A* 탐색 + pipe_gap 강제 → 충돌 0 보장. FollowExisting = 기존 복제(빠르나 충돌 가능).
         private RoutingMode _routingMode = RoutingMode.PatternApplied;
         private bool _useHierarchicalCorridor = false;  // false=route_multi(가중 A*, 고품질). 엔진 astar_weighted 의 closed 가 해시 기반이 되어 대형 격자(25mm 1.3억 셀)에서도 OOM 없이 동작. true=계층 corridor(이 장면에선 대부분 실패해 비권장).
         // CBS(negotiated-congestion, C1) — 평면 rip-up(직접 blocker 뜯기)을 재귀 연쇄로 확장.
@@ -717,10 +721,11 @@ namespace Routing3D.Viewer.ViewModels
             set
             {
                 if (!Set(ref _selectedTask, value)) return;
-                bool wasCompare = _compareMode;
                 _compareMode = false;            // 새 배관 선택 → 비교 포커스 해제(숨겼던 기존배관 복원).
-                UpdateSelectionHighlight();      // → UpdateComparison(): 새 배관 매칭 오버레이/분석.
-                if (wasCompare && _scene != null && _engine != null) BuildModel();
+                if (_scene != null && _engine != null)
+                    BuildModel();                 // 결과 행 선택 시 해당 자동/기존 경로만 보이도록 기본 경로 레이어를 다시 구성.
+                else
+                    UpdateSelectionHighlight();   // → UpdateComparison(): 새 배관 매칭 오버레이/분석.
             }
         }
         public PickMode PickMode { get => _pickMode; private set => Set(ref _pickMode, value); }
@@ -2313,6 +2318,53 @@ namespace Routing3D.Viewer.ViewModels
             return false;
         }
 
+        private string? BlockingObjectAt(double x, double y, double z)
+        {
+            var s = _scene; if (s == null) return null;
+            var g = s.Grid; double cell = g.CellMm, minT = cell;
+            int ci = (int)Math.Floor((x - g.Ox) / cell);
+            int cj = (int)Math.Floor((y - g.Oy) / cell);
+            int ck = (int)Math.Floor((z - g.Oz) / cell);
+            double clx = g.Ox + ci * cell, chx = clx + cell;
+            double cly = g.Oy + cj * cell, chy = cly + cell;
+            double clz = g.Oz + ck * cell, chz = clz + cell;
+
+            bool Overlap(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                if (mxx - mnx < minT) { double c = (mnx + mxx) / 2; mnx = c - minT / 2; mxx = c + minT / 2; }
+                if (mxy - mny < minT) { double c = (mny + mxy) / 2; mny = c - minT / 2; mxy = c + minT / 2; }
+                if (mxz - mnz < minT) { double c = (mnz + mxz) / 2; mnz = c - minT / 2; mxz = c + minT / 2; }
+                return clx < mxx && chx > mnx && cly < mxy && chy > mny && clz < mxz && chz > mnz;
+            }
+
+            string Clean(string? name, string fallback) => string.IsNullOrWhiteSpace(name) ? fallback : name.Trim();
+            double Volume(double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+                => Math.Max(1, mxx - mnx) * Math.Max(1, mxy - mny) * Math.Max(1, mxz - mnz);
+
+            string? best = null; double bestVol = double.MaxValue;
+            void Consider(string label, double mnx, double mny, double mnz, double mxx, double mxy, double mxz)
+            {
+                if (!Overlap(mnx, mny, mnz, mxx, mxy, mxz)) return;
+                double vol = Volume(mnx, mny, mnz, mxx, mxy, mxz);
+                if (vol < bestVol) { bestVol = vol; best = label; }
+            }
+
+            for (int i = 0; i < s.Obstacles.Count; i++)
+            {
+                var o = s.Obstacles[i];
+                if (o.IsPassThrough) continue;
+                Consider($"장애물 #{i} {Clean(o.Name, o.OstType.Length > 0 ? o.OstType : "AABB")}",
+                    o.MinX, o.MinY, o.MinZ, o.MaxX, o.MaxY, o.MaxZ);
+            }
+            foreach (var e in s.Equipment)
+                Consider($"장비 {Clean(e.Name, e.IsMain ? "MAIN" : "EQUIPMENT")}",
+                    e.MinX, e.MinY, e.MinZ, e.MaxX, e.MaxY, e.MaxZ);
+            foreach (var d in s.DuctsLaterals)
+                Consider($"{(d.IsLateral ? "레터럴" : "덕트")} {Clean(d.Name, d.Category)}",
+                    d.MinX, d.MinY, d.MinZ, d.MaxX, d.MaxY, d.MaxZ);
+            return best;
+        }
+
         // 충돌확장 — 라우팅 엔진에 추가 충돌 대상을 장애물로 넣는다(IncludeFacilities ON 일 때).
         //   · 설비(TB_BIM_EQUIPMENT) — 메인 장비 포함 전체
         //   · 덕트/레터럴(TB_DUCT_LATERAL)
@@ -2467,12 +2519,16 @@ namespace Routing3D.Viewer.ViewModels
                     row.Path = r.Path; row.Visited = r.Visited;
                     row.ExpandedNodes = r.ExpandedNodes;
                     row.LastFail = r.Success ? Interop.RouteFail.None : r.Fail;
+                    row.ElapsedMs = r.ElapsedMs;
+                    if (row.RouteOrder < 0) row.RouteOrder = e;
                     row.NotifyResultChanged();
                 }
                 catch
                 {
                     row.Success = false; row.LengthMm = 0; row.Path = Array.Empty<PathCell>(); row.Visited = Array.Empty<PathCell>();
-                    row.ExpandedNodes = 0; row.LastFail = Interop.RouteFail.None; row.NotifyResultChanged();
+                    row.ExpandedNodes = 0; row.ElapsedMs = 0; row.LastFail = Interop.RouteFail.None;
+                    if (row.RouteOrder < 0) row.RouteOrder = e;
+                    row.NotifyResultChanged();
                 }
             }
         }
@@ -2713,7 +2769,7 @@ namespace Routing3D.Viewer.ViewModels
 
                 // 진행 표시 — 그룹 모드 또는 showProgress 일 때(계층 corridor 제외) 배관별 콜백 실시간 표시.
                 // (예전 RoutingProgressWindow 다이얼로그 대신 우측 패널 '자동설계 결과 경로' + 진행바에 인라인 표시.)
-                bool useProgress = (showProgress || cor) && !hier;
+                bool useProgress = !hier;
                 var grid = _scene.Grid;
                 // 엔진 작업 인덱스(=added 순서)별 메타/색을 'UI 스레드에서' 미리 뽑는다(콜백은 백그라운드 스레드라
                 // Brush(.Color)·컬렉션 접근이 불가). 콜백은 이 값 배열만 참조 → 스레드 안전.
@@ -2781,7 +2837,11 @@ namespace Routing3D.Viewer.ViewModels
                                         row.SearchProgress = prog01;
                                         string totalStr = totalElapsedMs < 1000
                                             ? $"{totalElapsedMs:0}ms" : $"{totalElapsedMs / 1000.0:0.0}s";
-                                        RouteProgressText = $"탐색 중 {done}/{total} · 현재 #{row.Index} {prog01 * 100:0}% · 확장 {expandedNodes:N0} · 성공 {liveOk} 실패 {liveFail} · 경과 {totalStr}";
+                                        string expStr = expandedNodes >= 1_000_000
+                                            ? $"{expandedNodes / 1_000_000.0:0.0}M" : $"{expandedNodes / 1_000.0:0}k";
+                                        // 상태바 텍스트: 중요 정보(배관번호·탐색량·경과)가 앞에, 덜 중요한 누적 통계가 뒤에.
+                                        // TextTrimming 으로 뒤가 잘려도 핵심 내용은 보임. ToolTip 으로 전체 확인 가능.
+                                        RouteProgressText = $"탐색 중 {done}/{total} · #{row.Index}[{row.Utility ?? "?"}] {prog01 * 100:0}%(확장 {expStr}) · {totalStr} · 성공 {liveOk} 실패 {liveFail}";
                                     }
                                     else   // phase 1 = 배관 완료.
                                     {
@@ -2871,7 +2931,7 @@ namespace Routing3D.Viewer.ViewModels
             return double.TryParse(raw, System.Globalization.NumberStyles.Float,
                        System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= 0.0
                 ? value
-                : 300.0;
+                : 0.0;   // 기본 OFF — 활성화 시 A* 상태가 RS배 증가(cell=25mm+300mm→RS=13, 13× 느림). env R3D_MIN_STRAIGHT_MM=300 으로 옵트인.
         }
 
         private void ConfigureSearchTraceIfEnabled(string label, int taskCount)
@@ -3224,7 +3284,8 @@ namespace Routing3D.Viewer.ViewModels
 
             // ② 경로 — 유틸리티별 색 튜브 + 시작/끝 구. (충돌 계산용으로 경로는 항상 수집)
             // 단계별 탐색 애니메이션 중에는 최종 경로를 숨겨 탐색 과정만 보이게 한다(_hidePathsForAnim).
-            bool drawPaths = ShowPaths && !_hidePathsForAnim;
+            bool selectedRouteFocus = _selectedTask != null && !_isRouting && !_animating;
+            bool drawPaths = ShowPaths && !_hidePathsForAnim && !selectedRouteFocus;
             // 색 배정은 작업 + 기존배관 라벨을 합쳐 한 번에 한다(같은 유틸=같은 색, 라우팅 경로와 기존배관 색 일치).
             var colorMap = UtilityColors.Assign(
                 scene.Tasks.Select(t => t.UtilityLabel)
@@ -3361,7 +3422,7 @@ namespace Routing3D.Viewer.ViewModels
             // ①-X 기존 설계배관(토글) — TB_ROUTE_PATH 폴리라인을 유틸리티 색 튜브로(월드 mm 좌표 그대로).
             //   각 배관은 DB 의 실제 관경(SOURCE_SIZE→DiameterMm)으로 그린다(겹침 방지). 유틸 필터도 동일 적용.
             // 비교 포커스(_compareMode)에서는 나머지 기존배관을 숨긴다(선택 배관의 기존 경로만 CompareModel 로 강조).
-            if (ShowExistingPipes && !_compareMode && scene.ExistingPipes.Count > 0)
+            if (ShowExistingPipes && !_compareMode && !selectedRouteFocus && scene.ExistingPipes.Count > 0)
             {
                 double fallbackDia = Math.Min(grid.CellMm * 0.4, 50);   // 관경 미상 시 기본 지름(mm).
                 var perUtilEx = new Dictionary<string, MeshBuilder>();
@@ -3463,7 +3524,7 @@ namespace Routing3D.Viewer.ViewModels
 
             // PoC 마커 — 모든 작업(장비)의 시작 PoC(빨강 구)·종단 PoC(파랑 구)를 라우팅 전에도 표시.
             //   유틸 체크박스 필터 + 좌측 선택 그룹을 동일 적용(경로/기존배관 레이어와 일관). 두 색을 머지 메시로.
-            if (ShowPocMarkers && Tasks.Count > 0)
+            if (ShowPocMarkers && !selectedRouteFocus && Tasks.Count > 0)
             {
                 double pocR = Math.Max(grid.CellMm * 0.9, 50);
                 var startMb = new MeshBuilder(false, false);
@@ -3632,24 +3693,6 @@ namespace Routing3D.Viewer.ViewModels
             var e = new MeshBuilder(false, false);
             e.AddSphere(new Point3D(t.Gx, t.Gy, t.Gz), r);
             grp.Children.Add(Geometry(e, Color.FromRgb(50, 120, 255), 235));   // 종단 PoC = 파랑.
-
-            // 선택 배관 경로 강조 — 다른 배관(같은 유틸 색) 사이에서 또렷이 보이도록 굵은 밝은 튜브로 덧그린다.
-            // 표시 경로 = 출발 스텁 + A* 중간 + 종단 스텁(스텁 라우팅 시), 없으면 A* 경로만.
-            if (t.Path.Length >= 2)
-            {
-                var pts = new List<Point3D>();
-                if (t.StartStub != null) pts.AddRange(t.StartStub.Select(p => new Point3D(p.X, p.Y, p.Z)));
-                pts.AddRange(t.Path.Select(c => CellToWorld(g, c)));
-                if (t.EndStub != null)
-                    for (int k = t.EndStub.Count - 1; k >= 0; k--)
-                        pts.Add(new Point3D(t.EndStub[k].X, t.EndStub[k].Y, t.EndStub[k].Z));
-                if (pts.Count >= 2)
-                {
-                    var hm = new MeshBuilder(false, false);
-                    hm.AddTube(pts, Math.Max(g.CellMm * 0.5, 45), 12, false);
-                    grp.Children.Add(Geometry(hm, Color.FromRgb(255, 235, 90), 255));   // 선택 경로 = 밝은 노랑 강조.
-                }
-            }
 
             // 경로가 있으면 방향 전환(꺾임) 지점을 마젠타 구로 표시 + 구간 단계 리스트 구성.
             BuildPathSteps(g, t.Path, grp);
@@ -3900,7 +3943,10 @@ namespace Routing3D.Viewer.ViewModels
             {
                 var probe = bend + dIn * (g.CellMm * k);
                 if (CellBlocked(probe.X, probe.Y, probe.Z))
-                    return "장애물 회피 — 직진 경로 앞에 장애물이 있어 우회";
+                {
+                    string blocker = BlockingObjectAt(probe.X, probe.Y, probe.Z) ?? "차단 객체";
+                    return $"장애물 회피 - {blocker} / 직진 방향 앞 셀이 막혀 우회";
+                }
             }
             return "정렬 — 랙/레인 정렬 또는 경로 직교화(다른 배관·혼잡 회피 포함)";
         }
@@ -4002,7 +4048,7 @@ namespace Routing3D.Viewer.ViewModels
         private void BuildComparison(TaskRowVM t, ExistingPipe? ex)
         {
             var s = _scene!; var g = s.Grid;
-            var devPts = t.Path.Length >= 2 ? t.Path.Select(c => CellToWorld(g, c)).ToList() : new List<Point3D>();
+            var devPts = t.Success ? GetRoutedPolyline(t, g) : new List<Point3D>();
             bool devRouted = t.Success && devPts.Count >= 2;
 
             if (ex == null)
@@ -4092,7 +4138,7 @@ namespace Routing3D.Viewer.ViewModels
                 var mb = new MeshBuilder(false, false);
                 mb.AddTube(devPts, dia, 12, false);
                 mb.AddSphere(devPts![0], mr); mb.AddSphere(devPts[devPts.Count - 1], mr);
-                grp.Children.Add(Geometry(mb, Color.FromRgb(48, 208, 255), 245));   // 개발 = 시안.
+                grp.Children.Add(Geometry(mb, Color.FromRgb(255, 64, 190), 255));   // 자동경로 = 분홍.
             }
             return grp;
         }
@@ -4233,12 +4279,12 @@ namespace Routing3D.Viewer.ViewModels
             if (step == null || _scene == null) { StepHighlightModel = null; return; }
             var g = _scene.Grid;
             var mb = new MeshBuilder(false, false);
-            double dia = Math.Max(g.CellMm * 1.3, 70);
+            double dia = Math.Max(g.CellMm * 1.8, 95);
             if (step.A != step.B) mb.AddCylinder(step.A, step.B, dia, 12);
-            double r = Math.Max(g.CellMm * 0.9, 50);
+            double r = Math.Max(g.CellMm * 1.15, 65);
             mb.AddSphere(step.A, r);
             mb.AddSphere(step.B, r);
-            StepHighlightModel = Geometry(mb, Color.FromRgb(255, 255, 255), 245);   // 선택 구간 = 흰색 강조.
+            StepHighlightModel = Geometry(mb, Color.FromRgb(255, 255, 255), 255);   // 선택 구간 = 흰색 강조.
         }
 
         // 경로 셀을 직선 구간(같은 축으로 진행)별로 나눠, 방향이 바뀌는 꺾임점을 마커로 찍고

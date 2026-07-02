@@ -966,6 +966,7 @@ namespace Routing3D.Viewer.Views
             return type switch
             {
                 "trace_header" => $"cell={GetDoubleText(root, "cell_mm")} shape={ArrayText(root, "shape")}",
+                "effective_options" => $"segment={GetBoolText(root, "segment_astar")} octree={GetBoolText(root, "octree_guide")} split={GetBoolText(root, "route_split")} maxExp={GetLongText(root, "max_expansions")}",
                 "occupancy_summary" => $"blocked={GetLongText(root, "blocked_count")}",
                 "occupancy_sample" => $"sampled={GetLongText(root, "sampled")}/{GetLongText(root, "total")}",
                 "passthrough_sample" => $"sampled={GetLongText(root, "sampled")}/{GetLongText(root, "total")}",
@@ -976,6 +977,8 @@ namespace Routing3D.Viewer.Views
                 "candidate_reject" => $"{GetString(root, "reason")} {ArrayText(root, "from")} -> {ArrayText(root, "to")} exp={GetLongText(root, "expanded_nodes")} run={GetLongText(root, "run")}/{GetLongText(root, "required")}",
                 "task_end" => $"success={GetBoolText(root, "success")} len={GetDoubleText(root, "length_mm")} turns={GetLongText(root, "turns")} exp={GetLongText(root, "expanded_nodes")}",
                 "postprocess" => $"{GetString(root, "stage")} turns {GetLongText(root, "before_turns")}->{GetLongText(root, "after_turns")} points {GetLongText(root, "before_points")}->{GetLongText(root, "after_points")}",
+                "route_split_plan" => $"trunkK={GetLongText(root, "trunk_k")} z={GetDoubleText(root, "trunk_z_mm")} source={GetString(root, "source")}",
+                "route_split_segment" => $"seg={GetLongText(root, "segment")} {ArrayText(root, "from")}->{ArrayText(root, "to")} ok={GetBoolText(root, "success")} exp={GetLongText(root, "expanded_nodes")}",
                 "route_mark" => $"path={GetLongText(root, "path_points")} radius={GetLongText(root, "radius_cells")}",
                 "route_path" => $"path cells={GetLongText(root, "path_points")}",
                 "trace_limit" => $"task log limit reached max={GetLongText(root, "max_events")}",

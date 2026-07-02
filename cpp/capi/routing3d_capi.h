@@ -137,6 +137,9 @@ R3D_API R3dStatus r3d_set_runtime_options(R3dEngine* e, const R3dRuntimeOptions*
 R3D_API R3dStatus r3d_set_trace_options(R3dEngine* e, const R3dTraceOptions* opt);
 R3D_API R3dStatus r3d_set_trace_file(R3dEngine* e, const char* path_utf8);
 R3D_API R3dStatus r3d_flush_trace(R3dEngine* e);
+// Return a UTF-8 JSON diagnostic report for build flags, scene counts, and effective handle options.
+// The caller owns *out_json and must release it with r3d_free_string().
+R3D_API R3dStatus r3d_get_runtime_report(const R3dEngine* e, char** out_json);
 R3D_API R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, double minz,
                                    double maxx, double maxy, double maxz);
 // ?듦낵(pass-through) 媛앹껜 異붽?: ?먯쑀留?媛?쒗솕?? 寃쎈줈?먯깋 異⑸룎 ??곸씠 ?꾨떂.

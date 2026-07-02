@@ -95,7 +95,7 @@ namespace Routing3D.Viewer.ViewModels
         {
             get
             {
-                if (!Attempted || ElapsedMs <= 0) return "";
+                if (!Attempted || ElapsedMs < 0) return "";
                 return ElapsedMs < 1000 ? $"{ElapsedMs:0}ms" : $"{ElapsedMs / 1000.0:0.0}s";
             }
         }
@@ -130,6 +130,8 @@ namespace Routing3D.Viewer.ViewModels
         /// '설계 순서'에 쓴다.</summary>
         public int RouteOrder { get; set; } = -1;
 
+        public string RouteOrderText => RouteOrder >= 0 ? (RouteOrder + 1).ToString() : "";
+
         // 엔진에 실제로 전달된 A* 시작/목표(월드 mm). 원본 PoC(Sx/Gx)는 장비·덕트 내부(의도적 솔리드)이고,
         // 실제 탐색은 스텁 끝(랙 위 자유공간) 또는 표면투영·스냅된 자유 셀에서 시작/종료한다. 실패 진단
         // (ExplainFailure)이 '출발조차 못함'을 오판하지 않도록 BuildEngineForRows 가 이 값을 채운다.
@@ -163,7 +165,7 @@ namespace Routing3D.Viewer.ViewModels
             OnChanged(nameof(Display)); OnChanged(nameof(PocDisplay));
             OnChanged(nameof(StatusText)); OnChanged(nameof(StatusBrush));
             OnChanged(nameof(LengthText)); OnChanged(nameof(TurnCount)); OnChanged(nameof(ElapsedText));
-            OnChanged(nameof(FailReasonText)); OnChanged(nameof(ExpandedText));
+            OnChanged(nameof(FailReasonText)); OnChanged(nameof(ExpandedText)); OnChanged(nameof(RouteOrderText));
         }
 
         /// <summary>처리 상태 텍스트 — 결과 그리드 '상태' 컬럼. 진행 중엔 대기/탐색 %, 완료 후 성공/실패/미라우팅.</summary>

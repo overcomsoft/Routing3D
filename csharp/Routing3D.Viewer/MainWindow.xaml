@@ -131,7 +131,8 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320"/>   <!-- Left: 검색·필터·작업목록 -->
                 <ColumnDefinition Width="*"/>     <!-- Center: 3D + 레이어 -->
-                <ColumnDefinition Width="320"/>   <!-- Right: 범례·선택 작업·편집 -->
+                <ColumnDefinition Width="5"/>     <!-- Splitter -->
+                <ColumnDefinition Width="320" MinWidth="200"/>   <!-- Right: 범례·선택 작업·편집 -->
             </Grid.ColumnDefinitions>
 
             <!-- ===== LEFT: 드릴다운 (유틸리티 그룹 → 유틸리티 → 개별 PoC) ===== -->
@@ -236,8 +237,8 @@
                     <ModelVisual3D Content="{Binding SceneModel}"/>
                     <ModelVisual3D Content="{Binding SearchModel}"/>      <!-- A* 단계별 탐색 오버레이 -->
                     <ModelVisual3D Content="{Binding SelectionModel}"/>   <!-- 선택 PoC 강조 마커 -->
+                    <ModelVisual3D Content="{Binding CompareModel}"/>     <!-- 기존설계 비교(주황=기존/분홍=자동경로) -->
                     <ModelVisual3D Content="{Binding StepHighlightModel}"/> <!-- 선택 경로 구간 강조(흰색) -->
-                    <ModelVisual3D Content="{Binding CompareModel}"/>     <!-- 기존설계 비교(주황=기존/시안=개발) -->
                     <ModelVisual3D Content="{Binding LiveRouteModel}"/>   <!-- 진행 다이얼로그 라우팅 라이브(배관 완료마다 점진) -->
                     <ModelVisual3D Content="{Binding HighlightModel}"/>   <!-- 3D 클릭 선택 객체 강조 -->
                 </h:HelixViewport3D>
@@ -328,8 +329,13 @@
                 </Border>
             </Grid>
 
+            <!-- ===== Splitter between Center and Right ===== -->
+            <GridSplitter Grid.Column="2" Width="5" HorizontalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext" Background="#404a64"
+                          Cursor="SizeWE"/>
+
             <!-- ===== RIGHT: 세로 2단 — 위) 자동설계 결과 경로 리스트 / 아래) 분석결과 ===== -->
-            <Border Grid.Column="2" Background="#252b3d" BorderBrush="#404a64"
+            <Border Grid.Column="3" Background="#252b3d" BorderBrush="#404a64"
                     BorderThickness="1,0,0,0">
                 <Grid Margin="6">
                     <Grid.RowDefinitions>
@@ -356,7 +362,8 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding RouteProgressText}" Foreground="#cdd6f4"
-                                                   FontSize="11" Margin="0,0,0,3" TextTrimming="CharacterEllipsis"/>
+                                                   FontSize="11" Margin="0,0,0,3" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding RouteProgressText}"/>
                                         <ProgressBar Value="{Binding RouteProgressValue, Mode=OneWay}" Minimum="0" Maximum="100"
                                                      Height="8" Background="#1e2230" Foreground="#5AD282"
                                                      BorderBrush="#404a64" BorderThickness="0"/>
@@ -392,6 +399,15 @@
                                 </DataGrid.ColumnHeaderStyle>
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="Auto"/>
+                                    <DataGridTextColumn Header="순서" Binding="{Binding RouteOrderText}" Width="Auto">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="TextAlignment" Value="Right"/>
+                                                <Setter Property="Foreground" Value="#f2c34e"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
                                     <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="Auto">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">

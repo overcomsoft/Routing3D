@@ -412,6 +412,97 @@ void trace_postprocess(TraceWriter* tr, int task_index, const std::string& stage
                   "\"after_turns\":" + std::to_string(count_turns(after)) + "}");
 }
 
+void trace_effective_options(TraceWriter* tr,
+                             bool large_grid,
+                             long long large_threshold,
+                             long long max_exp,
+                             long long fallback_exp,
+                             int hier_factor,
+                             int hier_radius,
+                             long long hier_probe,
+                             bool ripup_on,
+                             int cbs_depth,
+                             long long cbs_exp,
+                             int pipe_radius,
+                             bool per_task_radius,
+                             double pipe_gap_mm,
+                             double min_straight_mult,
+                             bool segment_astar,
+                             int segment_max_cells,
+                             bool octree_guide,
+                             int octree_corridor_radius,
+                             bool route_split,
+                             double route_split_z_mm) {
+    if (!tr || !tr->enabled()) return;
+    tr->current_task = -1;
+    std::ostringstream os;
+    os << "{\"type\":\"effective_options\""
+       << ",\"large_grid\":" << (large_grid ? "true" : "false")
+       << ",\"large_grid_threshold\":" << large_threshold
+       << ",\"max_expansions\":" << max_exp
+       << ",\"fallback_expansions\":" << fallback_exp
+       << ",\"hier_factor\":" << hier_factor
+       << ",\"hier_radius\":" << hier_radius
+       << ",\"hier_probe\":" << hier_probe
+       << ",\"ripup_enabled\":" << (ripup_on ? "true" : "false")
+       << ",\"cbs_depth\":" << cbs_depth
+       << ",\"cbs_expansions\":" << cbs_exp
+       << ",\"pipe_radius\":" << pipe_radius
+       << ",\"per_task_radius\":" << (per_task_radius ? "true" : "false")
+       << ",\"pipe_gap_mm\":" << std::setprecision(12) << pipe_gap_mm
+       << ",\"min_straight_mult\":" << min_straight_mult
+       << ",\"segment_astar\":" << (segment_astar ? "true" : "false")
+       << ",\"segment_max_cells\":" << segment_max_cells
+       << ",\"octree_guide\":" << (octree_guide ? "true" : "false")
+       << ",\"octree_corridor_radius\":" << octree_corridor_radius
+       << ",\"route_split\":" << (route_split ? "true" : "false")
+       << ",\"route_split_z_mm\":" << route_split_z_mm
+       << "}";
+    tr->write_raw(os.str());
+}
+
+void trace_route_split_plan(TraceWriter* tr,
+                            int order_index,
+                            int task_index,
+                            int trunk_k,
+                            double trunk_z_mm,
+                            const std::string& source,
+                            const std::vector<Cell>& waypoints) {
+    if (!tr || !tr->enabled()) return;
+    tr->task_scope(task_index);
+    tr->write_raw("{\"type\":\"route_split_plan\",\"order\":" + std::to_string(order_index) +
+                  ",\"task\":" + std::to_string(task_index) +
+                  ",\"trunk_k\":" + std::to_string(trunk_k) +
+                  ",\"trunk_z_mm\":" + std::to_string(trunk_z_mm) +
+                  ",\"source\":\"" + json_escape(source) + "\"," +
+                  "\"waypoints\":" + cell_array_json(waypoints) + "}");
+}
+
+void trace_route_split_segment(TraceWriter* tr,
+                               int task_index,
+                               size_t segment_index,
+                               const Cell& from,
+                               const Cell& to,
+                               const AStarResult& result,
+                               int goal_dir) {
+    if (!tr || !tr->enabled() || tr->opt.level < 1) return;
+    tr->task_scope(task_index);
+    std::ostringstream os;
+    os << "{\"type\":\"route_split_segment\""
+       << ",\"task\":" << task_index
+       << ",\"segment\":" << segment_index
+       << ",\"from\":" << cell_json(from)
+       << ",\"to\":" << cell_json(to)
+       << ",\"goal_dir\":" << goal_dir
+       << ",\"success\":" << (result.success ? "true" : "false")
+       << ",\"fail_reason\":" << static_cast<int>(result.fail)
+       << ",\"path_points\":" << result.path.size()
+       << ",\"expanded_nodes\":" << result.expanded_nodes
+       << ",\"elapsed_ms\":" << std::setprecision(12) << result.elapsed_ms
+       << "}";
+    tr->write_raw(os.str());
+}
+
 char* dup_string(const std::string& s) {
     char* p = static_cast<char*>(std::malloc(s.size() + 1));
     if (!p) return nullptr;
@@ -450,6 +541,70 @@ void fill_result(R3dResult& o, const std::optional<SceneResult>& r) {
     o.path_len = r->path ? static_cast<int32_t>(r->path->size()) : 0;
     o.visited_len = r->visited ? static_cast<int32_t>(r->visited->size()) : 0;
     o.fail_reason = static_cast<int32_t>(r->fail);
+}
+
+std::string runtime_report_json(const R3dEngine& e) {
+    const auto& doc = e.doc;
+    const char* openvdb =
+#ifdef ROUTING3D_USE_OPENVDB
+        "true";
+#else
+        "false";
+#endif
+    const long long cells = static_cast<long long>(doc.shape.i) *
+                            static_cast<long long>(doc.shape.j) *
+                            static_cast<long long>(doc.shape.k);
+    std::ostringstream os;
+    os << "{\"type\":\"runtime_report\""
+       << ",\"version\":\"routing3d_capi 0.1 (engine Phase 3)\""
+       << ",\"build\":{\"openvdb\":" << openvdb << "}"
+       << ",\"scene\":{"
+       << "\"cell_mm\":" << std::setprecision(12) << doc.cell_mm
+       << ",\"origin\":" << vec_json(doc.origin)
+       << ",\"shape\":" << cell_json(doc.shape)
+       << ",\"cells\":" << cells
+       << ",\"obstacles\":" << doc.obstacles.size()
+       << ",\"passthrough\":" << doc.passthrough.size()
+       << ",\"tasks\":" << doc.tasks.size()
+       << ",\"results\":" << doc.results.size()
+       << "}"
+       << ",\"routing\":{"
+       << "\"collect_visited\":" << (e.collect_visited ? "true" : "false")
+       << ",\"pipe_radius\":" << e.pipe_radius
+       << ",\"per_task_radius\":" << (e.per_task_radius ? "true" : "false")
+       << ",\"pipe_gap_mm\":" << e.pipe_gap_mm
+       << ",\"cbs_depth\":" << e.cbs_depth
+       << ",\"min_straight_mult\":" << e.min_straight_mult
+       << ",\"min_straight_mm\":" << e.min_straight_mm
+       << ",\"segment_astar\":" << (e.segment_astar ? "true" : "false")
+       << ",\"segment_max_cells\":" << e.segment_max_cells
+       << ",\"octree_guide\":" << (e.octree_guide ? "true" : "false")
+       << ",\"octree_corridor_radius\":" << e.octree_corridor_radius
+       << ",\"route_split\":" << (e.route_split ? "true" : "false")
+       << ",\"route_split_z_mm\":" << e.route_split_z_mm
+       << "}"
+       << ",\"runtime_options\":{"
+       << "\"large_grid_threshold\":" << e.runtime.large_grid_threshold
+       << ",\"max_expansions\":" << e.runtime.max_expansions
+       << ",\"fallback_expansions\":" << e.runtime.fallback_expansions
+       << ",\"hier_factor\":" << e.runtime.hier_factor
+       << ",\"hier_radius\":" << e.runtime.hier_radius
+       << ",\"hier_probe\":" << e.runtime.hier_probe
+       << ",\"ripup_enabled\":" << e.runtime.ripup_enabled
+       << ",\"cbs_expansions\":" << e.runtime.cbs_expansions
+       << "}"
+       << ",\"trace\":{"
+       << "\"enabled\":" << (e.trace_options.enabled != 0 ? "true" : "false")
+       << ",\"file\":\"" << json_escape(e.trace.path) << "\""
+       << ",\"level\":" << e.trace_options.level
+       << ",\"sample_every\":" << e.trace.sample_every()
+       << ",\"include_occupancy\":" << (e.trace_options.include_occupancy != 0 ? "true" : "false")
+       << ",\"include_rejects\":" << (e.trace_options.include_rejects != 0 ? "true" : "false")
+       << ",\"include_postprocess\":" << (e.trace_options.include_postprocess != 0 ? "true" : "false")
+       << ",\"max_events_per_task\":" << e.trace.max_events_per_task()
+       << "}"
+       << "}";
+    return os.str();
 }
 
 ImplicitOccupancy implicit_from_doc(const SceneDoc& doc) {
@@ -820,6 +975,24 @@ bool route_octree_guided(const Occ& work, OctreeOccupancy& oct, int radius,
     AStarResult macro = astar_octree(oct, s, g, op, oct_max, -1, false);
     if (!macro.success || macro.path.empty()) return false;
 
+    bool macro_clear = true;
+    for (const Cell& c : macro.path) {
+        if (!work.in_bounds(c) || work.is_blocked(c)) {
+            macro_clear = false;
+            break;
+        }
+    }
+    if (macro_clear) {
+        out = std::move(macro);
+        return true;
+    }
+
+    const char* fine_corr_env = std::getenv("R3D_OCTREE_FINE_CORRIDOR");
+    const bool use_fine_corridor =
+        fine_corr_env && !(fine_corr_env[0] == '0' || fine_corr_env[0] == '\0' ||
+                           (fine_corr_env[0] == 'o' && fine_corr_env[1] == 'f'));
+    if (!use_fine_corridor) return false;
+
     for (int attempt = 0, r = std::max(0, radius); attempt < 3; ++attempt, r = std::max(r * 2, r + 1)) {
         auto corr = std::make_shared<std::unordered_set<uint64_t>>();
         const int side = 2 * r + 1;
@@ -1166,6 +1339,13 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
     int done = 0;
     bool aborted = false;
     std::map<int, std::vector<Cell>> placed;
+    bool ripup_on = configured_ripup_enabled >= 0 ? (configured_ripup_enabled != 0) : true;
+    if (configured_ripup_enabled < 0)
+        if (const char* rs = std::getenv("R3D_RIPUP")) ripup_on = !(rs[0] == 'o' && rs[1] == 'f');
+    trace_effective_options(trace, large_grid, large_threshold, max_exp, fallback_exp, HIER_FACTOR, HIER_RADIUS,
+                            HIER_PROBE, ripup_on, eff_cbs_depth, eff_cbs_exp, eff_pipe_radius, eff_per_task,
+                            eff_gap_mm, eff_min_straight, eff_segment_astar, eff_segment_max,
+                            eff_octree_guide, eff_octree_radius, eff_route_split, eff_route_split_z_mm);
     for (int oidx = 0; oidx < static_cast<int>(order.size()); ++oidx) {
         const int oi = order[static_cast<size_t>(oidx)];
         const RouteTask& t = doc.tasks[static_cast<size_t>(oi)];
@@ -1259,8 +1439,10 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             };
             const int preferred_k = clamp_k(std::max(s.k, g.k) + 4);
             int trunk_k = preferred_k;
+            std::string trunk_source = "auto";
             if (eff_route_split_z_mm > 0.0) {
                 trunk_k = clamp_k(static_cast<int>(std::floor((eff_route_split_z_mm - doc.origin.z) / doc.params.cell_mm)));
+                trunk_source = "explicit_mm";
             } else if (!tp.rack_levels.empty()) {
                 int best = trunk_k;
                 int best_score = std::numeric_limits<int>::max();
@@ -1270,6 +1452,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
                     if (score < best_score) { best = rk; best_score = score; }
                 }
                 trunk_k = best;
+                trunk_source = "rack_level";
             }
             Cell truck_in = snap_to_free_cell(work, Cell{s.i, s.j, trunk_k}, snap_r);
             Cell terminal = snap_to_free_cell(work, Cell{g.i, g.j, trunk_k}, snap_r);
@@ -1281,6 +1464,9 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             add_wp(truck_in);
             add_wp(terminal);
             add_wp(g);
+            trace_route_split_plan(trace, oidx, oi, trunk_k,
+                                   doc.origin.z + (static_cast<double>(trunk_k) + 0.5) * doc.params.cell_mm,
+                                   trunk_source, waypoints);
             if (waypoints.size() <= 2) {
                 out.fail = RouteFail::NoPath;
                 return out;
@@ -1290,6 +1476,7 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
             for (size_t wi = 0; wi + 1 < waypoints.size(); ++wi) {
                 const int seg_goal_dir = (wi + 2 == waypoints.size()) ? gd : -1;
                 AStarResult seg = route_between(waypoints[wi], waypoints[wi + 1], seg_goal_dir);
+                trace_route_split_segment(trace, oi, wi, waypoints[wi], waypoints[wi + 1], seg, seg_goal_dir);
                 out.expanded_nodes += seg.expanded_nodes;
                 out.elapsed_ms += seg.elapsed_ms;
                 out.cost_mm += seg.cost_mm;
@@ -1360,9 +1547,6 @@ void route_multi_impl(SceneDoc& doc, Occ occ, const std::string& priority, bool 
         if (aborted) break;
     }
 
-    bool ripup_on = configured_ripup_enabled >= 0 ? (configured_ripup_enabled != 0) : true;
-    if (configured_ripup_enabled < 0)
-        if (const char* rs = std::getenv("R3D_RIPUP")) ripup_on = !(rs[0] == 'o' && rs[1] == 'f');
     auto has_fail = [&]() {
         for (int i = 0; i < n; ++i)
             if (!doc.results[static_cast<size_t>(i)] || !doc.results[static_cast<size_t>(i)]->success)
@@ -1775,6 +1959,19 @@ extern "C" R3dStatus r3d_flush_trace(R3dEngine* e) {
     if (!e) return R3D_ERR_ARG;
     e->trace.flush();
     return R3D_OK;
+}
+
+extern "C" R3dStatus r3d_get_runtime_report(const R3dEngine* e, char** out_json) {
+    if (!e || !out_json) return R3D_ERR_ARG;
+    *out_json = nullptr;
+    try {
+        char* p = dup_string(runtime_report_json(*e));
+        if (!p) return R3D_ERR_RUNTIME;
+        *out_json = p;
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
 }
 
 extern "C" R3dStatus r3d_add_obstacle(R3dEngine* e, double minx, double miny, double minz,

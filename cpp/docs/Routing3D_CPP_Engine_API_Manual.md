@@ -1,18 +1,21 @@
-# Routing3D C++ 엔진 분석 및 API 사용설명서
+﻿# Routing3D C++ 엔진 분석 및 API 사용설명서
 
 분석 대상: `D:\DINNO\DEV\AI-AutoRouting\Routing3D\cpp`  
 작성일: 2026-06-15  
-갱신일시: 2026-06-21 00:00:00 KST
-소스수정 버전: 2026.06.21-segment-octree-guide-route-split
-소스수정 일시: 2026-06-21 00:00:00 KST
-소스수정 내용: Segment A* JPS-3D-lite 후보 생성, Anytime A* 시간 budget/개선 API, TruckIn/Middle/Terminal 자동 분할 라우팅, chunk/portal HPA* route_hier 확장, Octree-guided macro path + fine corridor fallback, Trace Replay Viewer 경로/점유 샘플 표시 갱신
-최근 업데이트: 2026-06-21, JPS-3D-lite, Anytime A*, TruckIn/Middle/Terminal 자동 분할, chunk/portal HPA* route_hier 확장 문서화
+갱신일시: 2026-06-22 00:00:00 KST
+소스수정 버전: 2026.06.22-runtime-trace-diagnostics
+소스수정 일시: 2026-06-22 00:00:00 KST
+소스수정 내용: `r3d_get_runtime_report()` 런타임 진단 JSON API 추가, Trace JSONL `effective_options`/`route_split_plan`/`route_split_segment` 이벤트 추가, Trace Replay Viewer 이벤트 요약 표시 갱신
+최근 업데이트: 2026-06-22, 런타임/백엔드/옵션 진단 API와 Route split Trace 진단 보강
 범위: C++ 코어 엔진, 점유맵 백엔드, A*/Segment A* 라우팅, 옥트리 점프/가이드 라우팅, 다중 배관 처리, CBS-lite 협상 라우팅, scene.json JSON 저장 포맷, C ABI, C# managed wrapper/tutorial, CLI, 선택 기능(OpenVDB/FCL/Python binding)
 
 ## 갱신내용
 
 | 일시 | 구분 | 갱신 내용 | 영향 |
 |---|---|---|---|
+| 2026-06-22 00:00:00 KST | 보완 개발 | `r3d_get_runtime_report()` 추가. build flag, scene count, routing option, runtime option, trace option을 UTF-8 JSON으로 반환. C# Viewer/Common wrapper에 `GetRuntimeReportJson()` 추가 | DLL/백엔드/옵션 상태를 UI, 로그, Codex 인수인계에서 즉시 확인 가능 |
+| 2026-06-22 00:00:00 KST | Trace 진단 | Trace JSONL에 `effective_options`, `route_split_plan`, `route_split_segment` 이벤트 추가. Trace Replay Viewer 이벤트 목록 요약 표시 보강 | 실제 적용된 옵션, route split trunk 높이, waypoint, segment별 성공/실패/확장량을 로그에서 검증 가능 |
+| 2026-06-22 00:00:00 KST | 소스 분석 / API 문서 | 현재 C++ 엔진 기준으로 `route_multi_impl()`, Segment A*, Anytime A*, Route split, HPA* macro guide, Octree-guided fallback, Trace JSONL 이벤트 흐름을 재검토하고 C API 표와 보완 개발목록을 갱신 | 다른 PC/Codex 환경에서 이어받을 때 현재 구조와 위험 지점을 빠르게 파악 가능. 후속 개발 우선순위 판단 기준 제공 |
 | 2026-06-21 00:00:00 KST | 소스 v2026.06.21 | `RouteParams.use_segment_astar`, `segment_max_cells`, `segment_jps_lite`, `astar_segmented()` 추가/보강. C API는 기존 `r3d_set_segment_astar()` 경로 사용 | Segment A*가 목표축 projection, forced-neighbor obstacle-edge, ray end만 후보로 넣는 JPS-3D-lite 방식으로 동작. 기본 OFF라 골든 경로는 유지 |
 | 2026-06-21 00:00:00 KST | C API / 다중 라우팅 | `r3d_set_route_split()` 추가. 한 task를 TruckIn 수직 구간, Middle trunk 주행 구간, Terminal 수직 구간으로 자동 분할해 각 segment를 기존 Segment A*/Weighted A*로 순차 탐색 | 전체 탐색 깊이를 줄이고 TruckIn/Middle/Terminal 병렬화 전 단계의 deterministic task 분할을 제공. 기본 OFF, 실패 시 direct 라우팅 fallback |
 | 2026-06-21 00:00:00 KST | C API / 단일 라우팅 | `r3d_route_task_anytime()`과 `route_anytime_weighted()` 추가. 초기 가중치에서 시작해 시간 budget 안에서 가중치를 낮추며 incumbent 경로를 개선 | 빠른 최초 경로와 점진 개선을 단일 API로 제공. 결과는 기존 `R3dResult`/`r3d_copy_path()`와 호환 |
@@ -1267,7 +1270,14 @@ r3d_destroy(e);
 | `r3d_set_cbs_depth()` | CBS-lite 협상 라우팅 깊이 설정. 0이면 OFF, 1 이상이면 실패 task에 대해 blocker 재귀 양보 시도 |
 | `r3d_set_segment_astar()` | 다중 라우팅에서 Segment A* 선시도 여부와 최대 segment 길이 설정 |
 | `r3d_set_octree_guide()` | 다중 라우팅 escalation에서 Octree-guided fine corridor fallback 사용 여부와 corridor 반경 설정 |
+| `r3d_set_route_split()` | task를 TruckIn/Middle/Terminal 구간으로 자동 분할하는 route split 사용 여부와 trunk Z(mm) 설정 |
+| `r3d_set_runtime_options()` | 대형 격자 threshold, 최대 확장 수, HPA*/fallback/rip-up/CBS 내부 budget 등 런타임 옵션 설정 |
+| `r3d_set_trace_options()` | Trace JSONL 기록 레벨, reject 포함 여부, 점유/통과 샘플 수집 여부 등 탐색 진단 옵션 설정 |
+| `r3d_set_trace_file()` | Trace JSONL 출력 파일 경로 설정. 라우팅 실행 중 `trace_header`, `task_begin`, `expand_cell`, `candidate_reject`, `route_path` 등을 순차 기록 |
+| `r3d_flush_trace()` | 현재 TraceWriter 버퍼를 디스크로 flush. Trace Replay Viewer가 실행 중 로그를 읽을 때 파일 잠금/미반영 문제를 줄이는 데 사용 |
+| `r3d_get_runtime_report()` | build flag, scene count, routing/runtime/trace option을 UTF-8 JSON으로 반환. 반환 문자열은 `r3d_free_string()`으로 해제 |
 | `r3d_route_task()` | 단일 task 라우팅 |
+| `r3d_route_task_anytime()` | 단일 task를 시간 budget 안에서 Weighted A* 가중치를 낮추며 점진 개선하는 Anytime 라우팅 |
 | `r3d_route_multi()` | 다중 순차 라우팅 |
 | `r3d_route_multi_progress()` | 진행 콜백 포함 다중 라우팅 |
 | `r3d_route_ripup()` | rip-up 라우팅 |
@@ -1901,6 +1911,41 @@ managed wrapper를 사용할 때는 다음 메서드가 C API 호출을 감싼�
 
 ## 13. 확인된 문제점 및 보완 개발목록
 
+### 13.1 2026-06-22 현재 소스 재분석 요약
+
+현재 C++ 엔진은 `SceneDoc`를 중심으로 scene.json 입출력, 점유맵 백엔드, 단일/다중 라우팅, 대형 격자 fallback, Trace JSONL 진단을 한 파이프라인으로 연결한다. 핵심 실행 흐름은 `routing3d_capi.cpp`의 `route_multi_impl()`에 집중되어 있으며, 이 함수가 task 정렬, PoC snap, per-task radius/gap, Segment A* 선시도, Route split, 대형 격자 HPA* guide, Octree-guided fallback, rip-up/CBS-lite, Trace 이벤트 기록, 결과 저장까지 조율한다.
+
+소스 기준 주요 구성은 다음과 같다.
+
+| 영역 | 현재 구현 | 분석 결과 |
+|---|---|---|
+| 입력/저장 | `scene_io.cpp`, `SceneDoc`, scene.json v3 | 기존 scene.txt 중심 흐름은 json으로 전환되어 있으나, API 이름은 호환성 때문에 `*_scene_text`/`*_dump_scene_text` 명칭을 유지한다. 문서와 UI에서는 json 포맷임을 명확히 안내해야 한다. |
+| 점유맵 | Dense, Sparse/Implicit, OpenVDB optional, Octree | 대형 공간은 dense 전체 materialization을 피하도록 개선되었다. 다만 backend별 샘플링/복사/trace 의미가 완전히 동일하지 않으므로 Trace 이벤트에 sample policy를 명시하는 것이 좋다. |
+| 기본 탐색 | `astar_weighted()`, `astar_segmented()` | Weighted A*와 Segment A*가 공존한다. Segment A*는 직선 후보를 줄여 성능 개선을 노리지만, 기본 OFF이므로 프로젝트별 검증 후 켜는 옵션으로 유지하는 것이 안전하다. |
+| 대형 격자 | `route_hier()`, `hpa_macro_path()`, `expand_macro_cells()` | chunk/portal HPA* guide가 추가되어 coarse 전체 탐색 비용을 줄인다. 실패 시 기존 coarse A* fallback이 있어 안정성은 좋지만, portal graph 품질과 chunk 크기 튜닝 지표가 더 필요하다. |
+| Octree guide | `route_octree_guided()`, `r3d_set_octree_guide()` | Octree Jump A*는 macro path guide로 사용되고 fine A*가 corridor 안에서 최종 검증한다. 정적 장애물 기준 guide와 동적 배관 점유 갱신 정책이 분리되어 있어 다중 라우팅에서는 rebuild/mark 정책을 명확히 해야 한다. |
+| Route split | `r3d_set_route_split()`, 내부 `route_split_path` | TruckIn/Middle/Terminal 자동 분할은 긴 수직/수평 배관 탐색 깊이를 줄이는 데 유리하다. 다만 자동 trunk Z가 설계 layer와 맞지 않으면 품질이 나빠질 수 있으므로 선택된 waypoint를 결과/trace에 노출해야 한다. |
+| Anytime | `r3d_route_task_anytime()`, `route_anytime_weighted()` | 단일 task에서는 빠른 최초 경로와 점진 개선 API가 준비되어 있다. 다중 배관 라우팅과 progress/cancel 정책에는 아직 통합되지 않았다. |
+| Trace 진단 | `r3d_set_trace_options()`, `r3d_set_trace_file()`, `trace_*` 이벤트 | `route_path`, `occupancy_sample`, `passthrough_sample`, `expand_cell`, `candidate_reject`가 Viewer에서 추적 가능하다. 로그 크기와 파일 잠금, schema version 관리는 별도 보강이 필요하다. |
+
+### 13.2 2026-06-22 추가 보완 개발 우선순위
+
+| 우선순위 | 영역 | 관찰된 문제/리스크 | 보완 개발 권장 |
+|---|---|---|---|
+| P1 | 소스 주석/문서 인코딩 | 일부 C++ header/source 주석이 UTF-8로 정상 표시되지 않는 파일이 남아 있다. API header 주석이 깨지면 C#/외부 연동 개발자가 ABI 의미를 오해할 수 있다. | `cpp/include`, `cpp/src`, `cpp/capi`를 UTF-8로 일괄 정리하고 CI에 UTF-8/깨진 한글 패턴 검사를 추가한다. 가능하면 public header 주석은 한글+영문 병기 또는 영문 중심으로 정리한다. |
+| P1 | `routing3d_capi.cpp` 비대화 | C API facade 안에 HPA*, Octree guide, Route split, TraceWriter, CBS/rip-up orchestration이 집중되어 유지보수 난도가 높다. | `RoutingPipeline`, `LargeGridRouter`, `TraceWriter`, `NegotiationRouter`, `RouteSplitPlanner` 단위로 분리하고 C API는 얇은 facade로 축소한다. |
+| P1 | Trace JSONL 파일 크기/잠금 | reject/expand/occupancy/path 이벤트를 모두 켜면 로그가 매우 커지고, 실행 중 Viewer가 같은 파일을 열 때 잠금 문제가 발생할 수 있다. | schema version, event별 cap, 압축/rotation, append 공유 읽기 정책, `r3d_flush_trace()` 호출 가이드, 완료된 로그만 여는 UX를 추가한다. |
+| P1 | Trace 샘플 의미 불일치 | `occupancy_sample`은 정적/샘플 기반이고, 실제 동적 배관 점유나 backend별 active voxel과 1:1로 일치하지 않을 수 있다. | 이벤트를 `static_occupancy_sample`, `dynamic_pipe_sample`, `backend_occupancy_sample`로 분리하고 sample policy/grid range/backend 이름을 header에 기록한다. |
+| P1 | Octree guide와 동적 배관 | Octree guide가 정적 scene 기반으로 생성되면, 앞서 라우팅된 pipe mark가 macro guide에 충분히 반영되지 않을 수 있다. | N개 task마다 octree rebuild, 동적 marked voxel overlay, 또는 fine corridor 실패 시 guide 재생성 정책을 명시하고 옵션화한다. |
+| P1 | Route split 품질 진단 | trunk Z 자동 선택과 waypoint 분할 결과가 결과 구조에 충분히 노출되지 않으면 왜 우회/꺾임이 생겼는지 알기 어렵다. | **부분 완료:** Trace JSONL `route_split_plan`, `route_split_segment` 이벤트로 trunk 높이, waypoint, segment별 실패 사유/시간/확장량을 기록. 후속으로 `R3dResult` 구조에도 요약 필드 노출 필요 |
+| P2 | Anytime API 범위 | `r3d_route_task_anytime()`은 단일 task 중심이라 다중 배관 자동설계의 시간 budget 분배와 연동되지 않는다. | multi/progress API에 anytime profile을 추가하고 task별 budget, incumbent 유지, progress phase를 정의한다. |
+| P2 | 옵션 표면 증가 | `r3d_set_*` setter와 환경변수가 늘어나면서 실제 적용 옵션을 사용자가 파악하기 어렵다. | 단일 `R3dRouteOptions`/profile 구조체를 도입하고 Trace header와 결과 보고서에 effective option dump를 남긴다. |
+| P2 | 실패 원인 설명 부족 | `RouteFail`과 reject 로그는 있으나 nearest blocker, obstacle id, 기존 pipe id, 첫 막힘 segment를 API로 조회하기 어렵다. | `R3dFailureDetail` API를 추가해 task id, blocker object, blocked cell, candidate direction, nearest free distance를 제공한다. |
+| P2 | 메모리/시간 budget 보호 | `astar_weighted()`는 개선되었지만 대형/복잡 scene에서 확장 수와 상태맵 메모리가 급증할 수 있다. | hard memory budget, open/closed count telemetry, budget 초과 시 partial route/failure detail 반환 정책을 추가한다. |
+| P2 | DLL/OpenVDB 배포 진단 | OpenVDB/FCL/Boost/TBB 등 선택 dependency가 누락되면 Viewer에서 native DLL 로드 실패가 발생한다. | **부분 완료:** `r3d_get_runtime_report()`가 build flag, scene count, routing/runtime/trace option을 JSON으로 반환. 후속으로 실제 DLL dependency probe와 누락 DLL 이름 분석 추가 필요 |
+| P3 | 테스트/회귀 샘플 | route split, octree guide, HPA fallback, Trace schema, Viewer replay는 실제 large scene 의존도가 높다. | 작은 synthetic case + WTNHJ02 축약 trace fixture를 추가하고 C++/C# 양쪽에서 schema/렌더링 회귀 테스트를 수행한다. |
+| P3 | API 문서 자동화 | public header와 문서의 API 표가 수동으로 관리되어 누락 위험이 있다. | `routing3d_capi.h`에서 함수 목록을 추출해 Markdown API 표와 wrapper parity 체크를 자동 생성한다. |
+
 ### P0/P1: 우선 처리 권장
 
 | 우선순위 | 항목 | 내용 | 제안 |
@@ -1988,6 +2033,12 @@ managed wrapper를 사용할 때는 다음 메서드가 C API 호출을 감싼�
 | `r3d_set_segment_astar` | Segment A* opt-in 및 최대 segment 길이 설정 |
 | `r3d_set_octree_guide` | Octree-guided fallback opt-in 및 corridor 반경 설정 |
 | `r3d_set_route_split` | TruckIn/Middle/Terminal 자동 분할 opt-in 및 trunk Z(mm) 설정 |
+| `r3d_set_runtime_options` | 대형 격자/HPA*/fallback/rip-up/CBS budget 등 런타임 옵션 설정 |
+| `r3d_set_trace_options` | Trace JSONL 기록 레벨, reject/path/occupancy/pass-through 샘플 기록 옵션 설정 |
+| `r3d_set_trace_file` | Trace JSONL 출력 파일 경로 설정 |
+| `r3d_flush_trace` | Trace 출력 스트림 flush |
+| `r3d_get_runtime_report` | build/scene/routing/runtime/trace option 진단 JSON 반환 |
+| `r3d_route_task_anytime` | 시간 budget 기반 단일 task Anytime Weighted A* |
 | `r3d_route_corridor_multi` | 대형 corridor sequential |
 | `r3d_route_task_octree` | 단일 task 옥트리 jump 라우팅 |
 | `r3d_enum_octree_leaves` | octree leaf 목록 복사 |

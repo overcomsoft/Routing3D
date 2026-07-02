@@ -1,22 +1,22 @@
-// 매니지???�진 ?�퍼 ??C# 코드가 ?�제�??�용?�는 OOP �?
+// 留ㅻ땲吏???붿쭊 ?섑띁 ??C# 肄붾뱶媛 ?ㅼ젣濡??ъ슜?섎뒗 OOP 硫?
 // =============================================================================
-//   Native(P/Invoke) + R3dEngineHandle ?�에 ?�외 기반 OOP API �??�공?�다.
-//   ?�태 코드가 0(R3D_OK)???�니�??�외�??�진??
+//   Native(P/Invoke) + R3dEngineHandle ?꾩뿉 ?덉쇅 湲곕컲 OOP API 瑜??쒓났?쒕떎.
+//   ?곹깭 肄붾뱶媛 0(R3D_OK)???꾨땲硫??덉쇅瑜??섏쭊??
 // =============================================================================
 using System;
 
 namespace Routing3D.Viewer.Interop
 {
-    /// <summary>경로 ?� (i, j, k).</summary>
+    /// <summary>寃쎈줈 ? (i, j, k).</summary>
     public readonly record struct PathCell(int I, int J, int K);
 
-    /// <summary>?�트�?리프 ?�드 ?�보 (3D 가?�화??. State: 0=FREE, 1=BLOCKED.</summary>
+    /// <summary>?ν듃由?由ы봽 ?몃뱶 ?뺣낫 (3D 媛?쒗솕??. State: 0=FREE, 1=BLOCKED.</summary>
     public readonly record struct OctreeLeaf(float X0Mm, float Y0Mm, float Z0Mm, float SizeMm, int State);
 
-    /// <summary>?�우???�패 ?�유(A1) ???�진 RouteFail �?1:1. Success=false ???�만 ?��?.</summary>
+    /// <summary>?쇱슦???ㅽ뙣 ?ъ쑀(A1) ???붿쭊 RouteFail 怨?1:1. Success=false ???뚮쭔 ?섎?.</summary>
     public enum RouteFail { None = 0, StartBlocked = 1, GoalBlocked = 2, CorridorMiss = 3, ExpansionLimit = 4, GoalDirBlocked = 5, NoPath = 6 }
 
-    /// <summary>???�업???�우??결과(?�공/길이/?�전/경로/방문 ?�).</summary>
+    /// <summary>???묒뾽???쇱슦??寃곌낵(?깃났/湲몄씠/?뚯쟾/寃쎈줈/諛⑸Ц ?).</summary>
     public sealed class RouteResult
     {
         public bool Success { get; init; }
@@ -24,10 +24,11 @@ namespace Routing3D.Viewer.Interop
         public double CostMm { get; init; }
         public int Turns { get; init; }
         public long ExpandedNodes { get; init; }
-        /// <summary>?�패 ?�유(A1). ?�공 ??None. UI ?�패 진단(ExplainFailure)?�서 ?�확 분류.</summary>
+        public double ElapsedMs { get; init; }
+        /// <summary>?ㅽ뙣 ?ъ쑀(A1). ?깃났 ??None. UI ?ㅽ뙣 吏꾨떒(ExplainFailure)?먯꽌 ?뺥솗 遺꾨쪟.</summary>
         public RouteFail Fail { get; init; }
         public PathCell[] Path { get; init; } = Array.Empty<PathCell>();
-        /// <summary>???�업??A* 가 ?�장???�(가?�화 '방문�?). ?�진??collect_visited 가 ON ???�만.</summary>
+        /// <summary>???묒뾽??A* 媛 ?뺤옣???(媛?쒗솕 '諛⑸Ц留?). ?붿쭊??collect_visited 媛 ON ???뚮쭔.</summary>
         public PathCell[] Visited { get; init; } = Array.Empty<PathCell>();
     }
 
@@ -39,7 +40,7 @@ namespace Routing3D.Viewer.Interop
         public bool IsValid => !_disposed && !_h.IsInvalid;
         public static string Version => Native.VersionString();
 
-        // ---- ?�면 구성(Level 2) ----
+        // ---- ?λ㈃ 援ъ꽦(Level 2) ----
         public void LoadSceneText(string sceneText)
             => Check(Native.r3d_load_scene_text(H, Native.Utf8(sceneText)), "load_scene_text");
 
@@ -70,39 +71,39 @@ namespace Routing3D.Viewer.Interop
             Check(Native.r3d_set_params(H, in p), "set_params");
         }
 
-        /// <summary>배�? ?�유 ?�창 반경(?�) ?�정 ??배�?-배�? 충돌 ?�피(?�션1). route_multi(_progress) 가
-        /// 깔린 배�???경로 ±radius 6-?�웃까�? ?�유�?막아 ?�음 배�? 중심?�을 ?�운???�제 관�??�더 ???�면
-        /// 겹침 방�?). 0=기존 ?�작(경로 ?��?. 관�??� 기반 ?�출?� ?�출??BuildEngineForRows)가 ?�행?�다.</summary>
+        /// <summary>諛곌? ?먯쑀 ?쎌갹 諛섍꼍(?) ?ㅼ젙 ??諛곌?-諛곌? 異⑸룎 ?뚰뵾(?듭뀡1). route_multi(_progress) 媛
+        /// 源붾┛ 諛곌???寃쎈줈 짹radius 6-?댁썐源뚯? ?먯쑀濡?留됱븘 ?ㅼ쓬 諛곌? 以묒떖?좎쓣 ?꾩슫???ㅼ젣 愿寃??뚮뜑 ???쒕㈃
+        /// 寃뱀묠 諛⑹?). 0=湲곗〈 ?숈옉(寃쎈줈 ?留?. 愿寃?? 湲곕컲 ?곗텧? ?몄텧??BuildEngineForRows)媛 ?섑뻾?쒕떎.</summary>
         public void SetPipeRadius(int radiusCells)
             => Check(Native.r3d_set_pipe_radius(H, radiusCells), "set_pipe_radius");
 
-        /// <summary>per-task 관�?반경(B1) ?�성????ON ?�면 route_multi 가 �?배�? diameter_mm �?마킹 반경??
-        /// ?�동 ?�출(글로벌 SetPipeRadius 책임 ?�거·가??배�? 과패???�소). 관�?미상?� 글로벌 ?�백.</summary>
+        /// <summary>per-task 愿寃?諛섍꼍(B1) ?쒖꽦????ON ?대㈃ route_multi 媛 媛?諛곌? diameter_mm 濡?留덊궧 諛섍꼍??
+        /// ?먮룞 ?곗텧(湲濡쒕쾶 SetPipeRadius 梨낆엫 ?쒓굅쨌媛??諛곌? 怨쇳뙣???댁냼). 愿寃?誘몄긽? 湲濡쒕쾶 ?대갚.</summary>
         public void SetPerTaskRadius(bool on)
             => Check(Native.r3d_set_per_task_radius(H, on ? 1 : 0), "set_per_task_radius");
 
-        /// <summary>C1 negotiated-congestion(CBS-lite, Phase C) 깊이 ??0=OFF(?�면 rip-up만·기�??�작).
-        /// >0 ?�면 ?�면 rip-up ?�로?????��??�패 배�???blocker ??blocker 까�? ?��? ?�보?�켜 ?�소(무손?��?
-        /// 결정??. [0,3] ?�램???�진). 고�???병목???�여 ?�패�?줄인??</summary>
+        /// <summary>C1 negotiated-congestion(CBS-lite, Phase C) 源딆씠 ??0=OFF(?됰㈃ rip-up留뙿룰린議??숈옉).
+        /// >0 ?대㈃ ?됰㈃ rip-up ?쇰줈?????由??ㅽ뙣 諛곌???blocker ??blocker 源뚯? ?ш? ?묐낫?쒖폒 ?댁냼(臾댁넀?ㅒ?
+        /// 寃곗젙??. [0,3] ?대옩???붿쭊). 怨좊???蹂묐ぉ???붿뿬 ?ㅽ뙣瑜?以꾩씤??</summary>
         public void SetCbsDepth(int depth)
             => Check(Native.r3d_set_cbs_depth(H, depth), "set_cbs_depth");
 
-        /// <summary>C2 코너 최소반경 배수(Phase C) ???�보 ?�이 직선(?? ??(mult × 관�? 보장(?�작??.
-        /// 경로(?�) ?�계?�서 충돌검???�에 짧�? ?��????�수(꺾임 비증가???�만, ???�점 고정). 0=OFF(기존
-        /// ?�작). 권장 2.0. PathRectifier(?�더 ?�벨, ?�돌�??� ?�리 충돌 ?�전.</summary>
+        /// <summary>C2 肄붾꼫 理쒖냼諛섍꼍 諛곗닔(Phase C) ???섎낫 ?ъ씠 吏곸꽑(?? ??(mult 횞 愿寃? 蹂댁옣(?쒖옉??.
+        /// 寃쎈줈(?) ?④퀎?먯꽌 異⑸룎寃???섏뿉 吏㏃? ?④????≪닔(爰얠엫 鍮꾩쬆媛???뚮쭔, ???앹젏 怨좎젙). 0=OFF(湲곗〈
+        /// ?숈옉). 沅뚯옣 2.0. PathRectifier(?뚮뜑 ?덈꺼, ?섎룎由?? ?щ━ 異⑸룎 ?덉쟾.</summary>
         public void SetMinStraight(double mult)
             => Check(Native.r3d_set_min_straight(H, mult), "set_min_straight");
 
-        /// <summary>코너 최소직선(?��? mm, ?�드 ?�약) ??A* 가 '??�?꺾인 ????길이만큼 직진?�기 ?�엔 ?�시
-        /// 꺾�? 못하?�록' ?�색 ?�계?�서 강제?�다. ?�보 �?모든 직선 구간(?��?)????길이 ?�상 보장??관�?무�?·
-        /// ??배�?, 목표 직전 마�?�??�속 구간�?면제). SetMinStraight(관�?배수·?�처�??�수)?� ?�리 ?�드 보장.
-        /// 0=OFF(기존 ?�작·골든 불�?). 권장 100mm.</summary>
+        /// <summary>肄붾꼫 理쒖냼吏곸꽑(?덈? mm, ?섎뱶 ?쒖빟) ??A* 媛 '??踰?爰얠씤 ????湲몄씠留뚰겮 吏곸쭊?섍린 ?꾩뿏 ?ㅼ떆
+        /// 爰얠? 紐삵븯?꾨줉' ?먯깋 ?④퀎?먯꽌 媛뺤젣?쒕떎. ?섎낫 媛?紐⑤뱺 吏곸꽑 援ш컙(?④?)????湲몄씠 ?댁긽 蹂댁옣??愿寃?臾닿?쨌
+        /// ??諛곌?, 紐⑺몴 吏곸쟾 留덉?留??묒냽 援ш컙留?硫댁젣). SetMinStraight(愿寃?諛곗닔쨌?꾩쿂由??≪닔)? ?щ━ ?섎뱶 蹂댁옣.
+        /// 0=OFF(湲곗〈 ?숈옉쨌怨⑤뱺 遺덈?). 沅뚯옣 100mm.</summary>
         public void SetMinStraightMm(double mm)
             => Check(Native.r3d_set_min_straight_mm(H, mm), "set_min_straight_mm");
 
-        /// <summary>배�?-배�? ?�격(mm) ????배�? ?�터??거리 ??r1 + r2 + gap 보장(?�면 ?�이 최소 gap mm ?��?).
-        /// 기존 마킹?� ?�터?�을 ~관경만?�만 ?�워 ?�면??맞닿?�다(겹쳐 보임). gap>0 ?�면 route_multi 가 깔린
-        /// 배�?????반경?�로 막아 ?�확???�운?? 0=기존 ?�작. 규격 60mm.</summary>
+        /// <summary>諛곌?-諛곌? ?닿꺽(mm) ????諛곌? ?쇳꽣??嫄곕━ ??r1 + r2 + gap 蹂댁옣(?쒕㈃ ?ъ씠 理쒖냼 gap mm ?꾩?).
+        /// 湲곗〈 留덊궧? ?쇳꽣?좎쓣 ~愿寃쎈쭔?쇰쭔 ?꾩썙 ?쒕㈃??留욌떯?섎떎(寃뱀퀜 蹂댁엫). gap>0 ?대㈃ route_multi 媛 源붾┛
+        /// 諛곌?????諛섍꼍?쇰줈 留됱븘 ?뺥솗???꾩슫?? 0=湲곗〈 ?숈옉. 洹쒓꺽 60mm.</summary>
         public void SetPipeGap(double gapMm)
             => Check(Native.r3d_set_pipe_gap(H, gapMm), "set_pipe_gap");
 
@@ -118,19 +119,19 @@ namespace Routing3D.Viewer.Interop
         public void SetRouteSplit(bool on, double trunkZMm = 0.0)
             => Check(Native.r3d_set_route_split(H, on ? 1 : 0, trunkZMm), "set_route_split");
 
-        /// <summary>?�??격자 최�? ?�색 ?�장 ????0=?�경변??기본�?48M). 최단경로 모드 ?�에???�색 ?�한??
-        /// 줄여 배�????�색 ??��(?�분 ?�결)??방�??�다. large_threshold(기본 5M?�) ?�하 격자??무제??-1)?��?�?
-        /// ??값�? ?�??격자?�서�??�용?�다. 권장: 최단경로 8M, ?�징??기존?�계 0(기본 48M).</summary>
+        /// <summary>???寃⑹옄 理쒕? ?먯깋 ?뺤옣 ????0=?섍꼍蹂??湲곕낯媛?48M). 理쒕떒寃쎈줈 紐⑤뱶 ?깆뿉???먯깋 ?곹븳??
+        /// 以꾩뿬 諛곌????먯깋 ??컻(?섎텇 ?숆껐)??諛⑹??쒕떎. large_threshold(湲곕낯 5M?) ?댄븯 寃⑹옄??臾댁젣??-1)?대?濡?
+        /// ??媛믪? ???寃⑹옄?먯꽌留??곸슜?쒕떎. 沅뚯옣: 理쒕떒寃쎈줈 8M, ?뱀쭠??湲곗〈?ㅺ퀎 0(湲곕낯 48M).</summary>
         public void SetMaxExpansions(long maxExp)
         {
             var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp };
             Check(Native.r3d_set_runtime_options(H, in opt), "set_runtime_options");
         }
 
-        /// <summary>?�??격자 ?�색 ?�한 + 계층(hier) escalation ?�계(hier_probe)�??�께 ?�정.
-        /// hierProbe �??�게(=maxExp) 주면 ?�려??배�???'직접 가�?A*'�?먼�? 충분???�색???�에??계층
-        /// corridor �??�어간다 ??직접 A*가 찾는 짧�?(?�w_heur�? 경로�?계층??3~4× ?�회보다 ?�선?�다.
-        /// 최단경로 모드처럼 '길이'가 중요??경우???�다(?�???�려??배�??� ???�래 ?�색).</summary>
+        /// <summary>???寃⑹옄 ?먯깋 ?곹븳 + 怨꾩링(hier) escalation ?꾧퀎(hier_probe)瑜??④퍡 ?ㅼ젙.
+        /// hierProbe 瑜??ш쾶(=maxExp) 二쇰㈃ ?대젮??諛곌???'吏곸젒 媛以?A*'濡?癒쇱? 異⑸텇???먯깋???ㅼ뿉??怨꾩링
+        /// corridor 濡??섏뼱媛꾨떎 ??吏곸젒 A*媛 李얜뒗 吏㏃?(?쨢_heur諛? 寃쎈줈瑜?怨꾩링??3~4횞 ?고쉶蹂대떎 ?곗꽑?쒕떎.
+        /// 理쒕떒寃쎈줈 紐⑤뱶泥섎읆 '湲몄씠'媛 以묒슂??寃쎌슦???대떎(????대젮??諛곌?? ???ㅻ옒 ?먯깋).</summary>
         public void SetRuntimeLimits(long maxExp, long hierProbe)
         {
             var opt = new Native.R3dRuntimeOptions { max_expansions = maxExp, hier_probe = hierProbe };
@@ -165,10 +166,16 @@ namespace Routing3D.Viewer.Interop
         public void FlushTrace()
             => Check(Native.r3d_flush_trace(H), "flush_trace");
 
+        public string GetRuntimeReportJson()
+        {
+            Check(Native.r3d_get_runtime_report(H, out var json), "get_runtime_report");
+            return Native.TakeString(json);
+        }
+
         public void AddObstacle(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_obstacle(H, minx, miny, minz, maxx, maxy, maxz), "add_obstacle");
 
-        // ?�과(pass-through) 객체 추�? ??경로?�색 충돌 ?�외, '?�과 ?�유�? 가?�화??
+        // ?듦낵(pass-through) 媛앹껜 異붽? ??寃쎈줈?먯깋 異⑸룎 ?쒖쇅, '?듦낵 ?먯쑀留? 媛?쒗솕??
         public void AddPassthrough(double minx, double miny, double minz, double maxx, double maxy, double maxz)
             => Check(Native.r3d_add_passthrough(H, minx, miny, minz, maxx, maxy, maxz), "add_passthrough");
 
@@ -176,63 +183,63 @@ namespace Routing3D.Viewer.Interop
                            string? utility, string? utilityGroup)
         {
             int idx = Native.r3d_add_task(H, sx, sy, sz, gx, gy, gz, Native.Utf8(utility), Native.Utf8(utilityGroup));
-            if (idx < 0) throw new InvalidOperationException("r3d_add_task ?�패");
+            if (idx < 0) throw new InvalidOperationException("r3d_add_task ?ㅽ뙣");
             return idx;
         }
 
         public void SetTaskEndpoints(int task, double sx, double sy, double sz, double gx, double gy, double gz)
             => Check(Native.r3d_set_task_endpoints(H, task, sx, sy, sz, gx, gy, gz), "set_task_endpoints");
 
-        /// <summary>?�업 관�?mm) ?�정 ???�선?�위 "diameter"/"utility" ?�렬?�서 '굵�? 배�? 먼�?' ??
-        /// 0=관�?무시(기존 거리 ?�렬�??�일). 굵�? 배�???최단 경로�??�점??가??배�????�회·충돌?��? ?�게 ?�다.</summary>
+        /// <summary>?묒뾽 愿寃?mm) ?ㅼ젙 ???곗꽑?쒖쐞 "diameter"/"utility" ?뺣젹?먯꽌 '援듭? 諛곌? 癒쇱?' ??
+        /// 0=愿寃?臾댁떆(湲곗〈 嫄곕━ ?뺣젹怨??숈씪). 援듭? 諛곌???理쒕떒 寃쎈줈瑜??좎젏??媛??諛곌????고쉶쨌異⑸룎?섏? ?딄쾶 ?쒕떎.</summary>
         public void SetTaskDiameter(int task, double diameterMm)
             => Check(Native.r3d_set_task_diameter(H, task, diameterMm), "set_task_diameter");
 
-        /// <summary>?�업 목표 진입�??�약 ??A* 가 목표(end)??axis(0..5 = +x,-x,+y,-y,+z,-z) 방향?�로 진입??
-        /// ?�만 ?�달 ?�정. ?�트 종단 ?�텁 리드??축을 주면 배�????�텁???�직??진입(군더?�기 꺾임 ?�거).
-        /// -1=무제??기본). ?�약?�로 막히�??�진??무제??1???�백(?�결 ?�선).</summary>
+        /// <summary>?묒뾽 紐⑺몴 吏꾩엯異??쒖빟 ??A* 媛 紐⑺몴(end)??axis(0..5 = +x,-x,+y,-y,+z,-z) 諛⑺뼢?쇰줈 吏꾩엯??
+        /// ?뚮쭔 ?꾨떖 ?몄젙. ?뺥듃 醫낅떒 ?ㅽ뀅 由щ뱶??異뺤쓣 二쇰㈃ 諛곌????ㅽ뀅???쇱쭅??吏꾩엯(援곕뜑?붽린 爰얠엫 ?쒓굅).
+        /// -1=臾댁젣??湲곕낯). ?쒖빟?쇰줈 留됲엳硫??붿쭊??臾댁젣??1???대갚(?곌껐 ?곗꽑).</summary>
         public void SetTaskGoalDir(int task, int axis)
             => Check(Native.r3d_set_task_goal_dir(H, task, axis), "set_task_goal_dir");
 
-        // ---- ?�우??----
+        // ---- ?쇱슦??----
         public void RouteMulti(string priority = "longest")
             => Check(Native.r3d_route_multi(H, Native.Utf8(priority)), "route_multi");
 
-        /// <summary>?�습???�랑 ?�(ijk ?�중???�탄 배열)???�정?�다(L2b ?�프??바이?�스). w_corridor>0 ????
-        /// route_multi 가 ???�?�을 ?�랑 ?�드�??�아 배�???�?곁으�??�도. null/�?배열?�면 ?�랑??비운??</summary>
+        /// <summary>?숈뒿???뚮옉 ?(ijk ?쇱쨷???됲깂 諛곗뿴)???ㅼ젙?쒕떎(L2b ?뚰봽??諛붿씠?댁뒪). w_corridor>0 ????
+        /// route_multi 媛 ????ㅼ쓣 ?뚮옉 ?쒕뱶濡??쇱븘 諛곌???洹?怨곸쑝濡??좊룄. null/鍮?諛곗뿴?대㈃ ?뚮옉??鍮꾩슫??</summary>
         public void SetCorridorCells(int[]? ijk)
             => Check(Native.r3d_set_corridor_cells(H, ijk, ijk == null ? 0 : ijk.Length / 3), "set_corridor_cells");
 
-        /// <summary>?�우??진행 ?�벤?? Phase 0=?�색 진행(Progress01), 1=배�? ?�료(지??Path).</summary>
+        /// <summary>?쇱슦??吏꾪뻾 ?대깽?? Phase 0=?먯깋 吏꾪뻾(Progress01), 1=諛곌? ?꾨즺(吏??Path).</summary>
         public readonly record struct RouteProgress(int Phase, int OrderIndex, int TaskIndex,
             bool Success, double LengthMm, int Turns, long ExpandedNodes, double ElapsedMs,
             int Done, int Total, double Progress01, PathCell[] Path);
 
-        /// <summary>route_multi ?� ?�일(?�차·충돌?�음)?�되 배�?마다 onPipe �??�출(처리?�서·진행?�·경�??�시�?.
-        /// 콜백?� ?�우???�레?�에???�기 ?�출?��?�? UI 갱신?� ?�출?��? Dispatcher �?마샬링한??
-        /// shouldCancel ??true �?반환?�면 ?�진???�재 배�? ?�색??즉시 중단?�고 ?��? 배�? ?�이 ?�상 반환?�다
-        /// (?�력??취소 ????5�??�장마다·배�? ?�료마다 검??. ?�료??배�? 결과??보존?�다.</summary>
+        /// <summary>route_multi ? ?숈씪(?쒖감쨌異⑸룎?놁쓬)?섎릺 諛곌?留덈떎 onPipe 瑜??몄텧(泥섎━?쒖꽌쨌吏꾪뻾?㉱룰꼍濡??ㅼ떆媛?.
+        /// 肄쒕갚? ?쇱슦???ㅻ젅?쒖뿉???숆린 ?몄텧?섎?濡? UI 媛깆떊? ?몄텧?먭? Dispatcher 濡?留덉꺃留곹븳??
+        /// shouldCancel ??true 瑜?諛섑솚?섎㈃ ?붿쭊???꾩옱 諛곌? ?먯깋??利됱떆 以묐떒?섍퀬 ?⑥? 諛곌? ?놁씠 ?뺤긽 諛섑솚?쒕떎
+        /// (?묐젰??痍⑥냼 ????5留??뺤옣留덈떎쨌諛곌? ?꾨즺留덈떎 寃??. ?꾨즺??諛곌? 寃곌낵??蹂댁〈?쒕떎.</summary>
         public void RouteMultiProgress(string priority, Action<RouteProgress> onPipe, Func<bool>? shouldCancel = null)
         {
-            // ?�리게이?�는 ?�이?�브 ?�출???�날 ?�까지 ?�아 ?�어???�다(지??변?�로 GC 보호).
+            // ?몃━寃뚯씠?몃뒗 ?ㅼ씠?곕툕 ?몄텧???앸궇 ?뚭퉴吏 ?댁븘 ?덉뼱???쒕떎(吏??蹂?섎줈 GC 蹂댄샇).
             Native.R3dProgressFn cb = (user, phase, oi, ti, ok, len, turns, exp, ms, done, total, prog, pathPtr, pathLen) =>
             {
                 var path = Array.Empty<PathCell>();
                 if (phase == 1 && pathLen > 0 && pathPtr != IntPtr.Zero)
                 {
                     var buf = new int[pathLen * 3];
-                    System.Runtime.InteropServices.Marshal.Copy(pathPtr, buf, 0, buf.Length);  // 즉시 복사.
+                    System.Runtime.InteropServices.Marshal.Copy(pathPtr, buf, 0, buf.Length);  // 利됱떆 蹂듭궗.
                     path = new PathCell[pathLen];
                     for (int i = 0; i < pathLen; i++) path[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
                 }
                 onPipe(new RouteProgress(phase, oi, ti, ok != 0, len, turns, exp, ms, done, total, prog, path));
-                return (shouldCancel != null && shouldCancel()) ? 1 : 0;   // 0?�님=취소 ???�진 ?�색 중단.
+                return (shouldCancel != null && shouldCancel()) ? 1 : 0;   // 0?꾨떂=痍⑥냼 ???붿쭊 ?먯깋 以묐떒.
             };
             try { Check(Native.r3d_route_multi_progress(H, Native.Utf8(priority), cb, IntPtr.Zero), "route_multi_progress"); }
             finally { GC.KeepAlive(cb); }
         }
 
-        // ?�일 ?�업 ?�라?�팅(?�본 ?�애�?기�?, ?�른 배�? 무시). 결과???�진???�?�된??
+        // ?⑥씪 ?묒뾽 ?щ씪?고똿(?먮낯 ?μ븷臾?湲곗?, ?ㅻⅨ 諛곌? 臾댁떆). 寃곌낵???붿쭊????λ맂??
         public RouteResult RouteTask(int task)
         {
             Check(Native.r3d_route_task(H, task, out _), "route_task");
@@ -250,17 +257,17 @@ namespace Routing3D.Viewer.Interop
                   "route_task_anytime");
             return GetResult(task);
         }
-        // ?�???�면??계층 corridor ?�우??Sparse + coarse?�fine). ?�업�??�립(충돌 ?�피 ?�음).
+        // ????λ㈃??怨꾩링 corridor ?쇱슦??Sparse + coarse?뭚ine). ?묒뾽蹂??낅┰(異⑸룎 ?뚰뵾 ?놁쓬).
         public void RouteCorridor(int factor = 16, int radius = 2)
             => Check(Native.r3d_route_corridor(H, factor, radius), "route_corridor");
 
-        // ?�차 계층 corridor(Sparse + astar_hashed, ?� ??배열 미할????10mm ???�???��? 격자 ?�전).
-        // priority ?�서�???배�????�우?�하�?mark_pipe(pipeRadius)�??�유 추�? ??배�? �?충돌 0.
+        // ?쒖감 怨꾩링 corridor(Sparse + astar_hashed, ? ??諛곗뿴 誘명븷????10mm ??????뺣? 寃⑹옄 ?덉쟾).
+        // priority ?쒖꽌濡???諛곌????쇱슦?낇븯怨?mark_pipe(pipeRadius)濡??먯쑀 異붽? ??諛곌? 媛?異⑸룎 0.
         public void RouteCorridorMulti(int factor, int radius, string priority = "longest", int pipeRadius = 0)
             => Check(Native.r3d_route_corridor_multi(H, factor, radius, Native.Utf8(priority), pipeRadius),
                      "route_corridor_multi");
 
-        // ---- 결과 조회 ----
+        // ---- 寃곌낵 議고쉶 ----
         public RouteResult GetResult(int task)
         {
             Check(Native.r3d_get_result(H, task, out var r), "get_result");
@@ -287,16 +294,17 @@ namespace Routing3D.Viewer.Interop
                 CostMm = r.cost_mm,
                 Turns = r.turns,
                 ExpandedNodes = r.expanded_nodes,
+                ElapsedMs = r.elapsed_ms,
                 Fail = (RouteFail)r.fail_reason,
                 Path = path,
                 Visited = visited,
             };
         }
 
-        /// <summary>'?�유�? 가?�화 ?????�재 doc ??voxelize ??블록 ?� ?�체�???번에 반환.</summary>
+        /// <summary>'?먯쑀留? 媛?쒗솕 ?????꾩옱 doc ??voxelize ??釉붾줉 ? ?꾩껜瑜???踰덉뿉 諛섑솚.</summary>
         public PathCell[] CopyBlocked()
         {
-            int total = Native.r3d_copy_blocked(H, null, 0);  // ?�이�?조회.
+            int total = Native.r3d_copy_blocked(H, null, 0);  // ?ъ씠利?議고쉶.
             if (total <= 0) return Array.Empty<PathCell>();
             var buf = new int[total * 3];
             int n = Native.r3d_copy_blocked(H, buf, total);
@@ -305,7 +313,7 @@ namespace Routing3D.Viewer.Interop
             return cells;
         }
 
-        /// <summary>?�유 ?�???�진?�서 직접 균등 ?�플링해 복사?�다. ?�???�면 미리보기??</summary>
+        /// <summary>?먯쑀 ????붿쭊?먯꽌 吏곸젒 洹좊벑 ?섑뵆留곹빐 蹂듭궗?쒕떎. ????λ㈃ 誘몃━蹂닿린??</summary>
         public PathCell[] CopyBlockedSampled(int maxCells)
         {
             if (maxCells <= 0) return Array.Empty<PathCell>();
@@ -316,7 +324,7 @@ namespace Routing3D.Viewer.Interop
             for (int i = 0; i < n; i++) cells[i] = new PathCell(buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
             return cells;
         }
-        /// <summary>'?�과 ?�유�? 가?�화 ??doc.passthrough ??voxelize ???� ?�체 반환.</summary>
+        /// <summary>'?듦낵 ?먯쑀留? 媛?쒗솕 ??doc.passthrough ??voxelize ??? ?꾩껜 諛섑솚.</summary>
         public PathCell[] CopyPassthrough()
         {
             int total = Native.r3d_copy_passthrough(H, null, 0);
@@ -328,7 +336,7 @@ namespace Routing3D.Viewer.Interop
             return cells;
         }
 
-        /// <summary>방문(?�장) ?� ?�집??켜고/?�기. 기본 ON. OFF �??�우????Visited 가 비어?�다.</summary>
+        /// <summary>諛⑸Ц(?뺤옣) ? ?섏쭛??耳쒓퀬/?꾧린. 湲곕낯 ON. OFF 硫??쇱슦????Visited 媛 鍮꾩뼱?덈떎.</summary>
         public void SetCollectVisited(bool on)
             => Check(Native.r3d_set_collect_visited(H, on ? 1 : 0), "set_collect_visited");
 
@@ -338,8 +346,8 @@ namespace Routing3D.Viewer.Interop
             return Native.TakeString(p);
         }
 
-        /// <summary>?�트�?리프 ?�드 배열 반환 (3D 가?�화??.
-        /// maxLeaves: ?�한(기본 1M). State: 0=FREE, 1=BLOCKED.</summary>
+        /// <summary>?ν듃由?由ы봽 ?몃뱶 諛곗뿴 諛섑솚 (3D 媛?쒗솕??.
+        /// maxLeaves: ?곹븳(湲곕낯 1M). State: 0=FREE, 1=BLOCKED.</summary>
         public OctreeLeaf[] EnumOctreeLeaves(int maxLeaves = 1_000_000)
         {
             if (maxLeaves <= 0) return Array.Empty<OctreeLeaf>();
@@ -367,7 +375,7 @@ namespace Routing3D.Viewer.Interop
 
         private static void Check(int status, string op)
         {
-            if (status != 0) throw new InvalidOperationException($"r3d_{op} ?�패 (status {status})");
+            if (status != 0) throw new InvalidOperationException($"r3d_{op} ?ㅽ뙣 (status {status})");
         }
 
         public void Dispose()

@@ -230,6 +230,12 @@ public sealed class Routing3DEngine : IDisposable
         return Native.TakeString(text);
     }
 
+    public string GetRuntimeReportJson()
+    {
+        Check(Native.r3d_get_runtime_report(Handle, out var json), "get_runtime_report");
+        return Native.TakeString(json);
+    }
+
     private RouteResult ToRouteResult(int task, Native.R3dResult result)
     {
         return new RouteResult

@@ -1,4 +1,4 @@
-﻿# WTNHJ02 CLEAN Exhaust 20개 배관 자동경로 6방식 비교 리포트
+# WTNHJ02 CLEAN Exhaust 20개 배관 자동경로 6방식 비교 리포트
 
 - 작성일시: 2026-06-20
 - 대상: DDW_AI_DB project 1 / WTNHJ02 / CLEAN 장비 주변 Exhaust 그룹 20개 배관
@@ -91,4 +91,3 @@ G route_multi +facilities+drop clearON(Implicit ?⑤뵒留⑤뱶): success 20/20
 ```text
 S6 실행은 9분 이상 지속되어 수동 종료. 출력 파일 미생성.
 ```
-

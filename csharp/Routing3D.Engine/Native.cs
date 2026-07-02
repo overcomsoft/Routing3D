@@ -54,6 +54,7 @@ internal static class Native
     }
     [DllImport(Dll, CallingConvention = Cdecl)] internal static extern IntPtr r3d_version();
     [DllImport(Dll, CallingConvention = Cdecl)] internal static extern void r3d_free_string(IntPtr s);
+    [DllImport(Dll, CallingConvention = Cdecl)] internal static extern int r3d_get_runtime_report(IntPtr e, out IntPtr outJson);
 
     [DllImport(Dll, CallingConvention = Cdecl)]
     internal static extern int r3d_route_scene_text(byte[] sceneUtf8, byte[] modeUtf8, byte[] priorityUtf8, out IntPtr outScene);
