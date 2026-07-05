@@ -1,0 +1,642 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/ijehte",
+    "id": "ijehte",
+    "slide": 32,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Cascadia Mono",
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5sneloj2",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/u54zidon",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nqxs72x4",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 32. 대형 공간 처리를 위한 10대 최적화 전략",
+      "textPreview": "Slide 32. 대형 공간 처리를 위한 10대 최적화 전략",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 32. 대형 공간 처리를 위한 10대 최적화 전략"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 32. 대형 공간 처리를 위한 10대 최적화 전략",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 32. 대형 공간 처리를 위한 10대 최적화 전략",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/czed8v6p",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  32/55",
+      "textPreview": "Routing3D C++ Engine API  |  32/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  32/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  32/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  32/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5kb6xkf6",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 32",
+      "textPreview": "Slide 32",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 32"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 32",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 32",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ytsvu9kn",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        228
+      ],
+      "geometry": "rect",
+      "fillColor": "#172033",
+      "lineColor": "#475569",
+      "lineWidth": 1
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/neloj2t8",
+      "id": "7",
+      "bbox": [
+        80,
+        140,
+        1120,
+        204
+      ],
+      "geometry": "rect",
+      "text": "| 번호 | 전략 명칭 | 핵심 동작 및 물리 구조 |\n|---|---|---|\n| 1 | OpenVDB | 복셀 볼륨을 계층 구조의 타일로 압축하여 대형 구조물 메모리 경감 |\n| 2 | Implicit Occupancy | 장애물을 복셀화하지 않고 Spatial AABB Index로 온디맨드 질의 |\n| 3 | Octree Occupancy | 빈 공간을 큰 잎으로 묶고 경계면만 분할해 도약 연산에 활용 |\n| 4 | Segment A* | JPS-3D-lite 기반의 직선 단위 도약 확장으로 탐색 수 극축 |\n| 5 | Octree-guided Fallback | 옥트리 탐색 경로를 가이드 삼아 Fine 격자 탐색을 국소 범위로 제한 |\n| 6 | TMT Route Split | 하나의 작업을 수직/수평 3구간으로 끊어 탐색 스케일 축소 |\n| 7 | Hashed A* | 대형 닫힌 셋(Closed Set)을 배열 대신 해시맵 구조로 교체 |\n| 8 | Hierarchical Corridor | 대략적인 Coarse 경로의 corridor 내부에서만 Fine 정밀 검증 |\n| 9 | HPA* Chunk-Portal | 격자를 Chunk로 쪼개고 포탈 그래프를 구성해 거시 가이드 선출 |\n| 10| Expansion Cap | 최대 확장 한도(R3D_MAX_EXP) 강제를 통해 시간 무한 루프 차단 |",
+      "textPreview": "| 번호 | 전략 명칭 | 핵심 동작 및 물리 구조 | | |---|---|---| | | 1 | OpenVDB | 복셀 볼륨을 계층 구조의 타일로 압축하여 대형 구조물 메모리 경감 | | | 2 | Implicit Occupancy | 장애물을...",
+      "resolvedFontSize": 10.51,
+      "resolvedTextStyle": {
+        "fontSize": 10.51,
+        "typeface": "Cascadia Mono",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 12,
+        "lines": [
+          {
+            "index": 1,
+            "text": "| 번호 | 전략 명칭 | 핵심 동작 및 물리 구조 |"
+          },
+          {
+            "index": 2,
+            "text": "|---|---|---|"
+          },
+          {
+            "index": 3,
+            "text": "| 1 | OpenVDB | 복셀 볼륨을 계층 구조의 타일로 압축하여 대형 구조물 메모리 경감 |"
+          },
+          {
+            "index": 4,
+            "text": "| 2 | Implicit Occupancy | 장애물을 복셀화하지 않고 Spatial AABB Index로 온디맨드 질의 |"
+          },
+          {
+            "index": 5,
+            "text": "| 3 | Octree Occupancy | 빈 공간을 큰 잎으로 묶고 경계면만 분할해 도약 연산에 활용 |"
+          },
+          {
+            "index": 6,
+            "text": "| 4 | Segment A* | JPS-3D-lite 기반의 직선 단위 도약 확장으로 탐색 수 극축 |"
+          },
+          {
+            "index": 7,
+            "text": "| 5 | Octree-guided Fallback | 옥트리 탐색 경로를 가이드 삼아 Fine 격자 탐색을 국소 범위로 제한 |"
+          },
+          {
+            "index": 8,
+            "text": "| 6 | TMT Route Split | 하나의 작업을 수직/수평 3구간으로 끊어 탐색 스케일 축소 |"
+          },
+          {
+            "index": 9,
+            "text": "| 7 | Hashed A* | 대형 닫힌 셋(Closed Set)을 배열 대신 해시맵 구조로 교체 |"
+          },
+          {
+            "index": 10,
+            "text": "| 8 | Hierarchical Corridor | 대략적인 Coarse 경로의 corridor 내부에서만 Fine 정밀 검증 |"
+          },
+          {
+            "index": 11,
+            "text": "| 9 | HPA* Chunk-Portal | 격자를 Chunk로 쪼개고 포탈 그래프를 구성해 거시 가이드 선출 |"
+          },
+          {
+            "index": 12,
+            "text": "| 10| Expansion Cap | 최대 확장 한도(R3D_MAX_EXP) 강제를 통해 시간 무한 루프 차단 |"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "| 번호 | 전략 명칭 | 핵심 동작 및 물리 구조 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 번호 | 전략 명칭 | 핵심 동작 및 물리 구조 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "|---|---|---|",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "|---|---|---|",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "| 1 | OpenVDB | 복셀 볼륨을 계층 구조의 타일로 압축하여 대형 구조물 메모리 경감 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 1 | OpenVDB | 복셀 볼륨을 계층 구조의 타일로 압축하여 대형 구조물 메모리 경감 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "| 2 | Implicit Occupancy | 장애물을 복셀화하지 않고 Spatial AABB Index로 온디맨드 질의 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 2 | Implicit Occupancy | 장애물을 복셀화하지 않고 Spatial AABB Index로 온디맨드 질의 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "| 3 | Octree Occupancy | 빈 공간을 큰 잎으로 묶고 경계면만 분할해 도약 연산에 활용 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 3 | Octree Occupancy | 빈 공간을 큰 잎으로 묶고 경계면만 분할해 도약 연산에 활용 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "| 4 | Segment A* | JPS-3D-lite 기반의 직선 단위 도약 확장으로 탐색 수 극축 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 4 | Segment A* | JPS-3D-lite 기반의 직선 단위 도약 확장으로 탐색 수 극축 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "| 5 | Octree-guided Fallback | 옥트리 탐색 경로를 가이드 삼아 Fine 격자 탐색을 국소 범위로 제한 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 5 | Octree-guided Fallback | 옥트리 탐색 경로를 가이드 삼아 Fine 격자 탐색을 국소 범위로 제한 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 8,
+          "text": "| 6 | TMT Route Split | 하나의 작업을 수직/수평 3구간으로 끊어 탐색 스케일 축소 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 6 | TMT Route Split | 하나의 작업을 수직/수평 3구간으로 끊어 탐색 스케일 축소 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 9,
+          "text": "| 7 | Hashed A* | 대형 닫힌 셋(Closed Set)을 배열 대신 해시맵 구조로 교체 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 7 | Hashed A* | 대형 닫힌 셋(Closed Set)을 배열 대신 해시맵 구조로 교체 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 10,
+          "text": "| 8 | Hierarchical Corridor | 대략적인 Coarse 경로의 corridor 내부에서만 Fine 정밀 검증 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 8 | Hierarchical Corridor | 대략적인 Coarse 경로의 corridor 내부에서만 Fine 정밀 검증 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 11,
+          "text": "| 9 | HPA* Chunk-Portal | 격자를 Chunk로 쪼개고 포탈 그래프를 구성해 거시 가이드 선출 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 9 | HPA* Chunk-Portal | 격자를 Chunk로 쪼개고 포탈 그래프를 구성해 거시 가이드 선출 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 12,
+          "text": "| 10| Expansion Cap | 최대 확장 한도(R3D_MAX_EXP) 강제를 통해 시간 무한 루프 차단 |",
+          "resolvedTextStyle": {
+            "fontSize": 10.51,
+            "typeface": "Cascadia Mono",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "| 10| Expansion Cap | 최대 확장 한도(R3D_MAX_EXP) 강제를 통해 시간 무한 루프 차단 |",
+              "fontSize": 10.51,
+              "typeface": "Cascadia Mono",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

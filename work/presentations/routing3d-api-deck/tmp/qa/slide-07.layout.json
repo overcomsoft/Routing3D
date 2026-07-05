@@ -1,0 +1,499 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/wpu0r1",
+    "id": "wpu0r1",
+    "slide": 7,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/fmlkjm1c",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/87ed8bat",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/xs72x4na",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 7. 2단계: 점유맵 생성 및 Voxelization",
+      "textPreview": "Slide 7. 2단계: 점유맵 생성 및 Voxelization",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 7. 2단계: 점유맵 생성 및 Voxelization"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 7. 2단계: 점유맵 생성 및 Voxelization",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 7. 2단계: 점유맵 생성 및 Voxelization",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/qtcj6tov",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  7/55",
+      "textPreview": "Routing3D C++ Engine API  |  7/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  7/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  7/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  7/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/je9cvixc",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 7",
+      "textPreview": "Slide 7",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 7"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 7",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 7",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/8z25kb6x",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        192
+      ],
+      "geometry": "rect",
+      "text": "* 정적 장애물 Voxelization\n  - 입력된 AABB를 격자 스케일로 스냅하여 내부 셀 범위(CellRange) 계산\n  - grid_box_range() 함수를 거쳐 정수 격자 인덱스로 매핑\n* 백엔드 선정 규칙\n  - OpenVDB 빌드가 활성화되어 있다면 대형 격자 시 VdbOccupancy 사용\n  - OpenVDB 비활성 상태에서 전체 셀이 500만 개 초과 시 ImplicitOccupancy 사용\n  - 그 외의 일반 영역에서는 고속 처리를 위해 DenseOccupancy 선택",
+      "textPreview": "* 정적 장애물 Voxelization |   - 입력된 AABB를 격자 스케일로 스냅하여 내부 셀 범위(CellRange) 계산 |   - grid_box_range() 함수를 거쳐 정수 격자 인덱스로 매핑 | * 백엔드 선정 규칙 |   - ...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 7,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 정적 장애물 Voxelization"
+          },
+          {
+            "index": 2,
+            "text": "  - 입력된 AABB를 격자 스케일로 스냅하여 내부 셀 범위(CellRange) 계산"
+          },
+          {
+            "index": 3,
+            "text": "  - grid_box_range() 함수를 거쳐 정수 격자 인덱스로 매핑"
+          },
+          {
+            "index": 4,
+            "text": "* 백엔드 선정 규칙"
+          },
+          {
+            "index": 5,
+            "text": "  - OpenVDB 빌드가 활성화되어 있다면 대형 격자 시 VdbOccupancy 사용"
+          },
+          {
+            "index": 6,
+            "text": "  - OpenVDB 비활성 상태에서 전체 셀이 500만 개 초과 시 ImplicitOccupancy 사용"
+          },
+          {
+            "index": 7,
+            "text": "  - 그 외의 일반 영역에서는 고속 처리를 위해 DenseOccupancy 선택"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 정적 장애물 Voxelization",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 정적 장애물 Voxelization",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 입력된 AABB를 격자 스케일로 스냅하여 내부 셀 범위(CellRange) 계산",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 입력된 AABB를 격자 스케일로 스냅하여 내부 셀 범위(CellRange) 계산",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "  - grid_box_range() 함수를 거쳐 정수 격자 인덱스로 매핑",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - grid_box_range() 함수를 거쳐 정수 격자 인덱스로 매핑",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "* 백엔드 선정 규칙",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 백엔드 선정 규칙",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "  - OpenVDB 빌드가 활성화되어 있다면 대형 격자 시 VdbOccupancy 사용",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - OpenVDB 빌드가 활성화되어 있다면 대형 격자 시 VdbOccupancy 사용",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "  - OpenVDB 비활성 상태에서 전체 셀이 500만 개 초과 시 ImplicitOccupancy 사용",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - OpenVDB 비활성 상태에서 전체 셀이 500만 개 초과 시 ImplicitOccupancy 사용",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "  - 그 외의 일반 영역에서는 고속 처리를 위해 DenseOccupancy 선택",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 그 외의 일반 영역에서는 고속 처리를 위해 DenseOccupancy 선택",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

@@ -1,0 +1,691 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/e7lx74",
+    "id": "e7lx74",
+    "slide": 26,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Cascadia Mono",
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/neloj2t8",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/czed8v6p",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5kb6xkf6",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 26. Anytime A* 개선 루프",
+      "textPreview": "Slide 26. Anytime A* 개선 루프",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 26. Anytime A* 개선 루프"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 26. Anytime A* 개선 루프",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 26. Anytime A* 개선 루프",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/u54zidon",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  26/55",
+      "textPreview": "Routing3D C++ Engine API  |  26/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  26/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  26/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  26/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nqxs72x4",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 26",
+      "textPreview": "Slide 26",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 26"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 26",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 26",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cbulwval",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        62
+      ],
+      "geometry": "rect",
+      "text": "* ARA* 단순화 모델 기법\n  - 고정된 시간 내에서 Incumbent(현재까지의 최선의 성공 경로)를 개선하는 래퍼",
+      "textPreview": "* ARA* 단순화 모델 기법 |   - 고정된 시간 내에서 Incumbent(현재까지의 최선의 성공 경로)를 개선하는 래퍼",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* ARA* 단순화 모델 기법"
+          },
+          {
+            "index": 2,
+            "text": "  - 고정된 시간 내에서 Incumbent(현재까지의 최선의 성공 경로)를 개선하는 래퍼"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* ARA* 단순화 모델 기법",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* ARA* 단순화 모델 기법",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 고정된 시간 내에서 Incumbent(현재까지의 최선의 성공 경로)를 개선하는 래퍼",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 고정된 시간 내에서 Incumbent(현재까지의 최선의 성공 경로)를 개선하는 래퍼",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5sneloj2",
+      "id": "7",
+      "bbox": [
+        62,
+        200,
+        1156,
+        140
+      ],
+      "geometry": "rect",
+      "fillColor": "#1E293B",
+      "lineColor": "#475569",
+      "lineWidth": 1
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/y90je9cv",
+      "id": "8",
+      "bbox": [
+        80,
+        214,
+        1120,
+        116
+      ],
+      "geometry": "rect",
+      "text": "[시작: 가중치 3.0] -> [1차 탐색: Incumbent 등록]\n                           |\n[가중치 2.0으로 탐색] <- [INCUMBENT 비교: 비용 단축 여부 검증]\n                           |\n[종료: 시간 Budget 도달] -> [incumbent 반환]",
+      "textPreview": "[시작: 가중치 3.0] -> [1차 탐색: Incumbent 등록] |                            | | [가중치 2.0으로 탐색] <- [INCUMBENT 비교: 비용 단축 여부 검증] |                  ...",
+      "resolvedFontSize": 16,
+      "resolvedTextStyle": {
+        "fontSize": 16,
+        "typeface": "Cascadia Mono",
+        "color": "#FBCFE8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 5,
+        "lines": [
+          {
+            "index": 1,
+            "text": "[시작: 가중치 3.0] -> [1차 탐색: Incumbent 등록]"
+          },
+          {
+            "index": 2,
+            "text": "                           |"
+          },
+          {
+            "index": 3,
+            "text": "[가중치 2.0으로 탐색] <- [INCUMBENT 비교: 비용 단축 여부 검증]"
+          },
+          {
+            "index": 4,
+            "text": "                           |"
+          },
+          {
+            "index": 5,
+            "text": "[종료: 시간 Budget 도달] -> [incumbent 반환]"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "[시작: 가중치 3.0] -> [1차 탐색: Incumbent 등록]",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "[시작: 가중치 3.0] -> [1차 탐색: Incumbent 등록]",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "                           |",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "                           |",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "[가중치 2.0으로 탐색] <- [INCUMBENT 비교: 비용 단축 여부 검증]",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "[가중치 2.0으로 탐색] <- [INCUMBENT 비교: 비용 단축 여부 검증]",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "                           |",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "                           |",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "[종료: 시간 Budget 도달] -> [incumbent 반환]",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "[종료: 시간 Budget 도달] -> [incumbent 반환]",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nuxc3ylc",
+      "id": "9",
+      "bbox": [
+        62,
+        352,
+        1156,
+        114
+      ],
+      "geometry": "rect",
+      "text": "1. 최초에는 큰 가중치(예: 3.0)로 빠른 경로 탐색 성공\n2. 가중치 스텝(예: 0.5)을 깎아가며 반복 탐색 시도\n3. 신규 경로 비용이 기존 최선 해보다 적으면 대체\n4. 시간 제한(time_budget_ms) 경과 시 즉시 탐색 중단 및 incumbent 반환",
+      "textPreview": "1. 최초에는 큰 가중치(예: 3.0)로 빠른 경로 탐색 성공 | 2. 가중치 스텝(예: 0.5)을 깎아가며 반복 탐색 시도 | 3. 신규 경로 비용이 기존 최선 해보다 적으면 대체 | 4. 시간 제한(time_budget_ms) 경과 시 즉시 ...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 4,
+        "lines": [
+          {
+            "index": 1,
+            "text": "1. 최초에는 큰 가중치(예: 3.0)로 빠른 경로 탐색 성공"
+          },
+          {
+            "index": 2,
+            "text": "2. 가중치 스텝(예: 0.5)을 깎아가며 반복 탐색 시도"
+          },
+          {
+            "index": 3,
+            "text": "3. 신규 경로 비용이 기존 최선 해보다 적으면 대체"
+          },
+          {
+            "index": 4,
+            "text": "4. 시간 제한(time_budget_ms) 경과 시 즉시 탐색 중단 및 incumbent 반환"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "1. 최초에는 큰 가중치(예: 3.0)로 빠른 경로 탐색 성공",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "1. 최초에는 큰 가중치(예: 3.0)로 빠른 경로 탐색 성공",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "2. 가중치 스텝(예: 0.5)을 깎아가며 반복 탐색 시도",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "2. 가중치 스텝(예: 0.5)을 깎아가며 반복 탐색 시도",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "3. 신규 경로 비용이 기존 최선 해보다 적으면 대체",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "3. 신규 경로 비용이 기존 최선 해보다 적으면 대체",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "4. 시간 제한(time_budget_ms) 경과 시 즉시 탐색 중단 및 incumbent 반환",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "4. 시간 제한(time_budget_ms) 경과 시 즉시 탐색 중단 및 incumbent 반환",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

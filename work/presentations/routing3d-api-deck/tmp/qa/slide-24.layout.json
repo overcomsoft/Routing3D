@@ -1,0 +1,499 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/ud0ydu",
+    "id": "ud0ydu",
+    "slide": 24,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/xs72x4na",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/q1orytsv",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/fmlkjm1c",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 24. A* 및 Weighted A* 알고리즘",
+      "textPreview": "Slide 24. A* 및 Weighted A* 알고리즘",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 24. A* 및 Weighted A* 알고리즘"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 24. A* 및 Weighted A* 알고리즘",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 24. A* 및 Weighted A* 알고리즘",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/8z25kb6x",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  24/55",
+      "textPreview": "Routing3D C++ Engine API  |  24/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  24/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  24/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  24/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1gvy90je",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 24",
+      "textPreview": "Slide 24",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 24"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 24",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 24",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/qtcj6tov",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        192
+      ],
+      "geometry": "rect",
+      "text": "* A* 비용 모델\n  f(n) = g(n) + h(n)\n  - $g(n)$: 시작 노드로부터의 누적 경로 비용\n  - $h(n)$: 목표 지점까지의 맨해튼 거리 기반 휴리스틱\n* Weighted A* 확장\n  f(n) = g(n) + w_heur \\times h(n)\n  - $w_heur > 1.0$ 가중치를 적용하여, 약간의 차선 경로를 허용하는 대신 상태 노드 탐색량을 극적으로 감소시킴",
+      "textPreview": "* A* 비용 모델 |   f(n) = g(n) + h(n) |   - $g(n)$: 시작 노드로부터의 누적 경로 비용 |   - $h(n)$: 목표 지점까지의 맨해튼 거리 기반 휴리스틱 | * Weighted A* 확장 |   f(n) = g(...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 7,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* A* 비용 모델"
+          },
+          {
+            "index": 2,
+            "text": "  f(n) = g(n) + h(n)"
+          },
+          {
+            "index": 3,
+            "text": "  - $g(n)$: 시작 노드로부터의 누적 경로 비용"
+          },
+          {
+            "index": 4,
+            "text": "  - $h(n)$: 목표 지점까지의 맨해튼 거리 기반 휴리스틱"
+          },
+          {
+            "index": 5,
+            "text": "* Weighted A* 확장"
+          },
+          {
+            "index": 6,
+            "text": "  f(n) = g(n) + w_heur \\times h(n)"
+          },
+          {
+            "index": 7,
+            "text": "  - $w_heur > 1.0$ 가중치를 적용하여, 약간의 차선 경로를 허용하는 대신 상태 노드 탐색량을 극적으로 감소시킴"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* A* 비용 모델",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* A* 비용 모델",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  f(n) = g(n) + h(n)",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  f(n) = g(n) + h(n)",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "  - $g(n)$: 시작 노드로부터의 누적 경로 비용",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $g(n)$: 시작 노드로부터의 누적 경로 비용",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "  - $h(n)$: 목표 지점까지의 맨해튼 거리 기반 휴리스틱",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $h(n)$: 목표 지점까지의 맨해튼 거리 기반 휴리스틱",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "* Weighted A* 확장",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* Weighted A* 확장",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "  f(n) = g(n) + w_heur \\times h(n)",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  f(n) = g(n) + w_heur \\times h(n)",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "  - $w_heur > 1.0$ 가중치를 적용하여, 약간의 차선 경로를 허용하는 대신 상태 노드 탐색량을 극적으로 감소시킴",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $w_heur > 1.0$ 가중치를 적용하여, 약간의 차선 경로를 허용하는 대신 상태 노드 탐색량을 극적으로 감소시킴",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

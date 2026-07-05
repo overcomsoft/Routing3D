@@ -1,0 +1,524 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/zvnakv",
+    "id": "zvnakv",
+    "slide": 3,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6hcrmhk3",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/d8v6psfi",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/onyd0z61",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 3. Routing3D C++ 코어 엔진 개요",
+      "textPreview": "Slide 3. Routing3D C++ 코어 엔진 개요",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 3. Routing3D C++ 코어 엔진 개요"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 3. Routing3D C++ 코어 엔진 개요",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 3. Routing3D C++ 코어 엔진 개요",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/vahoza1g",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  3/55",
+      "textPreview": "Routing3D C++ Engine API  |  3/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  3/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  3/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  3/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6tovahoz",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 3",
+      "textPreview": "Slide 3",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 3"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 3",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 3",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/dg7adsji",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        218
+      ],
+      "geometry": "rect",
+      "text": "* 3D 격자 공간 이산화\n  - 물리 공간을 정육면체 격자(Cell) 단위로 나누어 표현\n  - 모든 수치 단위는 mm를 기본 규격으로 사용\n* 6방향 직교(Orthogonal) 경로 탐색\n  - 상/하/좌/우/앞/뒤(6-neighbor) 이동만 허용하는 배관 설계 제약 반영\n* 하이브리드 공간 설계\n  - 장애물 및 기배치 배관의 점유 상태를 다중 백엔드 맵에서 처리\n  - C ABI를Facade로 제공하여 C# WPF Viewer 및 Python 등 이종 환경 연동",
+      "textPreview": "* 3D 격자 공간 이산화 |   - 물리 공간을 정육면체 격자(Cell) 단위로 나누어 표현 |   - 모든 수치 단위는 mm를 기본 규격으로 사용 | * 6방향 직교(Orthogonal) 경로 탐색 |   - 상/하/좌/우/앞/뒤(6-neig...",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 8,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 3D 격자 공간 이산화"
+          },
+          {
+            "index": 2,
+            "text": "  - 물리 공간을 정육면체 격자(Cell) 단위로 나누어 표현"
+          },
+          {
+            "index": 3,
+            "text": "  - 모든 수치 단위는 mm를 기본 규격으로 사용"
+          },
+          {
+            "index": 4,
+            "text": "* 6방향 직교(Orthogonal) 경로 탐색"
+          },
+          {
+            "index": 5,
+            "text": "  - 상/하/좌/우/앞/뒤(6-neighbor) 이동만 허용하는 배관 설계 제약 반영"
+          },
+          {
+            "index": 6,
+            "text": "* 하이브리드 공간 설계"
+          },
+          {
+            "index": 7,
+            "text": "  - 장애물 및 기배치 배관의 점유 상태를 다중 백엔드 맵에서 처리"
+          },
+          {
+            "index": 8,
+            "text": "  - C ABI를Facade로 제공하여 C# WPF Viewer 및 Python 등 이종 환경 연동"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 3D 격자 공간 이산화",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 3D 격자 공간 이산화",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 물리 공간을 정육면체 격자(Cell) 단위로 나누어 표현",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 물리 공간을 정육면체 격자(Cell) 단위로 나누어 표현",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "  - 모든 수치 단위는 mm를 기본 규격으로 사용",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 모든 수치 단위는 mm를 기본 규격으로 사용",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "* 6방향 직교(Orthogonal) 경로 탐색",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 6방향 직교(Orthogonal) 경로 탐색",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "  - 상/하/좌/우/앞/뒤(6-neighbor) 이동만 허용하는 배관 설계 제약 반영",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 상/하/좌/우/앞/뒤(6-neighbor) 이동만 허용하는 배관 설계 제약 반영",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "* 하이브리드 공간 설계",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 하이브리드 공간 설계",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "  - 장애물 및 기배치 배관의 점유 상태를 다중 백엔드 맵에서 처리",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 장애물 및 기배치 배관의 점유 상태를 다중 백엔드 맵에서 처리",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 8,
+          "text": "  - C ABI를Facade로 제공하여 C# WPF Viewer 및 Python 등 이종 환경 연동",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - C ABI를Facade로 제공하여 C# WPF Viewer 및 Python 등 이종 환경 연동",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

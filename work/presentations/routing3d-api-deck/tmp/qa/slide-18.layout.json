@@ -1,0 +1,474 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/3018za",
+    "id": "3018za",
+    "slide": 18,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nap4r65w",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cvixczed",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5gbq1ory",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 18. ImplicitOccupancy 백엔드",
+      "textPreview": "Slide 18. ImplicitOccupancy 백엔드",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 18. ImplicitOccupancy 백엔드"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 18. ImplicitOccupancy 백엔드",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 18. ImplicitOccupancy 백엔드",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/udg7adsj",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  18/55",
+      "textPreview": "Routing3D C++ Engine API  |  18/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  18/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  18/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  18/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nyd0z610",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 18",
+      "textPreview": "Slide 18",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 18"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 18",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 18",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cj6tovah",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        148
+      ],
+      "geometry": "rect",
+      "text": "* 동작 원리\n  - 정적 장애물 AABB 리스트를 복셀 격자화(Voxelization)하지 않고 그대로 유지\n  - 라우팅으로 마킹되는 동적 배관 정보만 해시셋(marked_)에 보관\n* 질의 수행 방식\n  - 특정 셀 Cell(i, j, k) 조회 시, SpatialBoxIndex 트리에서 해당 영역과 교차하는 장애물 AABB가 있는지 검사\n* 특징: 수억 격자 이상의 대형 공간에서 공간 데이터 실체화 없이 장애물 정보를 조회하여 메모리 오버헤드가 극소화됨",
+      "textPreview": "* 동작 원리 |   - 정적 장애물 AABB 리스트를 복셀 격자화(Voxelization)하지 않고 그대로 유지 |   - 라우팅으로 마킹되는 동적 배관 정보만 해시셋(marked_)에 보관 | * 질의 수행 방식 |   - 특정 셀 Cell(...",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "fontSize": 15,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 6,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 동작 원리"
+          },
+          {
+            "index": 2,
+            "text": "  - 정적 장애물 AABB 리스트를 복셀 격자화(Voxelization)하지 않고 그대로 유지"
+          },
+          {
+            "index": 3,
+            "text": "  - 라우팅으로 마킹되는 동적 배관 정보만 해시셋(marked_)에 보관"
+          },
+          {
+            "index": 4,
+            "text": "* 질의 수행 방식"
+          },
+          {
+            "index": 5,
+            "text": "  - 특정 셀 Cell(i, j, k) 조회 시, SpatialBoxIndex 트리에서 해당 영역과 교차하는 장애물 AABB가 있는지 검사"
+          },
+          {
+            "index": 6,
+            "text": "* 특징: 수억 격자 이상의 대형 공간에서 공간 데이터 실체화 없이 장애물 정보를 조회하여 메모리 오버헤드가 극소화됨"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 동작 원리",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 동작 원리",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 정적 장애물 AABB 리스트를 복셀 격자화(Voxelization)하지 않고 그대로 유지",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 정적 장애물 AABB 리스트를 복셀 격자화(Voxelization)하지 않고 그대로 유지",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "  - 라우팅으로 마킹되는 동적 배관 정보만 해시셋(marked_)에 보관",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 라우팅으로 마킹되는 동적 배관 정보만 해시셋(marked_)에 보관",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "* 질의 수행 방식",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 질의 수행 방식",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "  - 특정 셀 Cell(i, j, k) 조회 시, SpatialBoxIndex 트리에서 해당 영역과 교차하는 장애물 AABB가 있는지 검사",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 특정 셀 Cell(i, j, k) 조회 시, SpatialBoxIndex 트리에서 해당 영역과 교차하는 장애물 AABB가 있는지 검사",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "* 특징: 수억 격자 이상의 대형 공간에서 공간 데이터 실체화 없이 장애물 정보를 조회하여 메모리 오버헤드가 극소화됨",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 특징: 수억 격자 이상의 대형 공간에서 공간 데이터 실체화 없이 장애물 정보를 조회하여 메모리 오버헤드가 극소화됨",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

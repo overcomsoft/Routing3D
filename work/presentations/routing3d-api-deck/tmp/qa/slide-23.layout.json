@@ -1,0 +1,666 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/pb82y6",
+    "id": "pb82y6",
+    "slide": 23,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Cascadia Mono",
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/7qpg3ex0",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0bi9s36h",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/pwb2hwfy",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 23. AABB Voxelization 변환 알고리즘",
+      "textPreview": "Slide 23. AABB Voxelization 변환 알고리즘",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 23. AABB Voxelization 변환 알고리즘"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 23. AABB Voxelization 변환 알고리즘",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 23. AABB Voxelization 변환 알고리즘",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ed8v6psf",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  23/55",
+      "textPreview": "Routing3D C++ Engine API  |  23/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  23/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  23/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  23/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/7y1kre1w",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 23",
+      "textPreview": "Slide 23",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 23"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 23",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 23",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/wjudg7ad",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        62
+      ],
+      "geometry": "rect",
+      "text": "* 기하학적 투영 규칙\n  - 실수 영역의 AABB 범위를 격자 범위 [lo, hi] 정수로 포함 변환",
+      "textPreview": "* 기하학적 투영 규칙 |   - 실수 영역의 AABB 범위를 격자 범위 [lo, hi] 정수로 포함 변환",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 기하학적 투영 규칙"
+          },
+          {
+            "index": 2,
+            "text": "  - 실수 영역의 AABB 범위를 격자 범위 [lo, hi] 정수로 포함 변환"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 기하학적 투영 규칙",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 기하학적 투영 규칙",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 실수 영역의 AABB 범위를 격자 범위 [lo, hi] 정수로 포함 변환",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 실수 영역의 AABB 범위를 격자 범위 [lo, hi] 정수로 포함 변환",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/p4r65wju",
+      "id": "7",
+      "bbox": [
+        62,
+        200,
+        1156,
+        162
+      ],
+      "geometry": "rect",
+      "fillColor": "#1E293B",
+      "lineColor": "#475569",
+      "lineWidth": 1
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ih4byhgn",
+      "id": "8",
+      "bbox": [
+        80,
+        214,
+        1120,
+        138
+      ],
+      "geometry": "rect",
+      "text": "Cell lo = grid_world_to_cell(box.min_xyz, origin, cell_mm);\nCell hi = grid_world_to_cell(box.max_xyz, origin, cell_mm);\n// 경계 포함 보정\nCellRange range;\nrange.lo = lo;\nrange.hi = Cell{hi.i + 1, hi.j + 1, hi.k + 1};",
+      "textPreview": "Cell lo = grid_world_to_cell(box.min_xyz, origin, cell_mm); | Cell hi = grid_world_to_cell(box.max_xyz, origin, cell_mm); | // 경계 포함 보정 |...",
+      "resolvedFontSize": 16,
+      "resolvedTextStyle": {
+        "fontSize": 16,
+        "typeface": "Cascadia Mono",
+        "color": "#FBCFE8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 6,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Cell lo = grid_world_to_cell(box.min_xyz, origin, cell_mm);"
+          },
+          {
+            "index": 2,
+            "text": "Cell hi = grid_world_to_cell(box.max_xyz, origin, cell_mm);"
+          },
+          {
+            "index": 3,
+            "text": "// 경계 포함 보정"
+          },
+          {
+            "index": 4,
+            "text": "CellRange range;"
+          },
+          {
+            "index": 5,
+            "text": "range.lo = lo;"
+          },
+          {
+            "index": 6,
+            "text": "range.hi = Cell{hi.i + 1, hi.j + 1, hi.k + 1};"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Cell lo = grid_world_to_cell(box.min_xyz, origin, cell_mm);",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Cell lo = grid_world_to_cell(box.min_xyz, origin, cell_mm);",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "Cell hi = grid_world_to_cell(box.max_xyz, origin, cell_mm);",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Cell hi = grid_world_to_cell(box.max_xyz, origin, cell_mm);",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "// 경계 포함 보정",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "// 경계 포함 보정",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "CellRange range;",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "CellRange range;",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "range.lo = lo;",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "range.lo = lo;",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "range.hi = Cell{hi.i + 1, hi.j + 1, hi.k + 1};",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "range.hi = Cell{hi.i + 1, hi.j + 1, hi.k + 1};",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/72x4nap4",
+      "id": "9",
+      "bbox": [
+        62,
+        374,
+        1156,
+        62
+      ],
+      "geometry": "rect",
+      "text": "* Clamp 처리\n  - 격자 바깥 영역으로 산출된 범위는 [0, shape) 내부 영역으로 한계 조정",
+      "textPreview": "* Clamp 처리 |   - 격자 바깥 영역으로 산출된 범위는 [0, shape) 내부 영역으로 한계 조정",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* Clamp 처리"
+          },
+          {
+            "index": 2,
+            "text": "  - 격자 바깥 영역으로 산출된 범위는 [0, shape) 내부 영역으로 한계 조정"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* Clamp 처리",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* Clamp 처리",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 격자 바깥 영역으로 산출된 범위는 [0, shape) 내부 영역으로 한계 조정",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 격자 바깥 영역으로 산출된 범위는 [0, shape) 내부 영역으로 한계 조정",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

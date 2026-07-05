@@ -13,6 +13,8 @@
 #define ROUTING3D_CAPI_EXPORTS
 #endif
 #include "routing3d_capi.h"
+#include "routing3d/rubber_band_engine.hpp"
+
 
 #include <algorithm>
 #include <cmath>
@@ -2680,3 +2682,169 @@ extern "C" R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
         return R3D_ERR_RUNTIME;
     }
 }
+
+// =============================================================================
+// Rubber-Band Routing C-API Implementation
+// =============================================================================
+struct R3dRubberBandEngine {
+    routing3d::DataDrivenRubberBandEngine core;
+    std::vector<std::vector<routing3d::Point3D>> final_paths;
+};
+
+extern "C" {
+
+R3D_API R3dRubberBandEngine* r3d_rubber_create(void) {
+    try {
+        return new R3dRubberBandEngine();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+R3D_API void r3d_rubber_destroy(R3dRubberBandEngine* engine) {
+    delete engine;
+}
+
+R3D_API R3dStatus r3d_rubber_initialize(R3dRubberBandEngine* engine, 
+                                        const R3dRubberConfig* cfg,
+                                        const double* freq_z_levels, int32_t freq_z_count,
+                                        const R3dAABB* freq_bend_zones, int32_t freq_bend_count) {
+    if (!engine || !cfg) return R3D_ERR_ARG;
+    try {
+        routing3d::RoutingConfig c;
+        c.max_vertical_bends = cfg->max_vertical_bends;
+        c.safety_margin = cfg->safety_margin;
+        c.tray_width = cfg->tray_width;
+        c.tray_height = cfg->tray_height;
+        c.pipe_pitch = cfg->pipe_pitch;
+        c.pipe_count = cfg->pipe_count;
+
+        routing3d::DesignFeaturePoints f;
+        if (freq_z_levels && freq_z_count > 0) {
+            f.frequent_z_levels.assign(freq_z_levels, freq_z_levels + freq_z_count);
+        }
+        if (freq_bend_zones && freq_bend_count > 0) {
+            for (int32_t i = 0; i < freq_bend_count; ++i) {
+                const auto& b = freq_bend_zones[i];
+                f.frequent_bend_zones.push_back(routing3d::AABB(
+                    routing3d::Vec3{b.min_x, b.min_y, b.min_z},
+                    routing3d::Vec3{b.max_x, b.max_y, b.max_z}
+                ));
+            }
+        }
+        engine->core.Initialize(c, f);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+R3D_API R3dStatus r3d_rubber_ingest_obstacles(R3dRubberBandEngine* engine,
+                                              const R3dAABB* obstacles, int32_t count) {
+    if (!engine) return R3D_ERR_ARG;
+    try {
+        std::vector<routing3d::AABB> obs;
+        if (obstacles && count > 0) {
+            for (int32_t i = 0; i < count; ++i) {
+                const auto& b = obstacles[i];
+                obs.push_back(routing3d::AABB(
+                    routing3d::Vec3{b.min_x, b.min_y, b.min_z},
+                    routing3d::Vec3{b.max_x, b.max_y, b.max_z}
+                ));
+            }
+        }
+        engine->core.IngestObstacles(obs);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+R3D_API R3dStatus r3d_rubber_execute(R3dRubberBandEngine* engine,
+                                     R3dPoint3D start, R3dPoint3D end) {
+    if (!engine) return R3D_ERR_ARG;
+    try {
+        routing3d::Point3D s{start.x, start.y, start.z};
+        routing3d::Point3D e{end.x, end.y, end.z};
+        engine->final_paths = engine->core.ExecuteGroupRouting(s, e);
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+R3D_API int32_t r3d_rubber_get_step_count(const R3dRubberBandEngine* engine) {
+    if (!engine) return 0;
+    return static_cast<int32_t>(engine->core.GetStepCount());
+}
+
+R3D_API R3dStatus r3d_rubber_get_step_details(const R3dRubberBandEngine* engine, int32_t step_index,
+                                              char* out_desc, int32_t max_desc_len,
+                                              R3dPoint3D* out_wps, int32_t max_wps, int32_t* out_wps_count,
+                                              R3dPoint3D* out_cols, int32_t max_cols, int32_t* out_cols_count) {
+    if (!engine) return R3D_ERR_ARG;
+    if (step_index < 0 || step_index >= static_cast<int32_t>(engine->core.GetStepCount())) {
+        return R3D_ERR_ARG;
+    }
+    try {
+        const auto& step = engine->core.GetStep(step_index);
+        
+        // Copy description
+        if (out_desc && max_desc_len > 0) {
+            strncpy_s(out_desc, max_desc_len, step.step_description.c_str(), _TRUNCATE);
+        }
+
+        // Copy waypoints
+        int32_t wp_cnt = 0;
+        if (out_wps && max_wps > 0) {
+            wp_cnt = std::min(max_wps, static_cast<int32_t>(step.rubber_band_wps.size()));
+            for (int32_t i = 0; i < wp_cnt; ++i) {
+                out_wps[i].x = step.rubber_band_wps[i].x;
+                out_wps[i].y = step.rubber_band_wps[i].y;
+                out_wps[i].z = step.rubber_band_wps[i].z;
+            }
+        }
+        if (out_wps_count) {
+            *out_wps_count = static_cast<int32_t>(step.rubber_band_wps.size());
+        }
+
+        // Copy collision points
+        int32_t col_cnt = 0;
+        if (out_cols && max_cols > 0) {
+            col_cnt = std::min(max_cols, static_cast<int32_t>(step.collision_points.size()));
+            for (int32_t i = 0; i < col_cnt; ++i) {
+                out_cols[i].x = step.collision_points[i].x;
+                out_cols[i].y = step.collision_points[i].y;
+                out_cols[i].z = step.collision_points[i].z;
+            }
+        }
+        if (out_cols_count) {
+            *out_cols_count = static_cast<int32_t>(step.collision_points.size());
+        }
+
+        return R3D_OK;
+    } catch (...) {
+        return R3D_ERR_RUNTIME;
+    }
+}
+
+R3D_API int32_t r3d_rubber_get_pipe_path(const R3dRubberBandEngine* engine, int32_t pipe_index,
+                                         R3dPoint3D* out_points, int32_t max_points) {
+    if (!engine || pipe_index < 0 || pipe_index >= static_cast<int32_t>(engine->final_paths.size())) {
+        return 0;
+    }
+    const auto& path = engine->final_paths[pipe_index];
+    int32_t count = static_cast<int32_t>(path.size());
+    if (out_points && max_points > 0) {
+        int32_t to_copy = std::min(max_points, count);
+        for (int32_t i = 0; i < to_copy; ++i) {
+            out_points[i].x = path[i].x;
+            out_points[i].y = path[i].y;
+            out_points[i].z = path[i].z;
+        }
+    }
+    return count;
+}
+
+} // extern "C"
+

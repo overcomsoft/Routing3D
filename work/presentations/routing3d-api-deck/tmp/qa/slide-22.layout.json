@@ -1,0 +1,641 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/kpcru0",
+    "id": "kpcru0",
+    "slide": 22,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Cascadia Mono",
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/judg7ads",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cfa9w3m9",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1032lszq",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 22. OctreeOccupancy 데이터 구조",
+      "textPreview": "Slide 22. OctreeOccupancy 데이터 구조",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 22. OctreeOccupancy 데이터 구조"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 22. OctreeOccupancy 데이터 구조",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 22. OctreeOccupancy 데이터 구조",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/u18jqh0f",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  22/55",
+      "textPreview": "Routing3D C++ Engine API  |  22/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  22/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  22/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  22/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/jm1cfa9w",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 22",
+      "textPreview": "Slide 22",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 22"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 22",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 22",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/c7u54zid",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        58
+      ],
+      "geometry": "rect",
+      "text": "* 노드 구성 (OctNode)",
+      "textPreview": "* 노드 구성 (OctNode)",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 노드 구성 (OctNode)"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 노드 구성 (OctNode)",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 노드 구성 (OctNode)",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1orytsvu",
+      "id": "7",
+      "bbox": [
+        62,
+        196,
+        1156,
+        184
+      ],
+      "geometry": "rect",
+      "fillColor": "#1E293B",
+      "lineColor": "#475569",
+      "lineWidth": 1
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/upwb2hwf",
+      "id": "8",
+      "bbox": [
+        80,
+        210,
+        1120,
+        160
+      ],
+      "geometry": "rect",
+      "text": "struct OctNode {\n    int32_t x0, y0, z0; // 잎의 시작 Fine-cell 좌표\n    int32_t side;       // 잎 한 변에 들어가는 Fine-cell 개수 (2^n)\n    int8_t state;       // -1=MIXED, 0=FREE, 1=BLOCKED\n    int32_t children[8];// 자식 노드 인덱스 (-1이면 Leaf)\n    int32_t parent;     // 부모 노드 인덱스\n};",
+      "textPreview": "struct OctNode { |     int32_t x0, y0, z0; // 잎의 시작 Fine-cell 좌표 |     int32_t side;       // 잎 한 변에 들어가는 Fine-cell 개수 (2^n) |     int8_t...",
+      "resolvedFontSize": 16,
+      "resolvedTextStyle": {
+        "fontSize": 16,
+        "typeface": "Cascadia Mono",
+        "color": "#FBCFE8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 7,
+        "lines": [
+          {
+            "index": 1,
+            "text": "struct OctNode {"
+          },
+          {
+            "index": 2,
+            "text": "    int32_t x0, y0, z0; // 잎의 시작 Fine-cell 좌표"
+          },
+          {
+            "index": 3,
+            "text": "    int32_t side;       // 잎 한 변에 들어가는 Fine-cell 개수 (2^n)"
+          },
+          {
+            "index": 4,
+            "text": "    int8_t state;       // -1=MIXED, 0=FREE, 1=BLOCKED"
+          },
+          {
+            "index": 5,
+            "text": "    int32_t children[8];// 자식 노드 인덱스 (-1이면 Leaf)"
+          },
+          {
+            "index": 6,
+            "text": "    int32_t parent;     // 부모 노드 인덱스"
+          },
+          {
+            "index": 7,
+            "text": "};"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "struct OctNode {",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "struct OctNode {",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "    int32_t x0, y0, z0; // 잎의 시작 Fine-cell 좌표",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "    int32_t x0, y0, z0; // 잎의 시작 Fine-cell 좌표",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "    int32_t side;       // 잎 한 변에 들어가는 Fine-cell 개수 (2^n)",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "    int32_t side;       // 잎 한 변에 들어가는 Fine-cell 개수 (2^n)",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "    int8_t state;       // -1=MIXED, 0=FREE, 1=BLOCKED",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "    int8_t state;       // -1=MIXED, 0=FREE, 1=BLOCKED",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "    int32_t children[8];// 자식 노드 인덱스 (-1이면 Leaf)",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "    int32_t children[8];// 자식 노드 인덱스 (-1이면 Leaf)",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "    int32_t parent;     // 부모 노드 인덱스",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "    int32_t parent;     // 부모 노드 인덱스",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "};",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "};",
+              "fontSize": 16,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/nap4r65w",
+      "id": "9",
+      "bbox": [
+        62,
+        392,
+        1156,
+        58
+      ],
+      "geometry": "rect",
+      "text": "* max_jump(): 특정 축방향으로 충돌 장애물을 만나기 직전까지 이동 가능한 최대 격자 단위 도약 길이 계산",
+      "textPreview": "* max_jump(): 특정 축방향으로 충돌 장애물을 만나기 직전까지 이동 가능한 최대 격자 단위 도약 길이 계산",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* max_jump(): 특정 축방향으로 충돌 장애물을 만나기 직전까지 이동 가능한 최대 격자 단위 도약 길이 계산"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* max_jump(): 특정 축방향으로 충돌 장애물을 만나기 직전까지 이동 가능한 최대 격자 단위 도약 길이 계산",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* max_jump(): 특정 축방향으로 충돌 장애물을 만나기 직전까지 이동 가능한 최대 격자 단위 도약 길이 계산",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

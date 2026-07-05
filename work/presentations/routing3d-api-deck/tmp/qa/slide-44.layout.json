@@ -1,0 +1,679 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/rt5udy",
+    "id": "rt5udy",
+    "slide": 44,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Cascadia Mono",
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rytsvu9k",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/gfmlkjm1",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/90je9cvi",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 44. C ABI Level 2: 엔진 핸들 생성 및 격자 설정",
+      "textPreview": "Slide 44. C ABI Level 2: 엔진 핸들 생성 및 격자 설정",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 44. C ABI Level 2: 엔진 핸들 생성 및 격자 설정"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 44. C ABI Level 2: 엔진 핸들 생성 및 격자 설정",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 44. C ABI Level 2: 엔진 핸들 생성 및 격자 설정",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/y1kre1w7",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  44/55",
+      "textPreview": "Routing3D C++ Engine API  |  44/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  44/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  44/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  44/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rmhk3q5o",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 44",
+      "textPreview": "Slide 44",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 44"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 44",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 44",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/g7adsji5",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        58
+      ],
+      "geometry": "rect",
+      "text": "* 엔진 수명 주기 및 파라미터 연동",
+      "textPreview": "* 엔진 수명 주기 및 파라미터 연동",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "fontSize": 18,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 엔진 수명 주기 및 파라미터 연동"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 엔진 수명 주기 및 파라미터 연동",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 엔진 수명 주기 및 파라미터 연동",
+              "fontSize": 18,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/9s36hcrm",
+      "id": "7",
+      "bbox": [
+        62,
+        196,
+        1156,
+        290
+      ],
+      "geometry": "rect",
+      "fillColor": "#1E293B",
+      "lineColor": "#475569",
+      "lineWidth": 1
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/yxobm58z",
+      "id": "8",
+      "bbox": [
+        80,
+        210,
+        1120,
+        266
+      ],
+      "geometry": "rect",
+      "text": "R3dEngine* e = r3d_create(); // 엔진 핸들 동적 할당 생성\nR3dGrid grid = { 50.0, 0.0, 0.0, 0.0, 120, 120, 60 };\nr3d_set_grid(e, &grid); // 격자 원점 및 형태 정보 지정\nR3dParams p = {0};\np.cell_mm = 50.0;\np.w_turn = 500.0;\np.w_clear = 10.0;\np.w_heur = 1.0;\np.clearance_radius = 2;\np.clearance_connectivity = 6;\nr3d_set_params(e, &p); // 비용 인자 지정",
+      "textPreview": "R3dEngine* e = r3d_create(); // 엔진 핸들 동적 할당 생성 | R3dGrid grid = { 50.0, 0.0, 0.0, 0.0, 120, 120, 60 }; | r3d_set_grid(e, &grid); // 격자 원점...",
+      "resolvedFontSize": 14,
+      "resolvedTextStyle": {
+        "fontSize": 14,
+        "typeface": "Cascadia Mono",
+        "color": "#FBCFE8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 11,
+        "lines": [
+          {
+            "index": 1,
+            "text": "R3dEngine* e = r3d_create(); // 엔진 핸들 동적 할당 생성"
+          },
+          {
+            "index": 2,
+            "text": "R3dGrid grid = { 50.0, 0.0, 0.0, 0.0, 120, 120, 60 };"
+          },
+          {
+            "index": 3,
+            "text": "r3d_set_grid(e, &grid); // 격자 원점 및 형태 정보 지정"
+          },
+          {
+            "index": 4,
+            "text": "R3dParams p = {0};"
+          },
+          {
+            "index": 5,
+            "text": "p.cell_mm = 50.0;"
+          },
+          {
+            "index": 6,
+            "text": "p.w_turn = 500.0;"
+          },
+          {
+            "index": 7,
+            "text": "p.w_clear = 10.0;"
+          },
+          {
+            "index": 8,
+            "text": "p.w_heur = 1.0;"
+          },
+          {
+            "index": 9,
+            "text": "p.clearance_radius = 2;"
+          },
+          {
+            "index": 10,
+            "text": "p.clearance_connectivity = 6;"
+          },
+          {
+            "index": 11,
+            "text": "r3d_set_params(e, &p); // 비용 인자 지정"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "R3dEngine* e = r3d_create(); // 엔진 핸들 동적 할당 생성",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "R3dEngine* e = r3d_create(); // 엔진 핸들 동적 할당 생성",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "R3dGrid grid = { 50.0, 0.0, 0.0, 0.0, 120, 120, 60 };",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "R3dGrid grid = { 50.0, 0.0, 0.0, 0.0, 120, 120, 60 };",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "r3d_set_grid(e, &grid); // 격자 원점 및 형태 정보 지정",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "r3d_set_grid(e, &grid); // 격자 원점 및 형태 정보 지정",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "R3dParams p = {0};",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "R3dParams p = {0};",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "p.cell_mm = 50.0;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.cell_mm = 50.0;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "p.w_turn = 500.0;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.w_turn = 500.0;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "p.w_clear = 10.0;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.w_clear = 10.0;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 8,
+          "text": "p.w_heur = 1.0;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.w_heur = 1.0;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 9,
+          "text": "p.clearance_radius = 2;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.clearance_radius = 2;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 10,
+          "text": "p.clearance_connectivity = 6;",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "p.clearance_connectivity = 6;",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 11,
+          "text": "r3d_set_params(e, &p); // 비용 인자 지정",
+          "resolvedTextStyle": {
+            "fontSize": 14,
+            "typeface": "Cascadia Mono",
+            "color": "#FBCFE8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "r3d_set_params(e, &p); // 비용 인자 지정",
+              "fontSize": 14,
+              "typeface": "Cascadia Mono",
+              "color": "#FBCFE8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

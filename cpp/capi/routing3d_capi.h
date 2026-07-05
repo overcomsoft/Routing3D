@@ -320,8 +320,56 @@ R3D_API R3dStatus r3d_enum_octree_leaves(R3dEngine* e,
                                           R3dOctreeLeaf* buf, int32_t maxCount,
                                           int32_t* out_count);
 
+// =============================================================================
+// Rubber-Band Routing Engine (Data-Driven Rubber-Band Model)
+// =============================================================================
+typedef struct R3dRubberBandEngine R3dRubberBandEngine;
+
+typedef struct {
+    double x, y, z;
+} R3dPoint3D;
+
+typedef struct {
+    double min_x, min_y, min_z;
+    double max_x, max_y, max_z;
+} R3dAABB;
+
+typedef struct {
+    int32_t max_vertical_bends;
+    double safety_margin;
+    double tray_width;
+    double tray_height;
+    double pipe_pitch;
+    int32_t pipe_count;
+} R3dRubberConfig;
+
+R3D_API R3dRubberBandEngine* r3d_rubber_create(void);
+R3D_API void r3d_rubber_destroy(R3dRubberBandEngine* engine);
+
+R3D_API R3dStatus r3d_rubber_initialize(R3dRubberBandEngine* engine, 
+                                        const R3dRubberConfig* cfg,
+                                        const double* freq_z_levels, int32_t freq_z_count,
+                                        const R3dAABB* freq_bend_zones, int32_t freq_bend_count);
+
+R3D_API R3dStatus r3d_rubber_ingest_obstacles(R3dRubberBandEngine* engine,
+                                              const R3dAABB* obstacles, int32_t count);
+
+R3D_API R3dStatus r3d_rubber_execute(R3dRubberBandEngine* engine,
+                                     R3dPoint3D start, R3dPoint3D end);
+
+R3D_API int32_t r3d_rubber_get_step_count(const R3dRubberBandEngine* engine);
+
+R3D_API R3dStatus r3d_rubber_get_step_details(const R3dRubberBandEngine* engine, int32_t step_index,
+                                              char* out_desc, int32_t max_desc_len,
+                                              R3dPoint3D* out_wps, int32_t max_wps, int32_t* out_wps_count,
+                                              R3dPoint3D* out_cols, int32_t max_cols, int32_t* out_cols_count);
+
+R3D_API int32_t r3d_rubber_get_pipe_path(const R3dRubberBandEngine* engine, int32_t pipe_index,
+                                         R3dPoint3D* out_points, int32_t max_points);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
 #endif  // ROUTING3D_CAPI_H
+

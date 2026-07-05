@@ -1,0 +1,574 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/ne8yql",
+    "id": "ne8yql",
+    "slide": 37,
+    "layoutId": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0F172A",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "ab29ae8a-8b10-4b5e-bc10-e49392446319",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "83864cfd-abd5-428f-ab64-b1fb08c86aa2",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/f6dcbulw",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0F172A",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/4r65wjud",
+      "id": "2",
+      "bbox": [
+        40,
+        104,
+        1200,
+        2
+      ],
+      "geometry": "rect",
+      "lineColor": "#155E75",
+      "lineWidth": 1
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/xc3ylc7u",
+      "id": "3",
+      "bbox": [
+        44,
+        34,
+        1058,
+        58
+      ],
+      "geometry": "rect",
+      "text": "Slide 37. TMT Waypoint 분할 규칙",
+      "textPreview": "Slide 37. TMT Waypoint 분할 규칙",
+      "resolvedFontSize": 35,
+      "resolvedTextStyle": {
+        "fontSize": 35,
+        "typeface": "Segoe UI Semibold",
+        "color": "#00F0FF",
+        "bold": true,
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 37. TMT Waypoint 분할 규칙"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 37. TMT Waypoint 분할 규칙",
+          "resolvedTextStyle": {
+            "fontSize": 35,
+            "typeface": "Segoe UI Semibold",
+            "color": "#00F0FF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 37. TMT Waypoint 분할 규칙",
+              "fontSize": 35,
+              "typeface": "Segoe UI Semibold",
+              "color": "#00F0FF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/mtwra5gb",
+      "id": "4",
+      "bbox": [
+        44,
+        676,
+        650,
+        22
+      ],
+      "geometry": "rect",
+      "text": "Routing3D C++ Engine API  |  37/55",
+      "textPreview": "Routing3D C++ Engine API  |  37/55",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "fontSize": 12,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Routing3D C++ Engine API  |  37/55"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Routing3D C++ Engine API  |  37/55",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Routing3D C++ Engine API  |  37/55",
+              "fontSize": 12,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/fepkzupw",
+      "id": "5",
+      "bbox": [
+        1120,
+        675,
+        112,
+        24
+      ],
+      "geometry": "rect",
+      "text": "Slide 37",
+      "textPreview": "Slide 37",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "fontSize": 13,
+        "typeface": "Segoe UI",
+        "color": "#94A3B8",
+        "alignment": "right",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Slide 37"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Slide 37",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Segoe UI",
+            "color": "#94A3B8",
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Slide 37",
+              "fontSize": 13,
+              "typeface": "Segoe UI",
+              "color": "#94A3B8",
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/4zidonyd",
+      "id": "6",
+      "bbox": [
+        62,
+        126,
+        1156,
+        240
+      ],
+      "geometry": "rect",
+      "text": "* 수평/수직 분할점 자동 도출\n  - 시작 셀 s, 목표 셀 g, 트렁크 기준 높이 trunk_k\n  - $Waypoint_1 = s$\n  - $Waypoint_2 = (s.i, s.j, trunk_k)$ : TruckIn 종단\n  - $Waypoint_3 = (g.i, g.j, trunk_k)$ : Middle 종단\n  - $Waypoint_4 = g$\n* Trunk 높이 Z 결정 알고리즘\n  1. 사용자 명시 높이(trunk_z_mm)가 있으면 해당 고도로 설정\n  2. 명시 높이가 없고 랙 레벨(rack_levels)이 정의되어 있다면, $\\max(s.k, g.k) + 4$ 에 근접한 선호 랙 고도 선택\n  3. 최후 수단으로 $\\max(s.k, g.k) + 4$ 단계를 자동 Trunk 높이로 적용",
+      "textPreview": "* 수평/수직 분할점 자동 도출 |   - 시작 셀 s, 목표 셀 g, 트렁크 기준 높이 trunk_k |   - $Waypoint_1 = s$ |   - $Waypoint_2 = (s.i, s.j, trunk_k)$ : TruckIn 종단 | ...",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "fontSize": 15,
+        "typeface": "Segoe UI",
+        "color": "#F8FAFC",
+        "alignment": "left",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 10,
+        "lines": [
+          {
+            "index": 1,
+            "text": "* 수평/수직 분할점 자동 도출"
+          },
+          {
+            "index": 2,
+            "text": "  - 시작 셀 s, 목표 셀 g, 트렁크 기준 높이 trunk_k"
+          },
+          {
+            "index": 3,
+            "text": "  - $Waypoint_1 = s$"
+          },
+          {
+            "index": 4,
+            "text": "  - $Waypoint_2 = (s.i, s.j, trunk_k)$ : TruckIn 종단"
+          },
+          {
+            "index": 5,
+            "text": "  - $Waypoint_3 = (g.i, g.j, trunk_k)$ : Middle 종단"
+          },
+          {
+            "index": 6,
+            "text": "  - $Waypoint_4 = g$"
+          },
+          {
+            "index": 7,
+            "text": "* Trunk 높이 Z 결정 알고리즘"
+          },
+          {
+            "index": 8,
+            "text": "  1. 사용자 명시 높이(trunk_z_mm)가 있으면 해당 고도로 설정"
+          },
+          {
+            "index": 9,
+            "text": "  2. 명시 높이가 없고 랙 레벨(rack_levels)이 정의되어 있다면, $\\max(s.k, g.k) + 4$ 에 근접한 선호 랙 고도 선택"
+          },
+          {
+            "index": 10,
+            "text": "  3. 최후 수단으로 $\\max(s.k, g.k) + 4$ 단계를 자동 Trunk 높이로 적용"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "* 수평/수직 분할점 자동 도출",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* 수평/수직 분할점 자동 도출",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "  - 시작 셀 s, 목표 셀 g, 트렁크 기준 높이 trunk_k",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - 시작 셀 s, 목표 셀 g, 트렁크 기준 높이 trunk_k",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "  - $Waypoint_1 = s$",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $Waypoint_1 = s$",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 4,
+          "text": "  - $Waypoint_2 = (s.i, s.j, trunk_k)$ : TruckIn 종단",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $Waypoint_2 = (s.i, s.j, trunk_k)$ : TruckIn 종단",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "  - $Waypoint_3 = (g.i, g.j, trunk_k)$ : Middle 종단",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $Waypoint_3 = (g.i, g.j, trunk_k)$ : Middle 종단",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 6,
+          "text": "  - $Waypoint_4 = g$",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  - $Waypoint_4 = g$",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "* Trunk 높이 Z 결정 알고리즘",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "* Trunk 높이 Z 결정 알고리즘",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 8,
+          "text": "  1. 사용자 명시 높이(trunk_z_mm)가 있으면 해당 고도로 설정",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  1. 사용자 명시 높이(trunk_z_mm)가 있으면 해당 고도로 설정",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 9,
+          "text": "  2. 명시 높이가 없고 랙 레벨(rack_levels)이 정의되어 있다면, $\\max(s.k, g.k) + 4$ 에 근접한 선호 랙 고도 선택",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  2. 명시 높이가 없고 랙 레벨(rack_levels)이 정의되어 있다면, $\\max(s.k, g.k) + 4$ 에 근접한 선호 랙 고도 선택",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 10,
+          "text": "  3. 최후 수단으로 $\\max(s.k, g.k) + 4$ 단계를 자동 Trunk 높이로 적용",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Segoe UI",
+            "color": "#F8FAFC",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "  3. 최후 수단으로 $\\max(s.k, g.k) + 4$ 단계를 자동 Trunk 높이로 적용",
+              "fontSize": 15,
+              "typeface": "Segoe UI",
+              "color": "#F8FAFC",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

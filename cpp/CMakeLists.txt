@@ -33,6 +33,7 @@ add_library(routing3d_core STATIC
     src/occupancy.cpp
     src/sparse_occupancy.cpp
     src/scene_io.cpp
+    src/rubber_band_engine.cpp
 )
 target_include_directories(routing3d_core PUBLIC include)
 
@@ -114,6 +115,11 @@ add_executable(test_category tests/test_category.cpp)
 target_link_libraries(test_category PRIVATE routing3d_capi)
 target_include_directories(test_category PRIVATE capi)
 add_test(NAME category COMMAND test_category)
+
+add_executable(test_rubber_band tests/test_rubber_band.cpp)
+target_link_libraries(test_rubber_band PRIVATE routing3d_core)
+add_test(NAME rubber_band COMMAND test_rubber_band)
+
 
 if(USE_OPENVDB)
     add_executable(test_vdb tests/test_vdb.cpp)

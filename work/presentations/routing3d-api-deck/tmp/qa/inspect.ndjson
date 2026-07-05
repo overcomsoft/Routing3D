@@ -1,0 +1,155 @@
+{"kind":"layout","layoutId":"83864cfd-abd5-428f-ab64-b1fb08c86aa2","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"ab29ae8a-8b10-4b5e-bc10-e49392446319","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/1zbvp8","slide":1,"title":"Routing3D C++ 엔진 API 발표자료","textShapes":4}
+{"kind":"shape","id":"sh/val87ed8","slide":1,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/kre1w7mp","slide":1,"bbox":[64,92,5,380]}
+{"kind":"textbox","id":"sh/dcbulwva","slide":1,"textChars":25,"textLines":1}
+{"kind":"textbox","id":"sh/2x4nap4r","slide":1,"textChars":68,"textLines":3}
+{"kind":"shape","id":"sh/vixczed8","slide":1,"bbox":[900,160,246,246]}
+{"kind":"textbox","id":"sh/k3q5o7qp","slide":1,"textChars":7,"textLines":2}
+{"kind":"textbox","id":"sh/donyd0z6","slide":1,"textChars":4,"textLines":1}
+{"kind":"slide","id":"sl/drml4c","slide":2,"title":"Slide 2. 최근 업데이트 및 갱신 내용","textShapes":4}
+{"kind":"shape","id":"sh/0z61032l","slide":2,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/7ed8bat4","slide":2,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/itgfmlkj","slide":2,"textChars":24,"textLines":1}
+{"kind":"textbox","id":"sh/p8nqxs72","slide":2,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/0nuxc3yl","slide":2,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/72x4nap4","slide":2,"textChars":333,"textLines":6}
+{"kind":"slide","id":"sl/zvnakv","slide":3,"title":"Slide 3. Routing3D C++ 코어 엔진 개요","textShapes":4}
+{"kind":"shape","id":"sh/6hcrmhk3","slide":3,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/d8v6psfi","slide":3,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/onyd0z61","slide":3,"textChars":31,"textLines":1}
+{"kind":"textbox","id":"sh/vahoza1g","slide":3,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/6tovahoz","slide":3,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/dg7adsji","slide":3,"textChars":265,"textLines":8}
+{"kind":"slide","id":"sl/yfennd","slide":4,"title":"Slide 4. 소프트웨어 구성도","textShapes":11}
+{"kind":"shape","id":"sh/w7mp0bi9","slide":4,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/7mp0bi9s","slide":4,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/e1w7mp0b","slide":4,"textChars":18,"textLines":1}
+{"kind":"textbox","id":"sh/pg3ex0nu","slide":4,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/wval87ed","slide":4,"textChars":7,"textLines":1}
+{"kind":"shape","id":"sh/7adsji5s","slide":4,"bbox":[92,145,218,76]}
+{"kind":"textbox","id":"sh/epkzupwb","slide":4,"textChars":20,"textLines":2}
+{"kind":"shape","id":"sh/lc7u54zi","slide":4,"bbox":[92,285,218,76]}
+{"kind":"textbox","id":"sh/wra5gbq1","slide":4,"textChars":17,"textLines":2}
+{"kind":"shape","id":"sh/upwb2hwf","slide":4,"bbox":[380,215,218,76]}
+{"kind":"textbox","id":"sh/nap4r65w","slide":4,"textChars":18,"textLines":2}
+{"kind":"shape","id":"sh/cvixczed","slide":4,"bbox":[380,355,218,76]}
+{"kind":"textbox","id":"sh/5gbq1ory","slide":4,"textChars":21,"textLines":2}
+{"kind":"shape","id":"sh/udg7adsj","slide":4,"bbox":[675,145,218,76]}
+{"kind":"textbox","id":"sh/nyd0z610","slide":4,"textChars":45,"textLines":2}
+{"kind":"shape","id":"sh/cj6tovah","slide":4,"bbox":[675,285,218,76]}
+{"kind":"textbox","id":"sh/54zidony","slide":4,"textChars":23,"textLines":2}
+{"kind":"shape","id":"sh/u9knih4b","slide":4,"bbox":[675,425,218,76]}
+{"kind":"textbox","id":"sh/judg7ads","slide":4,"textChars":39,"textLines":2}
+{"kind":"shape","id":"sh/fil0rqd4","slide":4,"bbox":[970,285,218,76]}
+{"kind":"textbox","id":"sh/qxs72x4n","slide":4,"textChars":33,"textLines":2}
+{"kind":"shape","id":"sh/xobm58z2","slide":4,"bbox":[310,183,70,61]}
+{"kind":"shape","id":"sh/83itgfml","slide":4,"bbox":[310,323,70,69]}
+{"kind":"shape","id":"sh/fu18jqh0","slide":4,"bbox":[598,253,77,-70]}
+{"kind":"shape","id":"sh/m94fu18j","slide":4,"bbox":[598,253,77,70]}
+{"kind":"shape","id":"sh/x0nuxc3y","slide":4,"bbox":[784,221,0,64]}
+{"kind":"shape","id":"sh/4fu18jqh","slide":4,"bbox":[784,361,0,64]}
+{"kind":"shape","id":"sh/f6dcbulw","slide":4,"bbox":[893,463,77,-140]}
+{"kind":"slide","id":"sl/szgoby","slide":5,"title":"Slide 5. 구성 계층 및 책임 범위","textShapes":4}
+{"kind":"shape","id":"sh/sji5snel","slide":5,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/3ylc7u54","slide":5,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/adsji5sn","slide":5,"textChars":22,"textLines":1}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":5,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/s72x4nap","slide":5,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/3m94fu18","slide":5,"textChars":267,"textLines":4}
+{"kind":"slide","id":"sl/oi1hup","slide":6,"title":"Slide 6. 1단계: 격자 설정 및 입력 준비","textShapes":4}
+{"kind":"shape","id":"sh/idonyd0z","slide":6,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/t47y1kre","slide":6,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/0je9cvix","slide":6,"textChars":27,"textLines":1}
+{"kind":"textbox","id":"sh/b6xkf6dc","slide":6,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/il0rqd4v","slide":6,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/tcj6tova","slide":6,"textChars":261,"textLines":7}
+{"kind":"slide","id":"sl/wpu0r1","slide":7,"title":"Slide 7. 2단계: 점유맵 생성 및 Voxelization","textShapes":4}
+{"kind":"shape","id":"sh/fmlkjm1c","slide":7,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/87ed8bat","slide":7,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/xs72x4na","slide":7,"textChars":35,"textLines":1}
+{"kind":"textbox","id":"sh/qtcj6tov","slide":7,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/je9cvixc","slide":7,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/8z25kb6x","slide":7,"textChars":280,"textLines":7}
+{"kind":"slide","id":"sl/7m0wp8","slide":8,"title":"Slide 8. 3단계: 단일 배관 라우팅 흐름","textShapes":5}
+{"kind":"shape","id":"sh/1gvy90je","slide":8,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/qtcj6tov","slide":8,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/je9cvixc","slide":8,"textChars":26,"textLines":1}
+{"kind":"textbox","id":"sh/87ed8bat","slide":8,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/xs72x4na","slide":8,"textChars":7,"textLines":1}
+{"kind":"shape","id":"sh/q1orytsv","slide":8,"bbox":[62,126,1156,96]}
+{"kind":"textbox","id":"sh/fmlkjm1c","slide":8,"textChars":146,"textLines":3}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":8,"textChars":157,"textLines":4}
+{"kind":"slide","id":"sl/s1urew","slide":9,"title":"Slide 9. 4단계: 다중 배관 순차 라우팅","textShapes":4}
+{"kind":"shape","id":"sh/zidonyd0","slide":9,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/s36hcrmh","slide":9,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/hoza1gvy","slide":9,"textChars":26,"textLines":1}
+{"kind":"textbox","id":"sh/ap4r65wj","slide":9,"textChars":33,"textLines":1}
+{"kind":"textbox","id":"sh/za1gvy90","slide":9,"textChars":7,"textLines":1}
+{"kind":"textbox","id":"sh/svu9knih","slide":9,"textChars":226,"textLines":7}
+{"kind":"slide","id":"sl/bnypo3","slide":10,"title":"Slide 10. 5단계: 후처리 및 개선 라우팅","textShapes":4}
+{"kind":"shape","id":"sh/nqxs72x4","slide":10,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/cbulwval","slide":10,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/5sneloj2","slide":10,"textChars":27,"textLines":1}
+{"kind":"textbox","id":"sh/ytsvu9kn","slide":10,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/neloj2t8","slide":10,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/czed8v6p","slide":10,"textChars":231,"textLines":5}
+{"kind":"slide","id":"sl/7usnmj","slide":11,"title":"Slide 11. 기본 기하 데이터 모델","textShapes":6}
+{"kind":"shape","id":"sh/032lszqt","slide":11,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/bi9s36hc","slide":11,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/ixczed8v","slide":11,"textChars":22,"textLines":1}
+{"kind":"textbox","id":"sh/p0bi9s36","slide":11,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/0fepkzup","slide":11,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/bulwval8","slide":11,"textChars":149,"textLines":3}
+{"kind":"shape","id":"sh/i9s36hcr","slide":11,"bbox":[62,226,1156,96]}
+{"kind":"textbox","id":"sh/t47y1kre","slide":11,"textChars":92,"textLines":3}
+{"kind":"textbox","id":"sh/0je9cvix","slide":11,"textChars":35,"textLines":1}
+{"kind":"slide","id":"sl/c63jld","slide":12,"title":"Slide 12. World 좌표 ↔ Grid Cell 좌표 변환 공식","textShapes":4}
+{"kind":"shape","id":"sh/a9w3m94f","slide":12,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/h0fepkzu","slide":12,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/sfil0rqd","slide":12,"textChars":39,"textLines":1}
+{"kind":"textbox","id":"sh/z61032ls","slide":12,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/al87ed8b","slide":12,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/hcrmhk3q","slide":12,"textChars":320,"textLines":8}
+{"kind":"slide","id":"sl/mc4y4s","slide":13,"title":"Slide 13. RouteTask 데이터 모델","textShapes":6}
+{"kind":"shape","id":"sh/wb2hwfyx","slide":13,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/3q5o7qpg","slide":13,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/e9cvixcz","slide":13,"textChars":26,"textLines":1}
+{"kind":"textbox","id":"sh/loj2t83i","slide":13,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/w3m94fu1","slide":13,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/3itgfmlk","slide":13,"textChars":15,"textLines":1}
+{"kind":"shape","id":"sh/ex0nuxc3","slide":13,"bbox":[62,196,1156,206]}
+{"kind":"textbox","id":"sh/lkjm1cfa","slide":13,"textChars":189,"textLines":8}
+{"kind":"textbox","id":"sh/szqtcj6t","slide":13,"textChars":75,"textLines":2}
+{"kind":"slide","id":"sl/l2vw4h","slide":14,"title":"Slide 14. RouteParams 비용 파라미터","textShapes":4}
+{"kind":"shape","id":"sh/d8v6psfi","slide":14,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/6hcrmhk3","slide":14,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/z25kb6xk","slide":14,"textChars":29,"textLines":1}
+{"kind":"textbox","id":"sh/ovahoza1","slide":14,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/dg7adsji","slide":14,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/6tovahoz","slide":14,"textChars":290,"textLines":6}
+{"kind":"slide","id":"sl/n07h98","slide":15,"title":"Slide 15. 결과 반환 모델 (AStarResult)","textShapes":5}
+{"kind":"shape","id":"sh/idonyd0z","slide":15,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/t47y1kre","slide":15,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/0je9cvix","slide":15,"textChars":32,"textLines":1}
+{"kind":"textbox","id":"sh/b6xkf6dc","slide":15,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/il0rqd4v","slide":15,"textChars":8,"textLines":1}
+{"kind":"shape","id":"sh/tcj6tova","slide":15,"bbox":[62,126,1156,250]}
+{"kind":"textbox","id":"sh/0rqd4vmt","slide":15,"textChars":201,"textLines":10}
+{"kind":"textbox","id":"sh/bi9s36hc","slide":15,"textChars":128,"textLines":2}
+{"kind":"slide","id":"sl/dbdkqy","slide":16,"title":"Slide 16. DenseOccupancy 백엔드","textShapes":4}
+{"kind":"shape","id":"sh/94fu18jq","slide":16,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/2hwfyxob","slide":16,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/r2p8nqxs","slide":16,"textChars":28,"textLines":1}
+{"kind":"textbox","id":"sh/gvy90je9","slide":16,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/9gr2p8nq","slide":16,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/2p8nqxs7","slide":16,"textChars":206,"textLines":5}
+{"kind":"slide","id":"sl/0eopu7","slide":17,"title":"Slide 17. SparseOccupancy 백엔드","textShapes":4}
+{"kind":"shape","id":"sh/6psfil0r","slide":17,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/dcbulwva","slide":17,"bbox":[40,104,1200,2]}
+{"kind":"textbox","id":"sh/kre1w7mp","slide":17,"textChars":29,"textLines":1}
+{"kind":"textbox","id":"sh/vixczed8","slide":17,"textChars":34,"textLines":1}
+{"kind":"textbox","id":"sh/2x4nap4r","slide":17,"textChars":8,"textLines":1}
+{"kind":"textbox","id":"sh/donyd0z6","slide":17,"textChars":311,"textLines":6}
+{"kind":"notice","message":"Truncated: omitted 311 lines. Increase maxChars or narrow target."}
